@@ -1,6 +1,6 @@
 # Career Agent architecture
 
-Status: **v0.1a Foundation implemented**. Every capability below marked **planned** is not
+Status: **v0.1a Foundation and v0.1b Resume Compiler implemented**. Every capability below marked **planned** is not
 present in the executable application. This is an independent project and does not reuse an
 unrelated RAG application's data or code.
 
@@ -27,6 +27,7 @@ email/calendar integration or mobile application is included in the committed ro
 - `models`: canonical request/task/output contracts, model registry entries, static policy, fake adapter.
 - `runtime`: metadata contracts. Not a workflow engine, memory store or checkpoint layer.
 - `security`: allowlisted events and basic redaction. Not a complete DLP solution.
+- `resume`: structured variant schemas, deterministic grounding/content/layout validation, trusted Typst and private PDF storage.
 
 A module can contain one useful file; empty abstractions and speculative services are avoided.
 SQLAlchemy is used directly by services rather than wrapped in a generic repository framework.
@@ -116,7 +117,8 @@ persistence; no execution or public runtime mutation endpoint exists.
 VersionMetadata supports workflow, prompt, input/output schema, tool implementation,
 model policy, provider/model, resume template and evaluator versions. Missing versions remain
 null. No fabricated prompt/tool versions are generated. No prompt registry, rollout or A/B system.
-Future artifact records will reuse this contract; artifact entities/renderers are **planned**.
+Resume artifact records extend this contract with variant-schema, layout-policy and compiler/font
+metadata. Unused model/workflow versions remain null; the compiler does not fabricate Agent calls.
 
 Runtime metadata fields reject paths/free-text errors at the ORM boundary. Metadata identifiers
 must still be authored by trusted application code; regex validation is not complete PII detection.
@@ -181,7 +183,7 @@ system is present in Foundation.
 | Milestone | Status / purpose |
 | --- | --- |
 | v0.1a Foundation | Implemented: domain, persistence, APIs, runtime/model/privacy/testing contracts |
-| v0.1b Resume Compiler | Planned: fact-backed Variant, Typst, one-page PDF, deterministic compression/validation |
+| v0.1b Resume Compiler | Implemented: hand-authored Variant, grounding, Typst, one-page PDF, deterministic compression/validation |
 | v0.1c Job Preparation Workflow | Planned: bounded research, fit, greeting, prep and minimal graph |
 | v0.1d Integration / E2E | Planned: complete job-preparation path, failure cases, acceptance and v0.1.0 release |
 | v0.2 Agent Runtime | Planned: bounded planner/executor/evaluator/replan, checkpoints/worker, mock/debrief |
@@ -189,9 +191,9 @@ system is present in Foundation.
 | v0.4 Production Engineering | Planned: Ops dashboard, metrics, dynamic routing/budgets, concurrency/rate limits, circuits/fallback/control/cache |
 | v0.5 Real Usage Loop | Planned: actual outcomes, feedback, real bad cases, continuous regression |
 
-Resume compilation will separate trusted facts, model-generated structured variants, deterministic
-layout and validation. One-page failure must be explicit, never hidden clipping or invented facts.
-Typst is planned as canonical renderer; optional DOCX export is not a v0.1a dependency.
+Resume compilation now separates verified fact references, hand-authored structured variants,
+deterministic layout and validation. Model-based variant generation remains **planned for v0.1c**.
+Typst is the canonical renderer; DOCX and other templates remain optional future work.
 
 Production control will scope action by dependency/tool/workflow, use windows/minimum samples,
 cooldowns and recovery probes, and record policy decisions. One error does not pause the service.
@@ -199,3 +201,149 @@ Before real use, 1000+ posting tests are synthetic workload tests, not claimed p
 
 Semantic retrieval may use pgvector if measured retrieval needs justify it; no vector extension
 or embedding pipeline is installed now. Optional extensions are listed separately in TODO.md.
+
+
+## Resume Compiler: implemented v0.1b
+
+### Boundary and data flow
+
+`Structured ResumeVariant → Grounding → Content policy → trusted Typst → PDF inspection → RenderArtifact`
+
+The compiler does not decide what a job calls for, extract semantic requirements, generate
+prompts, call a model, or perform semantic tailoring. It only validates an already structured
+input, selects from its full/short/optional content, renders, validates and persists the outcome.
+All content fixtures are synthetic; there is no v0.1c workflow implementation.
+
+### Variant and input snapshots
+
+`ResumeVariant` is a stable ID with a current revision counter. `ResumeVariantRevision` contains
+validated JSONB for `ResumeDocument` and `InputSnapshot`, plus profile/JD foreign keys.
+The document holds its schema/template/page contract, metadata label, exact profile ID/revision,
+optional exact JobRevision ID, section IDs/order/priority/required flags and factual items.
+Every bullet/summary/entry needs fact references; predefined structural headings do not.
+Duplicate IDs/section names, unsupported types, bad priorities, arbitrary template/output fields,
+and empty fact-reference lists are rejected. No arbitrary heading can be used to bypass grounding.
+
+A profile snapshot's eligible fact IDs are the existing `fact_ids` of its education, experience
+and project entries. This deliberately reuses Foundation semantics instead of adding a new
+ownership/membership model to PersonalFact. Variant creation captures those IDs/revisions and
+the profile display name. Standalone skill strings are not independently verified facts: link
+supporting facts through a profile entry before referencing them in a resume.
+
+Variant revisions are append-only; expected revisions and row locks serialize edits. A PostgreSQL
+trigger also rejects UPDATEs to saved revision rows. Old revisions remain addressable through
+`GET ...?revision=N`. Render requires the revision explicitly, never an ambiguous current head.
+
+### Grounding baseline and limits
+
+The render operation reloads current facts and locks them until artifact transaction commit.
+All referenced facts must exist, be verified, belong to the exact profile snapshot, and match the
+captured fact revision. Proposed, superseded and rejected facts fail, even if they were previously
+verified when the Variant was stored. Existing historical artifacts are not retroactively modified.
+Requirement references must belong to the document's exact JobRevision. A current JD revision
+cannot silently replace a previously selected revision.
+
+Numeric/date-like tokens in both full and short text must occur in supporting fact statements.
+Explicit hard-claim declarations (organization/title/degree/date/number) must cite an item fact,
+match its statement and occur in the full item text. This is conservative token/substring
+consistency, not semantic entailment. Undeclared named entities, contradictory wording,
+contribution inflation and subtle distortions remain beyond this baseline. An author-supplied
+short form can change meaning even if its references and numbers pass; human review is required.
+The name header comes from the exact Profile snapshot, not an invented fact or model output.
+
+### Deterministic policy
+
+Content ordering uses section/item `ordering` with UUID tie-breakers. Original content is tried
+first. If the only finding is layout overflow:
+
+1. Switch all provided short forms, recording decisions in ascending priority/order/UUID order.
+2. Remove the lowest-priority optional bullet; then optional entries/summaries, with stable
+   section priority/order and UUID tie-breakers. Remove an empty optional section.
+3. Repeat within an eight-compile hard cap. If still needed, the final round removes all remaining
+   optional content in that same order and tests the required-content floor.
+4. If required content cannot fit, return `layout_failed`, retaining the actual multi-page count
+   and overflow findings but **no accepted/downloadable PDF**.
+
+Required items are never removed, even inside an optional section. A required section heading
+is retained; required items may use their explicitly supplied, grounding-checked short forms.
+Spacing, margins and font sizes do not change. Eight rounds is a bounded incremental alternative
+to the suggested three major rounds; the acceptance fixture fits in three. This policy is not an
+optimizer for best visual density. Decisions, selected IDs and canonical selection hashes are
+stored per attempt, allowing repeated selections/layout validation to be compared.
+
+### Trusted rendering and fonts
+
+Only the repository-maintained `resume_zh_cn_a4_single_v1.typ` template is executed. The renderer captures its
+bytes once per run and records that exact SHA-256; all attempts use that snapshot. Content is
+serialized as canonical UTF-8 JSON and inserted through Typst `text`, never eval, source interpolation,
+include, import or an executable template supplied by the caller. No API field chooses an output
+path, executable, font path or template path. An isolated temporary root contains only the trusted
+template, JSON, verified font snapshots and generated PDF. Temporary compilation files are cleaned on success/failure.
+
+Typst 0.15.1 is preflight-checked; actual compiler version is recorded. Every subprocess has a
+15-second default timeout (operator-configurable, capped at 60 seconds) and no shell invocation.
+The subprocess environment removes user Typst font/package environment settings. The trusted
+template imports no packages or network resources. Raw diagnostics are discarded, leaving only
+stable codes, so private paths/content do not enter API responses or runtime logs.
+
+The canonical locale is `zh-CN`, using `lang: "zh", region: "CN"` and Chinese headings.
+Schema `resume-v2` fixes this single locale/template contract; no dynamic multi-locale system exists.
+Font policy `noto-sans-cjk-sc-2.004-regular-bold-v1` pins official Noto Sans CJK SC 2.004
+Regular/Bold OTF files to commit `523d033d6cb47f4a80c58a35753646f5c3608a78` and fixed SHA-256
+values in `resume/fonts.py`. The official SIL OFL license is fetched and checked by the same setup.
+The operator cache is outside the repo, configured through `CAREER_AGENT_FONT_DIR`, never API input.
+`setup_resume_fonts.py` downloads and verifies before atomic publication; `--check` is offline.
+Local/CI share this mechanism. Missing/hash-mismatched dependencies fail explicitly without fallback.
+Each render freezes verified font bytes, copies only those files into its temporary directory,
+and passes an explicit font path with both system and embedded font discovery disabled.
+The trusted template disables fallback. Font/PDF binaries never enter git or wheel output.
+English templates and bilingual/multi-locale support remain future work, not Chinese support.
+
+Fixed layout: A4, exactly one accepted page, one column, 18 mm horizontal / 16 mm vertical margins,
+10.5 pt body, 12 pt headings, 20 pt name and fixed line/section spacing. Full page output is compiled;
+no page-selection, clipping, hiding or scaling trick is used to manufacture a one-page result.
+A fixed 5.25 pt right content gutter accommodates CJK punctuation advance boxes without relaxing
+bounds validation. Vector bullets avoid bullet/middle-dot glyph-to-Unicode collisions, and
+bullet continuation lines use a fixed hanging indent. Punctuation overhang is disabled.
+
+### PDF inspection and artifact persistence
+
+pdfplumber opens the actual PDF and checks nonempty extractable text, exactly one A4 page,
+all retained text occurrences (including required content), character bounds against the content
+area, minimum text size, expected font family and known extraction/glyph-failure indicators.
+Text matching normalizes Unicode (NFKC) and whitespace once, then searches ordered, non-overlapping
+index ranges in that immutable string: name, then each heading and its items in render order.
+The cursor only advances; matched text is never deleted or concatenated. Duplicate items require
+separate occurrences. Compatibility-equivalent characters/layout whitespace are intentionally
+not distinguished; this remains a content-retention check, not a semantic validator.
+Chinese/mixed-script fixtures test actual extraction and CJK font names. CID/replacement glyph
+checks remain necessary even when Typst exits successfully with no warnings.
+A multi-page PDF is inspected in full before content compression, so missing text cannot be
+misclassified as harmless overflow. No OCR is used. Automatic checks do not guarantee perfect
+visual layout; both successful acceptance PDFs were visually inspected separately.
+
+`RenderArtifact` references `(resume_variant_id, resume_variant_revision)` through a composite
+foreign key. It stores an opaque artifact UUID, SHA-256 and validated report JSONB containing
+render/validation statuses, actual page count, findings, attempts and version metadata. The report
+extends Foundation VersionMetadata with locale, variant schema, layout policy, compiler,
+font policy version, actual font family, verified file hashes and template hash. Database checks prevent a successful artifact without a file/hash and passed
+one-page validation. No speculative prompt or workflow version is recorded.
+
+The compiler sets accepted only after PDF validation, successful byte read and SHA-256 calculation.
+Read/hash/temporary-directory cleanup failures return failed with no content or success hash.
+Private-store hashing happens before file creation; a store failure clears accepted/file metadata.
+The API exposes accepted only after the file and exact-revision metadata transaction succeed.
+A passed PDF validation may coexist with a failed render when later I/O fails; clients use render_status.
+
+Accepted files use UUID-derived paths under `CAREER_AGENT_DATA_DIR/artifacts`, restrictive file
+permissions, exclusive creation and symlink checks. The response exposes only an opaque ref, not
+an absolute path. Download rechecks SHA-256 and refuses failed or corrupted artifacts. Failed
+renders still persist a report and return HTTP 201 (created render result), but have no file ref;
+clients must inspect `report.render_status`. Normal request rollback removes newly written files.
+Database/filesystem commits are not globally atomic: a process crash could leave an unreferenced
+private file; reconciliation is future maintenance work, not a false successful API artifact.
+
+Tests use real temporary PostgreSQL databases and temporary artifact directories, cleaned at
+session end. The manual synthetic-example command intentionally retains its three accepted PDFs
+and four reports in a caller-selected private directory for review. No PDF/font binary belongs
+in the public repository.

@@ -9,7 +9,7 @@ pytestmark = pytest.mark.integration
 
 
 async def test_health_profile_and_fact_lifecycle(client, sessions, synthetic):
-    assert (await client.get("/api/v1/health")).json()["milestone"] == "v0.1a"
+    assert (await client.get("/api/v1/health")).json()["milestone"] == "v0.1b"
     assert (await client.get("/api/v1/profile")).status_code == 404
     payload = {"expected_revision": 0, "data": synthetic["profile"]}
     response = await client.put("/api/v1/profile", json=payload)

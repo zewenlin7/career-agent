@@ -1,4 +1,4 @@
-name: Foundation checks
+name: Foundation and Resume Compiler checks
 on: [push, pull_request]
 permissions:
   contents: read
@@ -27,7 +27,13 @@ jobs:
         with:
           version: "0.12.24"
           enable-cache: true
+      - uses: typst-community/setup-typst@v5
+        with:
+          typst-version: "0.15.1"
+      - run: typst --version
       - run: uv sync --locked
+      - run: uv run python scripts/setup_resume_fonts.py
+      - run: uv run python scripts/setup_resume_fonts.py --check
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy

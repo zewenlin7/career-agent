@@ -20,3 +20,13 @@ pgdata/
 *.log
 .DS_Store
 .uv-cache/
+
+# Resume artifacts are always local/private, never source fixtures.
+*.pdf
+# External reproducible font dependencies never belong in source control.
+*.otf
+*.ttf
+*.ttc
+*.woff
+*.woff2
+.font-cache/

@@ -68,8 +68,8 @@ async def sessions(migrated_url):
 
 
 @pytest.fixture
-async def client(migrated_url, sessions):
-    app = create_app(Settings(database_url=SecretStr(migrated_url)))
+async def client(migrated_url, sessions, tmp_path):
+    app = create_app(Settings(database_url=SecretStr(migrated_url), data_dir=tmp_path))
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client

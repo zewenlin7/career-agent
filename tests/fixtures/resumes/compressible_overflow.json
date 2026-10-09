@@ -1,0 +1,245 @@
+{
+  "name": "Alex Example",
+  "document": {
+    "profile_id": "00000000-0000-0000-0000-000000000001",
+    "profile_revision": 1,
+    "sections": [
+      {
+        "section_id": "00000000-0000-0000-0000-0000000000c9",
+        "name": "summary",
+        "ordering": 1,
+        "priority": 80,
+        "required": true,
+        "items": [
+          {
+            "item_id": "00000000-0000-0000-0000-000000000065",
+            "kind": "summary",
+            "text": "Backend engineer focused on reliable Python services, clear data models, and practical testing.",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003e9"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 1
+          }
+        ]
+      },
+      {
+        "section_id": "00000000-0000-0000-0000-0000000000ca",
+        "name": "experience",
+        "ordering": 2,
+        "priority": 80,
+        "required": true,
+        "items": [
+          {
+            "item_id": "00000000-0000-0000-0000-000000000066",
+            "kind": "entry",
+            "text": "Example Systems | Backend Engineer | 2022 - 2024",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003ea"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 2
+          },
+          {
+            "item_id": "00000000-0000-0000-0000-000000000067",
+            "kind": "bullet",
+            "text": "Built a synthetic inventory API with PostgreSQL transactions and typed request validation.",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003eb"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 3
+          },
+          {
+            "item_id": "00000000-0000-0000-0000-000000000068",
+            "kind": "bullet",
+            "text": "Reduced simulated query latency by 25% using targeted indexes and query profiling.",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003ec"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 4
+          },
+          {
+            "item_id": "00000000-0000-0000-0000-000000000069",
+            "kind": "bullet",
+            "text": "Added integration tests for transaction rollback, idempotency, and malformed requests.",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003ed"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 5
+          }
+        ]
+      },
+      {
+        "section_id": "00000000-0000-0000-0000-0000000000cb",
+        "name": "projects",
+        "ordering": 3,
+        "priority": 80,
+        "required": true,
+        "items": [
+          {
+            "item_id": "00000000-0000-0000-0000-00000000006a",
+            "kind": "entry",
+            "text": "Career Tools | Personal engineering project",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003ee"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 6
+          },
+          {
+            "item_id": "00000000-0000-0000-0000-00000000006b",
+            "kind": "bullet",
+            "text": "Designed an auditable document pipeline with explicit revision history and deterministic validation.",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003ef"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 7
+          },
+          {
+            "item_id": "00000000-0000-0000-0000-00000000006c",
+            "kind": "bullet",
+            "text": "Implemented structured error handling and synthetic regression fixtures.",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003f0"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 8
+          },
+          {
+            "item_id": "00000000-0000-0000-0000-00000000006e",
+            "kind": "bullet",
+            "text": "Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. ",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003f2"
+            ],
+            "priority": 0,
+            "required": false,
+            "ordering": 10
+          },
+          {
+            "item_id": "00000000-0000-0000-0000-00000000006f",
+            "kind": "bullet",
+            "text": "Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. ",
+            "short_text": "Documented regression findings.",
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003f3"
+            ],
+            "priority": 10,
+            "required": true,
+            "ordering": 11
+          }
+        ]
+      },
+      {
+        "section_id": "00000000-0000-0000-0000-0000000000cc",
+        "name": "education",
+        "ordering": 4,
+        "priority": 80,
+        "required": true,
+        "items": [
+          {
+            "item_id": "00000000-0000-0000-0000-00000000006d",
+            "kind": "entry",
+            "text": "Example University | Bachelor of Computer Science | 2022",
+            "short_text": null,
+            "fact_refs": [
+              "00000000-0000-0000-0000-0000000003f1"
+            ],
+            "priority": 80,
+            "required": true,
+            "ordering": 9
+          }
+        ]
+      }
+    ]
+  },
+  "facts": [
+    {
+      "id": "00000000-0000-0000-0000-0000000003e9",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Backend engineer focused on reliable Python services, clear data models, and practical testing. "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003ea",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Example Systems | Backend Engineer | 2022 - 2024 "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003eb",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Built a synthetic inventory API with PostgreSQL transactions and typed request validation. "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003ec",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Reduced simulated query latency by 25% using targeted indexes and query profiling. "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003ed",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Added integration tests for transaction rollback, idempotency, and malformed requests. "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003ee",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Career Tools | Personal engineering project "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003ef",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Designed an auditable document pipeline with explicit revision history and deterministic validation. "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003f0",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Implemented structured error handling and synthetic regression fixtures. "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003f2",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures. Documented synthetic test cases and repeatable local development procedures.  "
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003f3",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings. Reviewed synthetic service behavior and documented regression findings.  Documented regression findings."
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000003f1",
+      "revision": 1,
+      "status": "verified",
+      "statement": "Example University | Bachelor of Computer Science | 2022 "
+    }
+  ]
+}

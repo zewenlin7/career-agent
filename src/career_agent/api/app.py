@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, FastAPI, Query, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from career_agent.api import schemas as out
+from career_agent.api.dependencies import DB
 from career_agent.application import services as svc
 from career_agent.config import Settings
 from career_agent.domain import schemas as inp
@@ -24,12 +25,6 @@ from career_agent.security.logging import SafeCode, SafeEvent, safe_log
 logger = logging.getLogger("career_agent.api")
 
 
-async def db(request: Request) -> AsyncIterator[AsyncSession]:
-    async with request.app.state.sessions() as session, session.begin():
-        yield session
-
-
-DB = Annotated[AsyncSession, Depends(db, scope="function")]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
 router = APIRouter(prefix="/api/v1")
@@ -37,7 +32,7 @@ router = APIRouter(prefix="/api/v1")
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "milestone": "v0.1a"}
+    return {"status": "ok", "milestone": "v0.1b"}
 
 
 @router.get("/profile", response_model=out.ProfileOut)
@@ -195,10 +190,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await engine.dispose()
 
-    app = FastAPI(title="Career Agent", version="0.1.0a1", lifespan=lifespan)
+    app = FastAPI(title="Career Agent", version="0.1.0a2", lifespan=lifespan)
     app.state.engine = engine
     app.state.sessions = async_sessionmaker(engine, expire_on_commit=False)
+    app.state.settings = settings
     app.include_router(router)
+    from career_agent.api.resumes import router as resume_router
+
+    app.include_router(resume_router)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -215,7 +214,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         # Pydantic errors contain original inputs and context: never reflect them.
-        return JSONResponse(status_code=422, content={"error": {"code": "invalid_request"}})
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "invalid_variant"
+                    if request.url.path.startswith("/api/v1/resume-variants")
+                    else "invalid_request"
+                }
+            },
+        )
 
     @app.exception_handler(IntegrityError)
     async def integrity_error(request: Request, exc: IntegrityError) -> JSONResponse:

@@ -324,3 +324,61 @@ def _validate_runtime(mapper: Any, connection: Any, target: Any) -> None:
 for _runtime_class in _RUNTIME_FIELDS:
     event.listen(_runtime_class, "before_insert", _validate_runtime)
     event.listen(_runtime_class, "before_update", _validate_runtime)
+
+
+# Resume domain is private structured content, separate from runtime metadata.
+from sqlalchemy import ForeignKeyConstraint  # noqa: E402
+
+from career_agent.resume.schemas import InputSnapshot, RenderReport, ResumeDocument  # noqa: E402
+
+
+class ResumeVariant(Row, Base):
+    __tablename__ = "resume_variants"
+    __table_args__ = (CheckConstraint("current_revision > 0", name="positive_revision"),)
+    current_revision: Mapped[int] = mapped_column(default=1)
+
+
+class ResumeVariantRevision(Row, Base):
+    __tablename__ = "resume_variant_revisions"
+    __table_args__ = (
+        UniqueConstraint("resume_variant_id", "revision"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+    )
+    resume_variant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("resume_variants.id", ondelete="RESTRICT")
+    )
+    revision: Mapped[int] = mapped_column()
+    profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("personal_profiles.id", ondelete="RESTRICT")
+    )
+    job_revision_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("job_revisions.id", ondelete="RESTRICT")
+    )
+    document: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(ResumeDocument))
+    input_snapshot: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InputSnapshot))
+
+
+class RenderArtifact(Row, Base):
+    __tablename__ = "render_artifacts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["resume_variant_id", "resume_variant_revision"],
+            ["resume_variant_revisions.resume_variant_id", "resume_variant_revisions.revision"],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("(artifact_ref IS NULL) = (file_hash IS NULL)", name="artifact_hash_pair"),
+        CheckConstraint(
+            "(report->>'render_status' = 'accepted') = (artifact_ref IS NOT NULL)",
+            name="accepted_file",
+        ),
+        CheckConstraint(
+            "report->>'render_status' != 'accepted' OR "
+            "(report->>'validation_status' = 'passed' AND report->>'page_count' = '1')",
+            name="accepted_validation",
+        ),
+    )
+    resume_variant_id: Mapped[UUID] = mapped_column()
+    resume_variant_revision: Mapped[int] = mapped_column()
+    artifact_ref: Mapped[UUID | None] = mapped_column(unique=True)
+    file_hash: Mapped[str | None] = mapped_column(String(64))
+    report: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(RenderReport))

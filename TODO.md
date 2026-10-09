@@ -2,24 +2,32 @@
 
 ## Current milestone
 
-**v0.1a Foundation — implemented; final verification recorded in CHANGELOG.**
-No work on v0.1b is authorized by this milestone.
+**v0.1b Resume Compiler — implemented; final verification recorded in CHANGELOG.**
+v0.1c is the next milestone, not implemented or authorized in this change.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
-synthetic tests with real PostgreSQL and documentation. See CHANGELOG for verified details.
+synthetic tests with real PostgreSQL and documentation. v0.1b adds structured Variant revisions,
+grounding, bounded Typst/PDF compilation, artifact APIs and three Chinese acceptance fixtures plus a mixed-script regression.
+See CHANGELOG for verified details.
 
-## Next milestones: committed roadmap
+## Milestones: committed roadmap
 
-### v0.1b Resume Compiler (planned)
+### v0.1a Foundation (completed)
 
-- [ ] Canonical verified-profile snapshot → structured Resume Variant with fact/requirement references.
-- [ ] Versioned template/artifact records referencing input revisions and runtime provenance.
-- [ ] Typst canonical renderer; one fixed template, selected language/fonts/paper size.
-- [ ] Deterministic low-priority compression/removal; bounded render attempts.
-- [ ] One-page, text extraction, bounds/glyph/required-field checks and visual acceptance.
-- [ ] Explicit layout failure; no fabricated facts, invisible clipping or arbitrary font shrinkage.
-- [ ] Renderer/grounding tests using synthetic data. No unrelated job workflow yet.
+- [x] Domain, async persistence/migrations, API contracts, fake gateway, runtime metadata, privacy and tests.
+- [x] User confirmed commit, push and remote CI success.
+
+### v0.1b Resume Compiler (completed)
+
+- [x] Canonical verified-profile snapshot → structured Resume Variant with fact/requirement references.
+- [x] Versioned template/artifact records referencing input revisions and runtime provenance.
+- [x] zh-CN canonical Typst renderer; fixed A4/single-column template and hash-pinned CJK fonts.
+- [x] Chinese/mixed-script acceptance, ordered retained-text matching and failed read/hash status.
+- [x] Deterministic low-priority compression/removal; bounded render attempts.
+- [x] One-page, text extraction, bounds/glyph/required-field checks and visual acceptance.
+- [x] Explicit layout failure; no fabricated facts, invisible clipping or arbitrary font shrinkage.
+- [x] Renderer/grounding tests using synthetic data. No unrelated job workflow yet.
 
 ### v0.1c Job Preparation Workflow (planned)
 
@@ -69,8 +77,9 @@ synthetic tests with real PostgreSQL and documentation. See CHANGELOG for verifi
 
 ## Engineering improvement map
 
-- Database: retain historical revisions; consider explicit input-snapshot FKs when artifacts arrive.
-- Data lifecycle: retention/backup/restore and private artifact reference resolution when storage is added.
+- Database: maintain immutable Variant revisions and exact Profile/JD/artifact foreign-key references.
+- Data lifecycle: retention/backup/restore and orphan-file reconciliation after process crashes.
+  Normal request rollback already removes newly written PDF artifacts.
 - Company identity: add explicit resolution only when duplicate company records impede use.
 - Query efficiency: batch current-job projections if measured list-query overhead warrants it.
 - Runtime: add real execution accounting before claiming hard budget enforcement; current policy
@@ -78,6 +87,9 @@ synthetic tests with real PostgreSQL and documentation. See CHANGELOG for verifi
 - Runtime call cost: canonicalize structured usage versus searchable cost projections at execution integration.
 - Access control: local-only Foundation; authentication must precede any deliberate public exposure.
 - Dependencies: maintain uv.lock and immutable migrations; reevaluate supported Python/DB versions.
+- Resume review follow-ups (not v0.1b blockers): simultaneous Variant revision requests,
+  empty required-section policy, stronger short-form hard claims, direct-SQL JSON checks,
+  and dirfd-based filesystem race hardening. Current documented boundaries remain in force.
 - CI: review the first remote run after the user chooses to push; local checks do not claim remote CI success.
 
 ## Learning map
@@ -86,7 +98,7 @@ synthetic tests with real PostgreSQL and documentation. See CHANGELOG for verifi
 - [ ] Demonstrate transaction rollback, optimistic revisions, row locks and append-only history.
 - [ ] Explain model capability routing versus natural-language intent routing.
 - [ ] Explain fact references versus semantic grounding and confidence versus verification.
-- [ ] Demonstrate deterministic document compilation and explicit layout failures.
+- [x] Demonstrate deterministic document compilation and explicit layout failures (v0.1b fixtures).
 - [ ] Evaluate agent trajectories, idempotent recovery and fault propagation.
 - [ ] Explain cost accounting, control hysteresis, dependency-scoped circuits and graceful degradation.
 
@@ -94,9 +106,11 @@ synthetic tests with real PostgreSQL and documentation. See CHANGELOG for verifi
 
 - URL / BOSS ingestion (revisit login, terms, anti-crawling and privacy constraints).
 - pgvector / semantic retrieval.
-- Multilingual resumes.
+- English resume template.
+- Bilingual / multi-locale resumes.
 - Letter / multi-page resume templates.
 - DOCX export.
+- Multiple resume templates.
 - Natural-language intent routing.
 - Cross-provider judge.
 - Prompt experiments / A-B infrastructure.
