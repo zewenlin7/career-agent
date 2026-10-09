@@ -1,0 +1,11 @@
+{
+  "profile": {"display_name": "Synthetic Candidate", "skills": ["Python", "PostgreSQL"]},
+  "fact": {"statement": "Built a synthetic inventory API", "category": "project"},
+  "job": {
+    "company_name": "Example Synthetic Company",
+    "title": "Backend Engineer",
+    "jd_text": "Build Python APIs. PostgreSQL experience required. This is synthetic data.",
+    "requirements": [{"text": "Python", "importance": "must", "source_quote": "Python APIs"}]
+  },
+  "pii": ["synthetic.candidate@example.invalid", "+1 202 555 0142", "/private/example/resume.txt"]
+}
