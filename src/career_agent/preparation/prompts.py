@@ -40,7 +40,15 @@ ALLOWLIST = {
     TaskType.EXTRACTION: {"job"},
     TaskType.RESEARCH: {"company", "evidence"},
     TaskType.FIT: {"requirements", "facts", "profile_refs"},
-    TaskType.TAILOR: {"requirements", "facts", "profile_refs", "fit", "layout_budget", "identity"},
+    TaskType.TAILOR: {
+        "requirements",
+        "facts",
+        "profile_refs",
+        "fit",
+        "layout_budget",
+        "identity",
+        "base_resume",
+    },
     TaskType.COMPRESS: {
         "variant",
         "facts",
@@ -48,7 +56,7 @@ ALLOWLIST = {
         "layout_budget",
         "protected_fields",
     },
-    TaskType.GREETING: {"job", "research", "fit", "facts", "requirements"},
+    TaskType.GREETING: {"job", "research", "fit", "facts", "requirements", "variant"},
     TaskType.INTERVIEW: {
         "job",
         "research",
@@ -93,6 +101,8 @@ INSTRUCTIONS = {
         "probability, scores or percentage match. "
     ),
     TaskType.TAILOR: (
+        "Adapt the explicitly selected base_resume, preserving its grounded core content. "
+        "Fit is optional. "
         "Output a ResumeDocument using exact supplied identity, locale/schema/template/page "
         "contract. Select relevant verified facts and cite fact_refs per item and "
         "requirement_refs when relevant. Follow layout_budget: compact Chinese items, bounded "
@@ -109,6 +119,7 @@ INSTRUCTIONS = {
         "scratch. Return a shorter valid ResumeDocument; required facts cannot be removed. "
     ),
     TaskType.GREETING: (
+        "Use the explicitly bound resume facts; Fit is optional. "
         "Produce a concise Chinese recruiter message for manual sending only, <=500 "
         "characters. Cite selected verified fact_refs and requirement_refs. No invented "
         "promises, achievements or unsupported numbers. Research is company context, never "
@@ -130,7 +141,11 @@ class PromptSpec:
 
     @property
     def version(self) -> str:
-        return f"{self.task_type.value}_v1"
+        return (
+            f"{self.task_type.value}_v2"
+            if self.task_type in {TaskType.TAILOR, TaskType.GREETING, TaskType.INTERVIEW}
+            else f"{self.task_type.value}_v1"
+        )
 
     @property
     def instruction(self) -> str:

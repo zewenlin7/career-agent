@@ -8,7 +8,7 @@ from career_agent.domain.schemas import (
     ProfileData,
     RequirementInput,
 )
-from career_agent.preparation.contracts import ExtractedRequirement
+from career_agent.preparation.contracts import ExtractedRequirement, WorkflowOutcome
 from career_agent.runtime.contracts import Budget, Usage, VersionMetadata
 
 
@@ -80,6 +80,7 @@ class KnowledgeOut(RowOut):
 
 
 class RunOut(RowOut):
+    outcome: WorkflowOutcome | None = None
     workflow: str
     workflow_version: str | None
     status: RunStatus

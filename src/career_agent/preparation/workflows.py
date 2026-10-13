@@ -1,14 +1,12 @@
-"""Two fixed graphs. Model outputs are data; only deterministic code selects edges."""
+"""Bounded task executor. Model outputs are data; the orchestrator selects targets."""
 
 import asyncio
 import time
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
-from langgraph.graph import END, START, StateGraph
-from langsmith import tracing_context
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +19,6 @@ from career_agent.domain.rules import (
     DomainError,
     FactStatus,
     ObservationStatus,
-    RunStatus,
 )
 from career_agent.domain.schemas import ProfileData
 from career_agent.infrastructure import entities as e
@@ -54,13 +51,9 @@ from career_agent.preparation.guardrails import (
 from career_agent.preparation.prompts import OUTPUTS, PromptSpec
 from career_agent.preparation.research import ResearchAdapter, SearchInput, SearchToolMetadata
 from career_agent.resume.grounding import FactEvidence, validate_grounding
+from career_agent.resume.renderer import CompileError
 from career_agent.resume.schemas import RenderReport, ResumeDocument
-from career_agent.runtime.contracts import Budget, OutputDiagnostic, Usage, VersionMetadata
-
-
-class GraphState(TypedDict, total=False):
-    state: dict[str, Any]
-    package_id: str
+from career_agent.runtime.contracts import Budget, OutputDiagnostic, VersionMetadata
 
 
 class PreparationWorkflow:
@@ -91,6 +84,7 @@ class PreparationWorkflow:
         self.research_output: ResearchOutput | None = None
         self.report: RenderReport | None = None
         self.protected_fields: list[str] = []
+        self.base_document: ResumeDocument | None = None
 
     async def call(self, task_type: TaskType, blocks: dict[str, Any]) -> BaseModel:
         spec = PromptSpec(task_type)
@@ -499,7 +493,7 @@ class PreparationWorkflow:
         self.state.resume_variant_revision = self.variant.revision
 
     async def tailor_resume(self) -> None:
-        assert self.fit is not None
+        assert self.base_document is not None
         doc = cast(
             ResumeDocument,
             await self.call(
@@ -508,7 +502,8 @@ class PreparationWorkflow:
                     "facts": list(self.facts.values()),
                     "profile_refs": self.profile_refs,
                     "requirements": self.requirements_context(),
-                    "fit": self.fit.model_dump(mode="json"),
+                    "fit": self.fit.model_dump(mode="json") if self.fit else None,
+                    "base_resume": self.base_document.model_dump(mode="json"),
                     "layout_budget": LayoutBudget().model_dump(),
                     "identity": {
                         "profile_id": str(self.profile.id),
@@ -577,7 +572,7 @@ class PreparationWorkflow:
         await self.validate_variant(after)
 
     async def generate_greeting(self) -> None:
-        assert self.fit is not None and self.variant is not None
+        assert self.variant is not None
         doc = ResumeDocument.model_validate(self.variant.document)
         ids = {f for s in doc.sections for i in s.items for f in i.fact_refs}
         output = cast(
@@ -586,10 +581,11 @@ class PreparationWorkflow:
                 TaskType.GREETING,
                 {
                     "job": {"title": self.job.title, "trust_level": "untrusted_external"},
+                    "variant": doc.model_dump(mode="json"),
                     "research": self.research_output.model_dump(mode="json")
                     if self.research_output
                     else None,
-                    "fit": self.fit.model_dump(mode="json"),
+                    "fit": self.fit.model_dump(mode="json") if self.fit else None,
                     "facts": [v for k, v in self.facts.items() if k in ids],
                     "requirements": self.requirements_context(),
                 },
@@ -603,72 +599,12 @@ class PreparationWorkflow:
         self.state.greeting_id = await self.persist("greeting", output)
 
     async def load_interview_context(self) -> None:
-        if not self.request.application_package_id:
-            raise ModelGatewayError("application_package_required")
-        row = await require(
-            self.session, e.PreparationArtifact, self.request.application_package_id
-        )
-        data = PrivateResult.model_validate(row.data)
-        if data.kind != "package" or not isinstance(data.output, WorkflowState):
-            raise ModelGatewayError("invalid_application_package")
-        state = data.output
-        if (
-            state.workflow != "prepare_application"
-            or state.mode != self.request.mode
-            or row.job_revision_id != self.job.id
-            or row.profile_id != self.profile.id
-        ):
-            raise ModelGatewayError("context_revision_mismatch")
-        if (
-            not state.fit_analysis_id
-            or not state.resume_variant_id
-            or not state.resume_variant_revision
-        ):
-            raise ModelGatewayError("preparation_context_missing")
-        self.state.requirement_refs = state.requirement_refs
-        self.requirements = list(
-            await self.session.scalars(
-                select(e.JobRequirement).where(e.JobRequirement.id.in_(state.requirement_refs))
-            )
-        )
-        self.fit = FitOutput.model_validate(
-            (await require(self.session, e.PreparationArtifact, state.fit_analysis_id)).data[
-                "output"
-            ]
-        )
-        validate_fit(self.fit, set(state.requirement_refs), self.facts)
-        self.state.fit_analysis_id = state.fit_analysis_id
-        self.variant = await resumes.get_revision(
-            self.session, state.resume_variant_id, state.resume_variant_revision
-        )
-        await self.validate_variant(
-            ResumeDocument.model_validate(self.variant.document), persist=False
-        )
-        self.state.resume_variant_id, self.state.resume_variant_revision = (
-            state.resume_variant_id,
-            state.resume_variant_revision,
-        )
-        self.state.render_report_id = state.render_report_id
-        if not state.render_report_id:
-            raise ModelGatewayError("accepted_resume_required")
-        rendered = await require(self.session, e.RenderArtifact, state.render_report_id)
-        if (
-            rendered.resume_variant_id != state.resume_variant_id
-            or rendered.resume_variant_revision != state.resume_variant_revision
-            or RenderReport.model_validate(rendered.report).render_status != "accepted"
-        ):
-            raise ModelGatewayError("accepted_resume_required")
-        if state.research_report_id:
-            research = await require(self.session, e.CompanyResearch, state.research_report_id)
-            if research.company_id != self.company.id:
-                raise ModelGatewayError("context_revision_mismatch")
-            self.research_output = ResearchData.model_validate(research.data).report
-            self.state.research_report_id = research.id
-            if research.expires_at <= e.utcnow():
-                self.state.warnings.append("research_context_stale")
+        from career_agent.preparation.context import ContextLoader
+
+        await ContextLoader(self).interview()
 
     async def generate_interview_prep(self) -> None:
-        assert self.fit is not None and self.variant is not None
+        assert self.variant is not None
         data = ProfileData.model_validate(self.profile.data)
         stories = []
         for id in self.request.star_story_ids[:10]:
@@ -701,7 +637,7 @@ class PreparationWorkflow:
                     "research": self.research_output.model_dump(mode="json")
                     if self.research_output
                     else None,
-                    "fit": self.fit.model_dump(mode="json"),
+                    "fit": self.fit.model_dump(mode="json") if self.fit else None,
                     "variant": self.variant.document,
                     "facts": list(self.facts.values()),
                     "requirements": self.requirements_context(),
@@ -719,7 +655,7 @@ class PreparationWorkflow:
         )
         self.state.interview_prep_id = await self.persist("interview", output)
 
-    async def node(self, name: str) -> GraphState:
+    async def node(self, name: str) -> None:
         self.state.step_count += 1
         self.state.current_node = name
         self.step = e.AgentStep(
@@ -727,7 +663,7 @@ class PreparationWorkflow:
             sequence=self.state.step_count,
             node=name,
             status=CallStatus.RUNNING,
-            versions={"workflow_version": "preparation-v1"},
+            versions={"workflow_version": self.state.workflow_version},
         )
         self.session.add(self.step)
         await self.session.flush()
@@ -736,9 +672,11 @@ class PreparationWorkflow:
             method = self.compile_resume if name == "recompile_resume" else getattr(self, name)
             await method()
             self.step.status = CallStatus.SUCCEEDED
-        except (ModelGatewayError, DomainError, ValidationError) as exc:
+        except (ModelGatewayError, DomainError, CompileError, ValidationError) as exc:
             code = (
-                exc.code if isinstance(exc, (ModelGatewayError, DomainError)) else "invalid_output"
+                exc.code
+                if isinstance(exc, (ModelGatewayError, DomainError, CompileError))
+                else "invalid_output"
             )
             self.step.status, self.step.reason_code = CallStatus.FAILED, code
             if code in {
@@ -779,139 +717,10 @@ class PreparationWorkflow:
                 )
         self.step.latency_ms = int((time.perf_counter() - started) * 1000)
         await self.session.flush()
-        return {"state": self.state.model_dump(mode="json")}
-
-    def after_compile(self, _: GraphState) -> str:
-        if self.state.stop_reason:
-            return "persist_package"
-        assert self.report is not None
-        if self.report.render_status == "accepted":
-            return "generate_greeting"
-        if (
-            self.report.error_code == "layout_failed"
-            and self.state.usage.semantic_compressions
-            < self.state.limits.max_semantic_resume_compressions
-        ):
-            return "compress_resume"
-        self.state.stop_reason = "layout_failed"
-        self.state.errors.append("layout_failed")
-        return "persist_package"
-
-    async def persist_package(self, state: GraphState) -> GraphState:
-        st = self.state
-        complete = (
-            bool(st.interview_prep_id)
-            if st.workflow == "prepare_interview"
-            else bool(st.greeting_id)
-        )
-        st.status = (
-            "completed"
-            if complete and not st.warnings
-            else "partial"
-            if (complete or st.requirement_refs or st.stop_reason == "budget_exhausted")
-            else "failed"
-        )
-        st.current_node = "finish"
-        self.run.status = {
-            "completed": RunStatus.SUCCEEDED,
-            "partial": RunStatus.PARTIAL,
-            "failed": RunStatus.FAILED,
-        }[st.status]
-        self.run.stop_reason = st.stop_reason or (
-            "completed" if st.status == "completed" else "partial_results"
-        )
-        self.run.finished_at = e.utcnow()
-        self.run.consumed_usage = Usage(
-            input_tokens=st.usage.input_tokens,
-            output_tokens=st.usage.output_tokens,
-            estimated_cost=st.usage.estimated_cost,
-            budget_reserved_usd=st.usage.budget_reserved_usd,
-            reserved_input_tokens=st.usage.reserved_input_tokens,
-            reserved_output_tokens=st.usage.reserved_output_tokens,
-            search_calls=st.usage.search_calls,
-            measurement="unknown" if st.usage.unknown_usage_attempts else "reported",
-            pricing_version=self.settings.pricing_version,
-        ).model_dump(mode="json")
-        id = await self.persist("package", st)
-        return {"state": st.model_dump(mode="json"), "package_id": str(id)}
 
     async def execute(
         self, workflow: Literal["prepare_application", "prepare_interview"]
     ) -> dict[str, Any]:
-        # Validate source identities before creating FK-bearing artifacts, no external calls.
-        await require(self.session, e.JobRevision, self.request.job_revision_id)
-        await require(self.session, e.PersonalProfile, self.request.profile_id)
-        limits = self.request.limits.model_copy(deep=True)
-        limits.max_estimated_cost = min(limits.max_estimated_cost, self.settings.max_run_cost)
-        self.run = e.AgentRun(
-            workflow=workflow,
-            workflow_version="preparation-v1",
-            status=RunStatus.RUNNING,
-            started_at=e.utcnow(),
-            requested_outputs=["application_package"]
-            if workflow == "prepare_application"
-            else ["interview_prep"],
-            budget=Budget(
-                token_limit=limits.max_input_tokens + limits.max_output_tokens,
-                cost_limit=limits.max_estimated_cost,
-            ).model_dump(mode="json"),
-        )
-        self.session.add(self.run)
-        await self.session.flush()
-        self.state = WorkflowState(
-            run_id=self.run.id,
-            workflow=workflow,
-            mode=self.request.mode,
-            job_revision_id=self.request.job_revision_id,
-            profile_id=self.request.profile_id,
-            requested_outputs=self.run.requested_outputs,
-            limits=limits,
-        )
-        graph = StateGraph(GraphState)
-        names = (
-            [
-                "validate_inputs",
-                "extract_requirements",
-                "research_company",
-                "analyze_fit",
-                "tailor_resume",
-                "compile_resume",
-                "compress_resume",
-                "recompile_resume",
-                "generate_greeting",
-            ]
-            if workflow == "prepare_application"
-            else ["validate_inputs", "load_interview_context", "generate_interview_prep"]
-        )
-        for name in names:
+        from career_agent.preparation.orchestrator import execute
 
-            async def action(state: GraphState, node_name: str = name) -> GraphState:
-                return await self.node(node_name)
-
-            graph.add_node(name, action)
-        graph.add_node("persist_package", self.persist_package, input_schema=GraphState)
-        graph.add_edge(START, names[0])
-        for index, name in enumerate(names):
-            if name in {"compile_resume", "recompile_resume"}:
-                graph.add_conditional_edges(
-                    name,
-                    self.after_compile,
-                    {x: x for x in ["generate_greeting", "compress_resume", "persist_package"]},
-                )
-            else:
-                next_name = names[index + 1] if index + 1 < len(names) else "persist_package"
-
-                def edge(state: GraphState, target: str = next_name) -> str:
-                    return "persist_package" if self.state.stop_reason else target
-
-                graph.add_conditional_edges(
-                    name, edge, {x: x for x in {next_name, "persist_package"}}
-                )
-        graph.add_edge("persist_package", END)
-        # Disable environment-enabled LangSmith export; private payloads never leave via traces.
-        with tracing_context(enabled=False):
-            result = await graph.compile().ainvoke(
-                {"state": self.state.model_dump(mode="json")},
-                config={"recursion_limit": 20, "callbacks": []},
-            )
-        return cast(dict[str, Any], result)
+        return await execute(self, workflow)

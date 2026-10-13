@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.1c Job Preparation Workflow — completed; live and final offline acceptance passed.**
-Next: v0.1d Integration / E2E (not started).
+**v0.1d Integration / E2E — completed; final offline acceptance passed.**
+Next planned milestone: v0.2 Agent Runtime (not started).
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -31,7 +31,7 @@ See CHANGELOG for verified details.
 
 ### v0.1c Job Preparation Workflow (completed locally)
 
-- [x] Two fixed LangGraph workflows; ref-only state and one semantic compression branch.
+- [x] v0.1c originally introduced two fixed LangGraph workflows (replaced by deterministic Python orchestration in v0.1d); ref-only state and one semantic compression branch.
 - [x] OpenAI Responses/Pydantic adapter, cheap/strong policy, no premium auto-escalation.
 - [x] Seven versioned/hashed prompts and canonical output schemas.
 - [x] JD evidence extraction, Tavily/fixture boundary and company cache with freshness.
@@ -54,12 +54,16 @@ See CHANGELOG for verified details.
 - [x] Final offline full suite (195 passed), static checks, empty PostgreSQL migration/drift and package checks.
 - [x] v0.1c local DoD complete; synthetic acceptance is not real job-search quality verification.
 
-### v0.1d Integration / E2E (planned)
+### v0.1d Integration / E2E
 
-- [ ] End-to-end job preparation and resume artifact delivery.
-- [ ] Partial failure, malformed provider output, cost/timeout and layout failure acceptance.
-- [ ] Local private-data smoke verification without publishing data/artifacts/logs.
-- [ ] Accurate README, acceptance report and final v0.1.0 release notes.
+- [x] Arbitrary application targets, explicit resume bindings and target-local failure semantics.
+- [x] Minimal deterministic execution/reuse; informational Fit and opt-in versioned Fit Gate.
+- [x] Single canonical outcome for Run/package/API; required-input and decision terminal states.
+- [x] Shared exact-context loader; historical package and Job/Application/Run discovery.
+- [x] Fake-model/fixture-research/real-PostgreSQL/real-Typst target E2E, including real overflow repair.
+- [x] Final full offline acceptance: 235 passed; Ruff/format, strict mypy, empty PostgreSQL migration,
+  Alembic drift, offline install/build/package, pinned Typst/font and git hygiene checks passed.
+- Synthetic acceptance is not real job-search quality verification. No new paid smoke required.
 
 ### v0.2 Agent Runtime (planned)
 
@@ -143,3 +147,18 @@ See CHANGELOG for verified details.
 
 When completing an item: remove it from active work or mark its milestone complete, record only
 implemented/verified changes in CHANGELOG, and update README only to describe actual capability.
+
+### Integration limitations retained
+
+- Uncaught exceptions/transaction crashes roll back the synchronous request; no durable failed-run
+  recovery, worker, checkpoint or restart mechanism is claimed.
+- Database/filesystem writes are not globally atomic. Existing best-effort cleanup cannot replace
+  orphan artifact reconciliation after crashes.
+- Concurrent identical requests may duplicate model work; artifact reuse is sequential, not a
+  distributed idempotency guarantee. Optimistic resume revision checks remain in place.
+- Context fingerprints use exact IDs, verified fact status, task prompt hash and mode. They are
+  private provenance keys, not cross-version semantic-equivalence judgments or quality scores.
+- Pre-v0.1d outputs remain readable. Legacy Fit reuse requires provable package/prompt/fact
+  compatibility; other legacy outputs without explicit resume-binding provenance are not auto-reused.
+- v0.1d changed orchestration/prompt inputs without new paid acceptance. Historical v0.1c live
+  connectivity acceptance does not prove new prompts' real output quality.

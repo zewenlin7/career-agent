@@ -167,6 +167,7 @@ class RenderReport(Contract):
 
 
 class VariantOut(Contract):
+    resume_revision_id: UUID
     id: UUID
     revision: int
     created_at: datetime

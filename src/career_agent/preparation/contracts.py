@@ -152,12 +152,100 @@ class Accounting(Contract):
         return self.estimated_cost + self.budget_reserved_usd
 
 
+Target = Literal["fit_analysis", "resume_tailoring", "greeting_generation", "interview_preparation"]
+
+
+class ResumeBinding(Contract):
+    resume_revision_id: UUID | None = None
+    output_of: Literal["resume_tailoring"] | None = None
+
+    @model_validator(mode="after")
+    def exactly_one(self) -> "ResumeBinding":
+        if (self.resume_revision_id is None) == (self.output_of is None):
+            raise ValueError("exactly one resume binding required")
+        return self
+
+
+class TargetOutcome(Contract):
+    status: Literal["completed", "failed", "blocked", "pending"] = "pending"
+    artifact_id: UUID | None = None
+    reason: Identifier | None = None
+
+
+class PlanNode(Contract):
+    name: Identifier
+    status: Literal["executed", "reused", "skipped", "failed", "blocked"]
+    reason: Identifier | None = None
+
+
+class WorkflowOutcome(Contract):
+    status: Literal["completed", "partial", "failed", "needs_input", "decision_required"]
+    reason: Identifier | None = None
+    targets: dict[Target, TargetOutcome]
+    nodes: list[PlanNode] = Field(default_factory=list)
+    gate_policy_version: Literal["fit_gate_policy_v1"] | None = None
+
+    @model_validator(mode="after")
+    def consistent_terminal(self) -> "WorkflowOutcome":
+        states = [v.status for v in self.targets.values()]
+        if not states:
+            raise ValueError("outcome requires targets")
+        done = states.count("completed")
+        if any(
+            (v.status == "completed") != (v.artifact_id is not None) for v in self.targets.values()
+        ):
+            raise ValueError("completed target requires an artifact")
+        valid = {
+            "completed": done == len(states),
+            "partial": 0 < done < len(states) and "pending" not in states,
+            "failed": done == 0 and "pending" not in states,
+            "needs_input": all(s == "pending" for s in states),
+            "decision_required": "pending" in states
+            and all(s in {"pending", "completed"} for s in states),
+        }
+        if not valid[self.status]:
+            raise ValueError("inconsistent workflow outcome")
+        return self
+
+
+class TargetArtifact(Contract):
+    target: Target
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    result_id: UUID | None = None
+    resume_revision_id: UUID | None = None
+    render_artifact_id: UUID | None = None
+    source_resume_revision_id: UUID | None = None
+
+
 class WorkflowRequest(Contract):
     job_revision_id: UUID
     profile_id: UUID
     mode: Literal["fixture", "live"] = "fixture"
     limits: RunLimits = Field(default_factory=RunLimits)
+    targets: list[Literal["fit_analysis", "resume_tailoring", "greeting_generation"]] = Field(
+        default=["fit_analysis", "resume_tailoring", "greeting_generation"],
+        min_length=1,
+        max_length=3,
+    )
+    resume_revision_id: UUID | None = None
+    bindings: dict[Literal["resume_tailoring", "greeting_generation"], ResumeBinding] = Field(
+        default_factory=dict
+    )
+    fit_gate: Literal["informational", "gate_downstream"] = "informational"
     force_research_refresh: bool = False
+
+    @model_validator(mode="after")
+    def valid_targets(self) -> "WorkflowRequest":
+        if len(set(self.targets)) != len(self.targets):
+            raise ValueError("duplicate targets")
+        for target, binding in self.bindings.items():
+            if target not in self.targets or (
+                binding.output_of
+                and (target != "greeting_generation" or "resume_tailoring" not in self.targets)
+            ):
+                raise ValueError("invalid target binding")
+        return self
+
     application_package_id: UUID | None = None
     star_story_ids: Refs = Field(default_factory=list)
     knowledge_note_ids: Refs = Field(default_factory=list)
@@ -167,7 +255,7 @@ class WorkflowState(Contract):
     run_id: UUID
     workflow: Literal["prepare_application", "prepare_interview"]
     mode: Literal["fixture", "live"] = "fixture"
-    workflow_version: Literal["preparation-v1"] = "preparation-v1"
+    workflow_version: Literal["preparation-v1", "preparation-v2"] = "preparation-v2"
     job_revision_id: UUID
     profile_id: UUID
     profile_revision: int | None = Field(default=None, ge=1)
@@ -176,7 +264,9 @@ class WorkflowState(Contract):
     requested_outputs: list[Identifier]
     current_node: Identifier = "validate_inputs"
     step_count: int = 0
-    status: Literal["running", "completed", "partial", "failed"] = "running"
+    status: Literal[
+        "running", "completed", "partial", "failed", "needs_input", "decision_required"
+    ] = "running"
     requirement_refs: Refs = Field(default_factory=list)
     evidence_refs: Refs = Field(default_factory=list)
     research_report_id: UUID | None = None
@@ -191,11 +281,13 @@ class WorkflowState(Contract):
     usage: Accounting = Field(default_factory=Accounting)
     limits: RunLimits = Field(default_factory=RunLimits)
     stop_reason: Identifier | None = None
+    outcome: WorkflowOutcome | None = None
+    bindings: dict[str, ResumeBinding] = Field(default_factory=dict)
 
 
 class PrivateResult(Contract):
-    kind: Literal["fit", "greeting", "interview", "package"]
-    output: FitOutput | GreetingOutput | InterviewOutput | WorkflowState
+    kind: Literal["fit", "greeting", "interview", "package", "target"]
+    output: FitOutput | GreetingOutput | InterviewOutput | WorkflowState | TargetArtifact
 
     @model_validator(mode="after")
     def consistent_kind(self) -> "PrivateResult":
@@ -204,6 +296,7 @@ class PrivateResult(Contract):
             "greeting": GreetingOutput,
             "interview": InterviewOutput,
             "package": WorkflowState,
+            "target": TargetArtifact,
         }
         if not isinstance(self.output, expected[self.kind]):
             raise ValueError("result kind and schema mismatch")

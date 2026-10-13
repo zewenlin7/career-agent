@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Added / Changed — v0.1d Integration / E2E
+
+- Arbitrary Fit/Tailoring/Greeting targets; explicit immutable resume selection and optional
+  Tailoring→Greeting output binding. No automatic Fit/research paid prerequisite or latest selection.
+- Deterministic Python target orchestration replaces the fixed LangGraph wrapper; unused graph/tracing
+  dependencies removed. Compatible provenance-keyed target reuse and independent failures.
+- Versioned opt-in must-have Fit Gate, needs-input/decision-required endings and canonical requested-target
+  outcome shared by run/package/API. Migration `d4196a2f3011` preserves legacy records.
+- Shared context validation, exact base/output revision provenance, PDF availability/hash checks,
+  historical package context and Job/Application/Run discovery plus resume-choice hints.
+- Offline target combination, gate/reuse/context/retrieval/failure E2E using real PostgreSQL/Typst;
+  real overflowing PDF → fixture semantic compression → accepted real PDF. No paid calls or v0.2 work.
+
+
+### Verified — v0.1d local offline acceptance
+
+- Full suite: **235 passed in 34.46s**; real temporary PostgreSQL empty migration and Alembic drift,
+  real pinned Typst compilation, target E2E and privacy/guardrail regression all passed.
+- Ruff/formatter (**67 Python files**) and strict mypy (**38 source files**) passed.
+- Offline lock/sync, clean temporary environment install, wheel/sdist and installed-package/template
+  checks passed. Typst 0.15.1 and controlled Noto CJK font hashes verified; no binary assets packaged.
+- Generic fixture smoke completed application and explicit interview workflows. No real OpenAI/Tavily
+  call, no new paid acceptance, no commit/push and no v0.2 implementation.
+- Public candidate-file hygiene and `git diff --check` passed. Synthetic integration acceptance does
+  not establish real job-search quality or durable transaction/crash recovery.
+
 ### Cost-accounting clarification — offline only
 
 - Separated unknown-attempt token/cost reservations from provider-reported usage and estimated cost.
@@ -52,7 +78,7 @@
 - Final review removed four one-off recovery scripts with historical database IDs/budget baselines,
   cross-script imports and duplicated direct-model compression code from the public candidate tree.
   The retained generic smoke entry uses the actual workflows; no new workflow or harness was added.
-- Public candidate-file hygiene and `git diff --check` passed. No commit/push; remote v0.1c CI is pending.
+- Public candidate-file hygiene and `git diff --check` passed. Remote v0.1c CI later passed (user confirmed).
 
 ### Verified — v0.1c bounded live acceptance (2026-10-12)
 
@@ -76,7 +102,7 @@
   failed-call unknown usage stays reserved, so this is not a confirmed invoice total.
 - All requested live task cases passed across bounded attempts, not one uninterrupted production run.
   Synthetic smoke verifies contracts/connectivity; it does not prove real job-search quality, semantic
-  truth or general compression quality. Human review remains necessary. v0.1d is not started.
+  truth or general compression quality. Human review remains necessary. At that historical acceptance, v0.1d had not started.
 
 ### Added — v0.1b Resume Compiler
 

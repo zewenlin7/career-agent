@@ -31,6 +31,7 @@ from career_agent.preparation.contracts import (
     ExtractedRequirement,
     PrivateResult,
     ResearchData,
+    WorkflowOutcome,
 )
 from career_agent.runtime.contracts import Budget, Identifier, Usage, VersionMetadata
 
@@ -200,6 +201,7 @@ class KnowledgeNote(Row, Base):
 
 class AgentRun(Row, Base):
     __tablename__ = "agent_runs"
+    outcome: Mapped[dict[str, Any] | None] = mapped_column(ValidatedJSON(WorkflowOutcome))
     workflow: Mapped[str] = mapped_column(String(128))
     workflow_version: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[RunStatus] = mapped_column(enum_type(RunStatus), default=RunStatus.PENDING)

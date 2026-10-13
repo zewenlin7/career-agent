@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from uuid import UUID
 
 import pytest
@@ -55,7 +54,40 @@ async def prep_input(client, sessions):
         )
     ).json()
     assert job["job_revision_id"]
-    return {"job_revision_id": job["job_revision_id"], "profile_id": profile["id"]}
+    from uuid import uuid4
+
+    base = await client.post(
+        "/api/v1/resume-variants",
+        json={
+            "profile_id": profile["id"],
+            "profile_revision": profile["revision"],
+            "job_revision_id": job["job_revision_id"],
+            "sections": [
+                {
+                    "section_id": str(uuid4()),
+                    "name": "projects",
+                    "ordering": 0,
+                    "priority": 80,
+                    "items": [
+                        {
+                            "item_id": str(uuid4()),
+                            "kind": "bullet",
+                            "text": "使用 Python 和 FastAPI 构建模拟服务。",
+                            "fact_refs": [ids[0]],
+                            "priority": 80,
+                            "ordering": 0,
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert base.status_code == 201, base.text
+    return {
+        "job_revision_id": job["job_revision_id"],
+        "profile_id": profile["id"],
+        "resume_revision_id": base.json()["resume_revision_id"],
+    }
 
 
 async def run(client, payload, workflow="prepare_application"):
@@ -82,8 +114,8 @@ async def test_two_workflows_cache_trace_and_privacy(client, sessions, prep_inpu
     st = first["state"]
     assert st["status"] == "completed", st
     assert st["interview_prep_id"] is None
-    assert st["usage"]["model_calls"] == 5
-    assert st["usage"]["search_calls"] == 1
+    assert st["usage"]["model_calls"] == 4
+    assert st["usage"]["search_calls"] == 0
     artifact = (await client.get(f"/api/v1/artifacts/{st['render_report_id']}")).json()
     assert artifact["report"]["render_status"] == "accepted"
     assert (
@@ -99,17 +131,12 @@ async def test_two_workflows_cache_trace_and_privacy(client, sessions, prep_inpu
     assert interview["state"]["usage"]["model_calls"] == 1
     assert interview["state"]["usage"]["search_calls"] == 0
     calls = (await client.get(f"/api/v1/runs/{st['run_id']}/calls")).json()
-    search_usage = calls["tool_calls"][0]["usage"]
-    assert search_usage["search_calls"] == 1
-    assert search_usage["credits_used"] is None
-    assert search_usage["actual_billed_cost_usd"] is None
-    assert search_usage["billing_tier"] == "unknown"
-    assert search_usage["budget_reserved_usd"] == "0"
+    assert calls["tool_calls"] == []
     assert calls["model_calls"][0]["model"] == "fixture-cheap"
     assert all(c["model"] == "fixture-strong" for c in calls["model_calls"][1:])
     for c in calls["model_calls"]:
         assert len(c["versions"]["prompt_hash"]) == 64
-        assert c["versions"]["prompt_version"].endswith("_v1")
+        assert c["versions"]["prompt_version"].endswith(("_v1", "_v2"))
     import json
 
     trace = json.dumps(calls, ensure_ascii=False)
@@ -126,26 +153,6 @@ async def test_two_workflows_cache_trace_and_privacy(client, sessions, prep_inpu
         assert app.status.value == "tracking"  # materials are not a real application
 
 
-async def test_freshness_and_force_refresh(client, sessions, prep_input):
-    first = await run(client, prep_input)
-    async with sessions.begin() as session:
-        row = await session.get(e.CompanyResearch, UUID(first["state"]["research_report_id"]))
-        row.expires_at = e.utcnow() - timedelta(seconds=1)
-    second = await run(client, prep_input)
-    third = await run(client, {**prep_input, "force_research_refresh": True})
-    assert second["state"]["usage"]["search_calls"] == third["state"]["usage"]["search_calls"] == 1
-    assert (
-        len(
-            {
-                first["state"]["research_report_id"],
-                second["state"]["research_report_id"],
-                third["state"]["research_report_id"],
-            }
-        )
-        == 3
-    )
-
-
 @pytest.mark.parametrize(
     "limits",
     [
@@ -153,12 +160,13 @@ async def test_freshness_and_force_refresh(client, sessions, prep_input):
         {"max_model_calls": 2},
         {"max_input_tokens": 1},
         {"max_output_tokens": 1},
-        {"max_web_search_calls": 0},
     ],
 )
 async def test_budget_exhaustion_preserves_partial(client, prep_input, limits):
     result = await run(client, {**prep_input, "limits": limits})
-    assert result["state"]["status"] == "partial", result
+    assert result["state"]["status"] == (
+        "partial" if limits.get("max_model_calls") == 2 else "failed"
+    ), result
     assert result["state"]["stop_reason"] == "budget_exhausted"
     if "max_model_calls" in limits:
         assert result["state"]["usage"]["model_calls"] <= limits["max_model_calls"]
@@ -183,7 +191,7 @@ async def test_retry_task_identity_accounting(client, prep_input, error):
     inject(client, Provider())
     result = await run(client, prep_input)
     assert result["state"]["status"] == "completed", result
-    assert result["state"]["usage"]["model_calls"] == 6
+    assert result["state"]["usage"]["model_calls"] == 5
     assert result["state"]["usage"]["unknown_usage_attempts"] == 1
     calls = (await client.get(f"/api/v1/runs/{result['state']['run_id']}/calls")).json()[
         "model_calls"
@@ -197,23 +205,6 @@ async def test_retry_task_identity_accounting(client, prep_input, error):
     assert calls[1]["versions"][
         "repair_reason" if error == "invalid_model_output" else "retry_reason"
     ]
-
-
-async def test_research_failure_partial_two_attempts(client, prep_input):
-    class FailedResearch:
-        async def search(self, query):
-            raise ModelGatewayError("research_failed")
-
-    inject(client, research=FailedResearch())
-    result = await run(client, prep_input)
-    st = result["state"]
-    assert st["status"] == "partial" and st["greeting_id"]
-    assert st["usage"]["search_calls"] == 2
-    calls = (await client.get(f"/api/v1/runs/{st['run_id']}/calls")).json()
-    assert all(c["usage"]["estimated_cost"] is None for c in calls["tool_calls"])
-    assert all(c["usage"]["actual_billed_cost_usd"] is None for c in calls["tool_calls"])
-
-    assert st["research_report_id"] is None
 
 
 async def test_grounding_failure_blocks_compile(client, prep_input, sessions):
@@ -364,7 +355,7 @@ async def test_interview_rechecks_superseded_facts(client, prep_input, sessions)
     interview = await run(
         client, {**prep_input, "application_package_id": result["package_id"]}, "prepare_interview"
     )
-    assert interview["state"]["status"] == "partial"
+    assert interview["state"]["status"] == "failed"
     assert interview["state"]["stop_reason"] in {"invalid_reference", "grounding_failed"}
     assert interview["state"]["usage"]["model_calls"] == 0
 
@@ -375,40 +366,6 @@ async def test_environment_tracing_does_not_export(client, prep_input, monkeypat
     monkeypatch.setenv("LANGSMITH_API_KEY", "synthetic-not-a-key")
     result = await run(client, prep_input)
     assert result["state"]["status"] == "completed"
-
-
-async def test_company_cache_shared_across_explicit_job_identity(client, prep_input, sessions):
-    first = await run(client, prep_input)
-    async with sessions() as session:
-        company = await session.scalar(select(e.Company))
-    second_job = await client.post(
-        "/api/v1/jobs",
-        json={
-            "company_id": str(company.id),
-            "company_name": company.name,
-            "title": "第二个合成岗位",
-            "jd_text": "必须掌握 Python。",
-        },
-    )
-    assert second_job.status_code == 201
-    async with sessions() as session:
-        revision = await session.scalar(
-            select(e.JobRevision).where(e.JobRevision.job_id == UUID(second_job.json()["id"]))
-        )
-    result = await run(client, {**prep_input, "job_revision_id": str(revision.id)})
-    assert result["state"]["status"] == "completed"
-    assert result["state"]["usage"]["search_calls"] == 0
-    assert result["state"]["research_report_id"] == first["state"]["research_report_id"]
-    mismatch = await client.post(
-        "/api/v1/jobs",
-        json={
-            "company_id": str(company.id),
-            "company_name": "其他公司",
-            "title": "岗位",
-            "jd_text": "要求",
-        },
-    )
-    assert mismatch.status_code == 422
 
 
 async def test_structured_diagnostic_persisted_without_body(client, prep_input):
@@ -446,3 +403,480 @@ async def test_structured_diagnostic_persisted_without_body(client, prep_input):
         assert call["usage"]["reasoning_tokens"] == 5
         assert call["usage"]["measurement"] == "reported"
         assert call["error_code"] == "output_validation_failed"
+
+
+@pytest.mark.parametrize(
+    "targets",
+    [
+        ["fit_analysis"],
+        ["resume_tailoring"],
+        ["greeting_generation"],
+        ["fit_analysis", "greeting_generation"],
+        ["fit_analysis", "resume_tailoring"],
+        ["resume_tailoring", "greeting_generation"],
+        ["fit_analysis", "resume_tailoring", "greeting_generation"],
+    ],
+)
+async def test_arbitrary_targets_minimal_execution_retrieval_reuse(client, prep_input, targets):
+    first = await run(client, {**prep_input, "targets": targets})
+    assert first["outcome"]["status"] == "completed", first
+    assert set(first["outcome"]["targets"]) == set(targets)
+    calls = (await client.get(f"/api/v1/runs/{first['state']['run_id']}/calls")).json()
+    assert [c["task_type"] for c in calls["model_calls"]] == [
+        "job_requirement_extraction"
+    ] + targets
+    assert calls["tool_calls"] == []
+    for target in first["outcome"]["targets"].values():
+        result = (
+            await client.get(f"/api/v1/preparation-artifacts/{target['artifact_id']}")
+        ).json()["data"]["output"]
+        if result["result_id"]:
+            assert (
+                await client.get(f"/api/v1/preparation-artifacts/{result['result_id']}")
+            ).status_code == 200
+        if result["render_artifact_id"]:
+            assert (
+                await client.get(f"/api/v1/artifacts/{result['render_artifact_id']}/download")
+            ).content.startswith(b"%PDF")
+    package = (await client.get(f"/api/v1/runs/{first['state']['run_id']}/package")).json()
+    persisted_run = (await client.get(f"/api/v1/runs/{first['state']['run_id']}")).json()
+    assert package["data"]["output"]["outcome"] == first["outcome"] == persisted_run["outcome"]
+    assert persisted_run["consumed_usage"]["pricing_version"] == (
+        client._transport.app.state.settings.pricing_version
+    )
+    again = await run(client, {**prep_input, "targets": targets, "limits": {"max_model_calls": 0}})
+    assert again["outcome"]["status"] == "completed", again
+    assert again["state"]["usage"]["model_calls"] == 0
+    assert again["outcome"]["targets"] == first["outcome"]["targets"]
+
+
+async def test_missing_selection_is_needs_input_before_any_call(client, prep_input):
+    payload = {k: v for k, v in prep_input.items() if k != "resume_revision_id"}
+    result = await run(client, payload)
+    assert result["outcome"]["status"] == "needs_input"
+    assert result["outcome"]["reason"] == "resume_selection_required"
+    assert result["state"]["usage"]["model_calls"] == 0
+    assert all(v["status"] == "pending" for v in result["outcome"]["targets"].values())
+    choices = (await client.get("/api/v1/resume-revisions", params=payload)).json()
+    assert choices[0]["resume_revision_id"] == prep_input["resume_revision_id"]
+    assert choices[0]["hints"]["original"] and choices[0]["hints"]["same_jd"]
+    fit = await run(client, {**payload, "targets": ["fit_analysis"]})
+    assert fit["outcome"]["status"] == "completed"
+
+
+@pytest.mark.parametrize("new_resume", [False, True])
+async def test_greeting_explicit_old_or_tailored_binding(client, prep_input, new_resume):
+    binding = (
+        {"output_of": "resume_tailoring"}
+        if new_resume
+        else {"resume_revision_id": prep_input["resume_revision_id"]}
+    )
+    result = await run(
+        client,
+        {
+            **prep_input,
+            "targets": ["resume_tailoring", "greeting_generation"],
+            "bindings": {"greeting_generation": binding},
+        },
+    )
+    assert result["outcome"]["status"] == "completed", result
+    records = {}
+    for target, value in result["outcome"]["targets"].items():
+        records[target] = (
+            await client.get(f"/api/v1/preparation-artifacts/{value['artifact_id']}")
+        ).json()["data"]["output"]
+    chosen = (
+        records["resume_tailoring"]["resume_revision_id"]
+        if new_resume
+        else prep_input["resume_revision_id"]
+    )
+    assert records["greeting_generation"]["source_resume_revision_id"] == chosen
+    assert (
+        records["resume_tailoring"]["source_resume_revision_id"] == prep_input["resume_revision_id"]
+    )
+    assert chosen != prep_input["resume_revision_id"] if new_resume else True
+
+
+@pytest.mark.parametrize("gated", [False, True])
+@pytest.mark.parametrize("gap", ["no_evidence", "explicit_gap"])
+async def test_fit_gate_or_informational(client, prep_input, sessions, gated, gap):
+    if gap == "explicit_gap":
+        fact = (
+            await client.post(
+                "/api/v1/facts",
+                json={"statement": "尚未具备岗位明确要求的经验。", "category": "explicit_gap"},
+            )
+        ).json()
+        await client.post(f"/api/v1/facts/{fact['id']}/verify")
+        profile = (await client.get("/api/v1/profile")).json()
+        profile["data"]["projects"][0]["fact_ids"].append(fact["id"])
+        updated = (
+            await client.put(
+                "/api/v1/profile",
+                json={"expected_revision": profile["revision"], "data": profile["data"]},
+            )
+        ).json()
+        async with sessions() as session:
+            base = await session.get(
+                e.ResumeVariantRevision, UUID(prep_input["resume_revision_id"])
+            )
+            doc = dict(base.document)
+        doc.update(profile_id=updated["id"], profile_revision=updated["revision"])
+        base = (await client.post("/api/v1/resume-variants", json=doc)).json()
+        prep_input = {
+            **prep_input,
+            "profile_id": updated["id"],
+            "resume_revision_id": base["resume_revision_id"],
+        }
+
+    class GateProvider(FixtureTaskProvider):
+        async def generate(self, candidate, context, task):
+            response = await super().generate(candidate, context, task)
+            if context.task_type == TaskType.EXTRACTION:
+                for r in response.output["requirements"]:
+                    r["requirement_kind"] = "must"
+            if context.task_type == TaskType.FIT:
+                for item in response.output["items"]:
+                    item.update(status=gap, fact_refs=[] if gap == "no_evidence" else [fact["id"]])
+                response.output["partial_matches"] = []
+                response.output["evidence_missing" if gap == "no_evidence" else "clear_gaps"] = [
+                    i["requirement_ref"] for i in response.output["items"]
+                ]
+            return response
+
+    inject(client, GateProvider())
+    result = await run(
+        client,
+        {
+            **prep_input,
+            "targets": ["fit_analysis", "greeting_generation"],
+            "fit_gate": "gate_downstream" if gated else "informational",
+        },
+    )
+    assert result["outcome"]["status"] == ("decision_required" if gated else "completed"), result
+    assert result["state"]["usage"]["model_calls"] == (2 if gated else 3)
+    assert result["outcome"]["targets"]["fit_analysis"]["status"] == "completed"
+    if gated:
+        assert result["outcome"]["reason"] == (
+            "low_fit" if gap == "explicit_gap" else "insufficient_evidence"
+        )
+        assert result["outcome"]["gate_policy_version"] == "fit_gate_policy_v1"
+        assert result["outcome"]["targets"]["greeting_generation"]["status"] == "pending"
+        continued = await run(client, {**prep_input, "targets": ["greeting_generation"]})
+        assert continued["outcome"]["status"] == "completed"
+        assert continued["state"]["usage"]["model_calls"] == 1
+
+
+async def test_independent_failure_does_not_block_greeting(client, prep_input):
+    class BadFit(FixtureTaskProvider):
+        async def generate(self, candidate, context, task):
+            if context.task_type == TaskType.FIT:
+                raise ModelGatewayError("provider_refusal")
+            return await super().generate(candidate, context, task)
+
+    inject(client, BadFit())
+    result = await run(client, {**prep_input, "targets": ["fit_analysis", "greeting_generation"]})
+    assert result["outcome"]["status"] == "partial"
+    assert result["outcome"]["targets"]["fit_analysis"]["status"] == "failed"
+    assert result["outcome"]["targets"]["greeting_generation"]["status"] == "completed"
+
+
+async def test_failed_intermediate_does_not_count_as_partial(client, prep_input):
+    class BadTailor(FixtureTaskProvider):
+        async def generate(self, candidate, context, task):
+            if context.task_type == TaskType.TAILOR:
+                raise ModelGatewayError("provider_refusal")
+            return await super().generate(candidate, context, task)
+
+    inject(client, BadTailor())
+    result = await run(
+        client,
+        {
+            **prep_input,
+            "targets": ["resume_tailoring", "greeting_generation"],
+            "bindings": {"greeting_generation": {"output_of": "resume_tailoring"}},
+        },
+    )
+    assert result["outcome"]["status"] == "failed"
+    assert result["state"]["requirement_refs"]
+    assert result["outcome"]["targets"]["greeting_generation"]["status"] == "blocked"
+
+
+async def test_history_discovery_exact_context_and_mismatch(client, prep_input, sessions):
+    result = await run(client, prep_input)
+    context_url = f"/api/v1/preparation-artifacts/{result['package_id']}/context"
+    original = (await client.get(context_url)).json()
+    profile = (await client.get("/api/v1/profile")).json()
+    updated = (
+        await client.put(
+            "/api/v1/profile",
+            json={"expected_revision": profile["revision"], "data": profile["data"]},
+        )
+    ).json()
+    job_id = original["job"]["id"]
+    revised = await client.post(
+        f"/api/v1/jobs/{job_id}/revisions",
+        json={"expected_revision": 1, "title": "新的合成岗位", "jd_text": "新的合成要求。"},
+    )
+    assert revised.status_code == 201, revised.text
+    assert (await client.get(context_url)).json() == original
+    mismatch = await run(
+        client, {**prep_input, "profile_id": updated["id"], "targets": ["greeting_generation"]}
+    )
+    assert mismatch["outcome"]["status"] == "failed"
+    assert mismatch["outcome"]["reason"] == "context_revision_mismatch"
+    assert mismatch["state"]["usage"]["model_calls"] == 0
+    jobs = (await client.get(f"/api/v1/jobs/{job_id}/preparation-packages")).json()
+    assert result["package_id"] in {v["id"] for v in jobs}
+    async with sessions() as session:
+        app = await session.scalar(select(e.Application))
+        app_id = app.id
+        assert app.status.value == "tracking"
+    assert (await client.get(f"/api/v1/applications/{app_id}/preparation-packages")).json() == jobs
+
+
+@pytest.mark.parametrize("corrupt", [False, True])
+async def test_pdf_unavailable_blocks_reuse_and_interview_without_call(
+    client, prep_input, sessions, corrupt
+):
+    result = await run(client, {**prep_input, "targets": ["resume_tailoring"]})
+    async with sessions() as session:
+        artifact = await session.get(e.RenderArtifact, UUID(result["state"]["render_report_id"]))
+        path = (
+            client._transport.app.state.settings.data_dir
+            / "artifacts"
+            / f"{artifact.artifact_ref}.pdf"
+        )
+    if corrupt:
+        path.write_bytes(b"corrupt synthetic PDF")
+    else:
+        path.unlink()
+    for workflow, payload in [
+        ("prepare_application", {**prep_input, "targets": ["resume_tailoring"]}),
+        ("prepare_interview", {**prep_input, "application_package_id": result["package_id"]}),
+    ]:
+        failed = await run(client, payload, workflow)
+        assert failed["outcome"]["status"] == "failed"
+        assert failed["outcome"]["reason"] == "pdf_invalid"
+        assert failed["state"]["usage"]["model_calls"] == 0
+        steps = (await client.get(f"/api/v1/runs/{failed['state']['run_id']}/steps")).json()
+        assert all(s["status"] != "running" for s in steps)
+
+
+async def test_real_overflow_semantic_compression_real_recompile(client, prep_input, sessions):
+    class Overflow(FixtureTaskProvider):
+        async def generate(self, candidate, context, task):
+            response = await super().generate(candidate, context, task)
+            if context.task_type == TaskType.TAILOR:
+                item = response.output["sections"][0]["items"][0]
+                item.update(
+                    text=("使\n用\nPython\n和\nFastAPI\n构\n建\n模\n拟\n服\n务。\n" * 5).strip(),
+                    short_text=None,
+                    required=True,
+                )
+            if context.task_type == TaskType.COMPRESS:
+                response.output["sections"][0]["items"][0]["text"] = (
+                    "使用 Python 和 FastAPI 构建模拟服务。"
+                )
+            return response
+
+    inject(client, Overflow())
+    result = await run(client, {**prep_input, "targets": ["resume_tailoring"]})
+    assert result["outcome"]["status"] == "completed", result
+    assert result["state"]["usage"]["semantic_compressions"] == 1
+    async with sessions() as session:
+        reports = list(
+            await session.scalars(select(e.RenderArtifact).order_by(e.RenderArtifact.created_at))
+        )
+    assert len(reports) == 2
+    assert reports[0].report["error_code"] == "layout_failed"
+    assert reports[0].report["page_count"] > 1
+    assert reports[1].report["render_status"] == "accepted"
+    assert reports[1].report["page_count"] == 1
+
+
+@pytest.mark.parametrize("expired", [False, True])
+async def test_existing_research_reuse_or_expiry_never_searches(
+    client, prep_input, sessions, expired
+):
+    from datetime import timedelta
+
+    from career_agent.preparation.contracts import ResearchConclusion, ResearchData, ResearchOutput
+    from career_agent.preparation.research import SearchInput
+
+    evidence = (await FixtureResearchAdapter().search(SearchInput(query="合成公司"))).evidence
+    async with sessions.begin() as session:
+        jd = await session.get(e.JobRevision, UUID(prep_input["job_revision_id"]))
+        job = await session.get(e.JobPosting, jd.job_id)
+        report = e.CompanyResearch(
+            company_id=job.company_id,
+            research_version=1,
+            fetched_at=e.utcnow(),
+            expires_at=e.utcnow() + timedelta(hours=-1 if expired else 1),
+            data=ResearchData(
+                evidence=evidence,
+                mode="fixture",
+                report=ResearchOutput(
+                    locale="zh-CN",
+                    conclusions=[
+                        ResearchConclusion(
+                            text="合成公司提供开发工具。", evidence_refs=[evidence[0].id]
+                        )
+                    ],
+                    unknowns=[],
+                    inference=[],
+                ),
+            ).model_dump(mode="json"),
+        )
+        session.add(report)
+        await session.flush()
+        report_id = str(report.id)
+
+    class NoSearch(FixtureResearchAdapter):
+        async def search(self, query):
+            raise AssertionError("unrequested research must never execute")
+
+    inject(client, research=NoSearch())
+    result = await run(client, {**prep_input, "targets": ["greeting_generation"]})
+    assert result["outcome"]["status"] == "completed"
+    assert result["state"]["research_report_id"] == (None if expired else report_id)
+    assert result["state"]["usage"]["search_calls"] == 0
+    assert result["state"]["usage"]["model_calls"] == 2
+
+
+async def test_cross_job_fit_reference_and_render_binding_rejected(client, prep_input, sessions):
+    first = await run(client, prep_input)
+    job = (
+        await client.post(
+            "/api/v1/jobs",
+            json={
+                "company_name": "其他合成公司",
+                "title": "其他岗位",
+                "jd_text": "必须使用 Python。",
+            },
+        )
+    ).json()
+    other = await run(
+        client,
+        {**prep_input, "job_revision_id": job["job_revision_id"], "targets": ["fit_analysis"]},
+    )
+    async with sessions.begin() as session:
+        package = await session.get(e.PreparationArtifact, UUID(first["package_id"]))
+        import copy
+
+        data = copy.deepcopy(package.data)
+        data["output"]["fit_analysis_id"] = other["state"]["fit_analysis_id"]
+        package.data = data
+    failed = await run(
+        client, {**prep_input, "application_package_id": first["package_id"]}, "prepare_interview"
+    )
+    assert failed["outcome"]["reason"] == "context_revision_mismatch"
+    assert failed["state"]["usage"]["model_calls"] == 0
+
+
+async def test_gate_intermediate_not_exposed_as_requested_output(client, prep_input):
+    result = await run(
+        client, {**prep_input, "targets": ["greeting_generation"], "fit_gate": "gate_downstream"}
+    )
+    assert result["outcome"]["status"] == "completed"
+    assert set(result["outcome"]["targets"]) == {"greeting_generation"}
+    assert result["state"]["fit_analysis_id"]
+    fit = await run(
+        client, {**prep_input, "targets": ["fit_analysis"], "limits": {"max_model_calls": 0}}
+    )
+    assert fit["outcome"]["status"] == "completed"
+    assert fit["state"]["usage"]["model_calls"] == 0
+
+
+@pytest.mark.parametrize("boundary", ["requirements", "research", "render"])
+async def test_interview_rejects_cross_context_intermediates(
+    client, prep_input, sessions, boundary
+):
+    import copy
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from career_agent.preparation.contracts import ResearchData, ResearchOutput
+
+    first = await run(client, prep_input)
+    other = (
+        await client.post(
+            "/api/v1/jobs",
+            json={"company_name": "不同公司", "title": "其他岗位", "jd_text": "需要 API 经验。"},
+        )
+    ).json()
+    async with sessions.begin() as session:
+        package = await session.get(e.PreparationArtifact, UUID(first["package_id"]))
+        data = copy.deepcopy(package.data)
+        jd = await session.get(e.JobRevision, UUID(other["job_revision_id"]))
+        if boundary == "requirements":
+            requirement = e.JobRequirement(
+                job_revision_id=jd.id,
+                text="需要 API 经验。",
+                source_quote="需要 API 经验。",
+                importance="must",
+                category="synthetic",
+            )
+            session.add(requirement)
+            await session.flush()
+            data["output"]["requirement_refs"] = [str(requirement.id)]
+        elif boundary == "research":
+            job = await session.get(e.JobPosting, jd.job_id)
+            report = e.CompanyResearch(
+                company_id=job.company_id,
+                research_version=1,
+                fetched_at=e.utcnow(),
+                expires_at=e.utcnow() + timedelta(hours=1),
+                data=ResearchData(
+                    mode="fixture",
+                    evidence=[],
+                    report=ResearchOutput(
+                        locale="zh-CN", conclusions=[], unknowns=[], inference=[]
+                    ),
+                ).model_dump(mode="json"),
+            )
+            session.add(report)
+            await session.flush()
+            data["output"]["research_report_id"] = str(report.id)
+        else:
+            # A valid FK to another revision still must not satisfy the package's exact output.
+            artifact = await session.get(e.RenderArtifact, UUID(first["state"]["render_report_id"]))
+            wrong = e.RenderArtifact(
+                resume_variant_id=artifact.resume_variant_id,
+                resume_variant_revision=1,
+                artifact_ref=uuid4(),
+                file_hash=artifact.file_hash,
+                report=artifact.report,
+            )
+            session.add(wrong)
+            await session.flush()
+            data["output"]["render_report_id"] = str(wrong.id)
+        package.data = data
+    failed = await run(
+        client, {**prep_input, "application_package_id": first["package_id"]}, "prepare_interview"
+    )
+    assert failed["outcome"]["status"] == "failed"
+    assert failed["outcome"]["reason"] in {"context_revision_mismatch", "accepted_resume_required"}
+    assert failed["state"]["usage"]["model_calls"] == 0
+
+
+async def test_compatible_legacy_fit_no_duplicate_model_call(client, prep_input, sessions):
+    from sqlalchemy import delete
+
+    first = await run(client, {**prep_input, "targets": ["fit_analysis"]})
+    async with sessions.begin() as session:
+        # Simulate a pre-target record: private Fit/package and safe model provenance survive.
+        await session.execute(
+            delete(e.PreparationArtifact).where(
+                e.PreparationArtifact.data["kind"].astext == "target"
+            )
+        )
+    again = await run(
+        client, {**prep_input, "targets": ["fit_analysis"], "limits": {"max_model_calls": 0}}
+    )
+    assert again["outcome"]["status"] == "completed", again
+    assert again["state"]["fit_analysis_id"] == first["state"]["fit_analysis_id"]
+    assert again["state"]["usage"]["model_calls"] == 0
+    assert any(
+        n["name"] == "fit_analysis" and n["status"] == "reused" for n in again["outcome"]["nodes"]
+    )

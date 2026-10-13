@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any
-from uuid import UUID, uuid5
 
 import httpx
 from openai import AsyncOpenAI
@@ -91,35 +90,12 @@ class FixtureTaskProvider:
                 "clear_gaps": [],
             }
         elif t == TaskType.TAILOR:
-            output = {
-                **c["identity"],
-                "sections": [
-                    {
-                        "section_id": str(
-                            uuid5(UUID(c["identity"]["job_revision_id"]), "fixture-section")
-                        ),
-                        "name": "projects",
-                        "ordering": 1,
-                        "priority": 80,
-                        "required": True,
-                        "items": [
-                            {
-                                "item_id": str(uuid5(UUID(f["id"]), "fixture-item")),
-                                "kind": "bullet",
-                                "text": f["statement"],
-                                "short_text": None,
-                                "fact_refs": [f["id"]],
-                                "requirement_refs": [c["requirements"][0]["id"]],
-                                "hard_claims": [],
-                                "priority": 80,
-                                "required": True,
-                                "ordering": index,
-                            }
-                            for index, f in enumerate(c["facts"][:4])
-                        ],
-                    }
-                ],
-            }
+            import copy
+
+            output = {**copy.deepcopy(c["base_resume"]), **c["identity"]}
+            for section in output["sections"]:
+                for item in section["items"]:
+                    item["requirement_refs"] = [c["requirements"][0]["id"]]
         elif t == TaskType.COMPRESS:
             output = c["variant"]
             for section in output["sections"]:

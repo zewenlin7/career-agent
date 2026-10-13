@@ -101,6 +101,7 @@ async def revise_variant(
 
 def variant_view(row: e.ResumeVariantRevision) -> VariantOut:
     return VariantOut(
+        resume_revision_id=row.id,
         id=row.resume_variant_id,
         revision=row.revision,
         created_at=row.created_at,

@@ -34,6 +34,7 @@ class RunStatus(StrEnum):
     FAILED = "failed"
     INTERRUPTED = "interrupted"
     NEEDS_INPUT = "needs_input"
+    DECISION_REQUIRED = "decision_required"
 
 
 class CallStatus(StrEnum):

@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current milestone is **v0.1c Job Preparation Workflow (completed and locally verified)**, built on v0.1a/v0.1b and part of the eventual **v0.1 Domain MVP**.
+The current milestone is **v0.1d Integration / E2E (completed locally)**, built on v0.1a/v0.1b and part of the eventual **v0.1 Domain MVP**.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -19,9 +19,9 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
   trusted zh-CN Typst rendering, one-page PDF validation and exact-revision artifact APIs.
   Chinese resumes with English technical terms are the current canonical product.
 
-OpenAI Responses and Tavily adapters, thin fixed LangGraph workflows, versioned prompts,
+OpenAI Responses and Tavily adapters, deterministic target orchestration, versioned prompts,
 structured zh-CN tailoring and static budget controls are implemented and tested offline.
-**Live extraction/research/fit/tailoring/PDF/greeting have been exercised; Interview Prep passed after a timeout-policy fix, and controlled compression produced an accepted PDF. Final offline verification passed (195 tests). Synthetic acceptance does not establish real job-search quality.**
+**Live extraction/research/fit/tailoring/PDF/greeting have been exercised; Interview Prep passed after a timeout-policy fix, and controlled compression produced an accepted PDF. v0.1c live acceptance is historical; v0.1d acceptance is offline only. Synthetic acceptance does not establish real job-search quality.**
 No automatic applications/messages, dynamic planner, durable worker, mock interview, LLM judge,
 vector search or frontend are implemented. Interview preparation is an explicit separate request.
 
@@ -149,14 +149,15 @@ For unit tests only: `uv run pytest tests/unit -q` (no PostgreSQL or Typst proce
 Compiler tests use real Typst; missing/wrong versions fail rather than silently skip. Pytest
 temporary artifact directories are removed at session end.
 GitHub Actions runs the same suite with an isolated PostgreSQL service and synthetic credentials.
-v0.1a/v0.1b CI passed remotely (user confirmed). v0.1c remote CI remains pending; no commit or push is performed here.
+v0.1a/v0.1b/v0.1c CI passed remotely (user confirmed). v0.1d is locally verified only: **235 offline tests passed**, including empty PostgreSQL migration/drift,
+real Typst E2E, static checks and offline installation/build. No commit or push is performed here.
 
 ## Roadmap
 
 - v0.1a: Foundation (implemented).
 - v0.1b: Resume Compiler, Typst and PDF validation (implemented).
 - v0.1c: Job Preparation Workflow (completed and locally verified).
-- v0.1d: Integration / E2E (planned).
+- v0.1d: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E.
 - v0.2: Agent Runtime; v0.3: Harness / Evaluation / Safety (planned).
 - v0.4: Production Engineering; v0.5: Real Usage Loop (planned).
 
@@ -290,28 +291,74 @@ computed SHA-256; subsequent storage failure clears success/file metadata and pe
 The PDF hash checks file integrity; byte-identical PDFs are not the regression criterion.
 Matching selections, decisions, page count and validation results are the determinism contract.
 
-## Job preparation workflows (v0.1c)
+## Job preparation workflows (v0.1d)
 
-`POST /api/v1/workflows/prepare_application` accepts exact `job_revision_id`, `profile_id`,
-`mode` (`fixture` by default), optional `limits`, and `force_research_refresh`.
-POST/GET Job responses expose `job_revision_id`; extracted requirements include their structured metadata.
-It runs requirement extraction → bounded research → fit → tailoring → compiler → greeting.
-Only `layout_failed` allows one separate `resume_compression` call and one more compiler invocation.
-Compiler attempts are stored on RenderArtifact; they are never model retries.
+`POST /api/v1/workflows/prepare_application` accepts exact `profile_id` (an immutable Profile
+revision row), `job_revision_id`, `targets`, `mode` (`fixture` default), `limits` and resume bindings.
+Legal targets are any nonempty subset of `fit_analysis`, `resume_tailoring`, `greeting_generation`.
+Omitting targets retains the three-target default, but never selects a resume automatically.
+Fit is informational by default, not a prerequisite for Tailoring/Greeting. Execution order is
+stable; only explicit dependencies block independent targets. Existing compatible results are
+reused before spending any model budget. Requirements are reused for the exact JD or extracted
+once if absent. Fresh same-company/mode research is optional free context; absent/expired research
+is skipped without a search/synthesis call. `force_research_refresh=true` is rejected in this workflow
+(`research_refresh_not_a_target`); the research adapter remains available internally, not a hidden target.
 
-`POST /api/v1/workflows/prepare_interview` requires the same source revisions and an explicit
-`application_package_id` from preparation. It rechecks current verified facts and the accepted
-exact resume revision, then generates structured question/answer outlines. It never runs implicitly.
-Optionally supply `star_story_ids` / `knowledge_note_ids` for bounded user-selected context.
+Both Tailoring and Greeting need a user-selected immutable `resume_revision_id` (returned by the
+ResumeVariant API). A common selection can be supplied at the request top level; per-target
+`bindings` override it. Tailoring appends a new revision with the chosen base recorded, never silently
+edits that base. Greeting uses the chosen resume, not whichever revision happens to be latest.
+Example: tailor a chosen revision, then explicitly use the result for Greeting:
 
-Both return HTTP 201 for the created run/package, **not a promise that all outputs succeeded**.
-Inspect `state.status`, `stop_reason`, `warnings`, `errors` and result refs. Research failure may
-produce a partial package with other materials; budget exhaustion preserves earlier results.
-No workflow changes application status or sends a recruiter message.
+```json
+{
+  "profile_id": "<exact-profile-revision-uuid>",
+  "job_revision_id": "<exact-jd-revision-uuid>",
+  "targets": ["resume_tailoring", "greeting_generation"],
+  "bindings": {
+    "resume_tailoring": {"resume_revision_id": "<chosen-resume-revision-uuid>"},
+    "greeting_generation": {"output_of": "resume_tailoring"}
+  }
+}
+```
 
-Read private domain outputs with `GET /api/v1/preparation-artifacts/{id}` and
-`GET /api/v1/company-research/{id}`. `GET /api/v1/runs/{id}/calls` returns metadata only.
-These local APIs have no authentication; keep them bound to loopback.
+Missing selection returns `needs_input / resume_selection_required` before model calls.
+`GET /api/v1/resume-revisions?profile_id=...&job_revision_id=...` lists paginated choices with
+first-revision (`original`), same-JD, same-Job and last-used hints; these never make a selection.
+Only `layout_failed` permits one semantic compression call and recompile. Typst attempts are not
+model retries. Profile/fact snapshots, requirement ownership, exact variants and PDF hashes are
+revalidated at consumption; a missing/corrupt previously accepted PDF causes an explicit failure.
+
+Opt-in `fit_gate: "gate_downstream"` uses `fit_gate_policy_v1` and may generate/reuse an intermediate
+Fit even if Fit is not a requested output. Among must-have requirements: at least two explicit gaps
+or at least 50% explicit gaps requires a `low_fit` decision; otherwise at least 50% `no_evidence`
+requires an `insufficient_evidence` decision. No must-haves passes. Matched/partial receive no scores.
+`no_evidence` does not mean inability. The run ends normally with `decision_required` and no later
+target calls. A new explicit informational request can reuse existing artifacts; there is no paused process.
+
+`POST /api/v1/workflows/prepare_interview` remains separate and explicit. Supply the same exact
+profile/JD and an `application_package_id` containing an accepted exact resume. Optional selected
+STAR stories/knowledge notes are bounded context. It never runs implicitly or refreshes research.
+
+HTTP 201 means a run/package resource was created. The single `outcome` is identical in API,
+AgentRun and package: `completed`, `partial`, `failed`, `needs_input`, or `decision_required`.
+Each **requested** target has `completed/failed/blocked/pending`, an artifact ref or reason.
+Only completed requested targets count toward `partial`; successful prerequisites do not.
+Node records distinguish `executed/reused/skipped/failed/blocked`. Dependencies remain available in
+state refs but are not added to `outcome.targets`. No material generation changes Application status.
+
+Retrieval (all under `/api/v1`):
+
+- `GET /preparation-artifacts/{id}`: package, target provenance or task output. A target record links
+  its task result, exact resume revision and render artifact, so every requested output is retrievable.
+- `GET /preparation-artifacts/{package_id}/context`: original Profile/JD, requirements and exact
+  input/output resumes, even after Profile/JD updates. This is historical retrieval, not re-verification.
+- `GET /jobs/{id}/preparation-packages` and `/applications/{id}/preparation-packages`: paginated
+  packages across that Job's revisions (Application uses the existing Job relationship).
+- `GET /runs/{id}/package`, `/runs/{id}`, `/runs/{id}/calls`: final package, outcome, safe call metadata.
+- Existing `GET /company-research/{id}`, resume revision and PDF metadata/download endpoints remain.
+
+These local private-data APIs have no authentication; bind them to loopback.
 
 ### Offline versus live
 
@@ -333,7 +380,7 @@ uv run python scripts/smoke_preparation.py --live
 ```
 
 This uses only repository synthetic personal facts and a clearly synthetic JD with public OpenAI
-company research. It creates an isolated random `career_smoke_*` PostgreSQL database, never
+company context. The current target smoke does not search Tavily; the adapter was verified in v0.1c. It creates an isolated random `career_smoke_*` PostgreSQL database, never
 modifying the configured application DB. Fixture mode drops its database; live mode now retains
 it (including failed runs) and records its generated name as `database_ref` for targeted follow-up.
 The role needs CREATEDB. It stops on partial/failed outputs and does not automatically retry paid
@@ -378,7 +425,7 @@ Cumulative conservative accounting: **USD 0.3350816**, remaining **USD 0.6649184
 USD 1 cap. Unknown failed-call usage remains reserved. One-off recovery scripts tied to local
 run IDs and historical budgets were retired; source archives and acceptance artifacts stay outside
 the repository. See CHANGELOG for call metrics. No additional live calls were made during final
-review. Full offline validation passed; v0.1d remains planned, with no real-data/production claim.
+review. v0.1d offline E2E verifies integration contracts, not real-data or production quality.
 
 Model HTTP timeout policy is configured independently of token/cost budgets: default
 `CAREER_AGENT_MODEL_TIMEOUT_SECONDS=60`, with

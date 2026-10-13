@@ -1,6 +1,6 @@
 # Career Agent architecture
 
-Status: **v0.1a/v0.1b/v0.1c complete and locally verified**. Every capability below marked **planned** is not
+Status: **v0.1a–v0.1d complete and locally verified**. Every capability below marked **planned** is not
 present in the executable application. This is an independent project and does not reuse an
 unrelated RAG application's data or code.
 
@@ -25,7 +25,7 @@ email/calendar integration or mobile application is included in the committed ro
 - `api`: explicit user operations, validated request/response models and safe errors.
 - `infrastructure`: async SQLAlchemy/asyncpg, PostgreSQL entities, validated JSONB types.
 - `models`: canonical request/task/output contracts, model registry entries, static policy, fake and OpenAI Responses adapters.
-- `preparation`: fixed LangGraph workflows, task prompts/schemas, guardrails, research and budgets.
+- `preparation`: target-driven deterministic orchestration, task prompts/schemas, guardrails, research and budgets.
 - `runtime`: metadata contracts. Not a workflow engine, memory store or checkpoint layer.
 - `security`: allowlisted events and basic redaction. Not a complete DLP solution.
 - `resume`: structured variant schemas, deterministic grounding/content/layout validation, trusted Typst and private PDF storage.
@@ -138,7 +138,7 @@ Neither is hidden chain-of-thought. Checkpoints are **planned**, distinct from t
 
 The caller constructs `ModelRequestContext` with task_type, workflow, complexity, capabilities,
 privacy class, remaining budget, output schema and max output tokens. The gateway never reads
-an Agent State. `workflow`, `task_type`, and future `requested_outputs` are not natural-language
+an Agent State. `workflow`, `task_type`, and `requested_outputs` are not natural-language
 intent classification. Intent routing is **optional future work**.
 
 Registry entries contain tier/capabilities/privacy eligibility and price metadata; adapters are
@@ -191,7 +191,7 @@ system is present in Foundation.
 | v0.1a Foundation | Implemented: domain, persistence, APIs, runtime/model/privacy/testing contracts |
 | v0.1b Resume Compiler | Implemented: hand-authored Variant, grounding, Typst, one-page PDF, deterministic compression/validation |
 | v0.1c Job Preparation Workflow | Completed locally: two fixed workflows, providers, guardrails, budgets and bounded live acceptance |
-| v0.1d Integration / E2E | Planned: complete job-preparation path, failure cases, acceptance and v0.1.0 release |
+| v0.1d Integration / E2E | Completed locally: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E |
 | v0.2 Agent Runtime | Planned: bounded planner/executor/evaluator/replan, checkpoints/worker, mock/debrief |
 | v0.3 Harness / Evaluation / Safety | Planned: scenarios/golden/regression, replay, fault injection, deterministic + human + LLM evaluation |
 | v0.4 Production Engineering | Planned: Ops dashboard, metrics, dynamic routing/budgets, concurrency/rate limits, circuits/fallback/control/cache |
@@ -354,20 +354,58 @@ session end. The manual synthetic-example command intentionally retains its thre
 and four reports in a caller-selected private directory for review. No PDF/font binary belongs
 in the public repository.
 
-## v0.1c fixed preparation layer
+## v0.1d deterministic preparation layer
 
-Two product workflows use a thin LangGraph StateGraph with finite named nodes, no LLM-selected
-edges, checkpointer, worker, planner or ReAct loop. Graph state carries references, usage, warnings
-and stop codes. Private input material is selected in the executor, not duplicated into graph state.
-LangSmith tracing is explicitly disabled even if enabled in the environment; no external callbacks.
+Two explicit product workflows remain, with finite Python orchestration in `preparation/orchestrator.py`.
+The previous LangGraph wrapper and unused dependencies were removed: no dynamic planner, model-selected
+edges, checkpointer or worker is required for this bounded target graph. Task execution/guardrails/budgets
+stay in `workflows.py`; shared exact context validation lives in `context.py`. No external tracing SDK runs.
 
-Application: validate → extract → research → fit → tailor → compile → greeting → persist.
-Only eligible `layout_failed` has an edge to compress → compile once more. All terminal failures
-persist a failed/partial package. Research failure can continue with a warning; exhausted budget
-stops new calls. Interview: validate → load exact prior package/context → generate → persist.
-The second workflow requires an accepted exact resume revision, same profile/JD and fixture/live
-mode, and current verified facts. It does not refresh company research automatically; stale research
-is a warning. Knowledge notes/STAR stories are explicit bounded context, never auto-verified facts.
+`WorkflowRequest.targets` is any nonempty subset of Fit/Tailoring/Greeting. Exact Profile and JD form
+common context. Existing valid Requirements are reused or extracted once. Research is optional fresh
+same-company/mode context only; no hidden Tavily or synthesis prerequisite. Fit is independently requested
+or explicitly authorized by `fit_gate=gate_downstream`; it is never a default dependency of the other two.
+Tailoring consumes an explicit base ResumeVariantRevision ID and appends a revision; Greeting consumes
+an explicit chosen revision or the explicit `output_of(resume_tailoring)` edge. Missing bindings stop
+before paid work, without any automatic latest/original selection. The deterministic schedule orders
+independent nodes consistently, but failure only blocks dependent nodes. Eligible layout failure permits
+one semantic compression call and a second compiler invocation; existing deterministic compression stays.
+
+`TargetArtifact` is validated private JSONB in existing PreparationArtifact storage, not a new generic
+artifact platform. It records source resume ID, output/render refs and a deterministic compatibility hash
+(exact profile/JD/requirements/fact status, mode, prompt hash, resume binding, and actually used research).
+Interview keys also hash selected notes/stories. Compatible completed targets are revalidated and reused
+without duplicate calls. Legacy Fit can also be reused when exact package context, prompt hash, verified-fact timestamps
+and current references prove compatibility; other legacy outputs lacking binding provenance stay readable. Invalid cached PDFs fail explicitly. Concurrent duplicate requests are not an exactly-once guarantee.
+
+`ContextLoader` validates current consumption: exact immutable Profile/JD, owned requirement refs/evidence,
+same-company research, Fit refs/coverage, current verified facts against the resume's stored snapshot,
+exact Variant→Render linkage and file hash. Explicit selected bases can originate from another Job while
+retaining their own valid requirement refs; generated output binds the requested JD. Interview consumes an
+explicit existing package and its exact accepted resume, rechecking the same boundaries. Stale historical
+research is warned about, not refreshed. Historical GET returns original context even if facts were later
+superseded; historical retrieval is deliberately different from new generation eligibility.
+
+`fit_gate_policy_v1` counts only must-have requirements: explicit_gap >= 2 OR >=50% gives low_fit;
+otherwise no_evidence >=50% gives insufficient_evidence; otherwise pass (including zero must-haves).
+Matched/partial do not contribute a score, and absence of evidence is not inability. On a gate decision,
+unexecuted targets stay pending and the run ends `decision_required`; an explicit new request may continue
+using existing results. No in-process pause or checkpoint exists.
+
+`WorkflowOutcome` is the sole terminal calculation, persisted on AgentRun and in the PreparationPackage,
+and returned by API. Requested target statuses are completed/failed/blocked/pending; intermediate success
+cannot promote failed to partial. Overall completed means all requested targets completed; partial requires
+at least one requested completion and at least one failed/blocked; otherwise execution failure is failed.
+Needs-input and decision-required are separate terminal states. AgentRun's existing `succeeded` maps to
+canonical `completed`; the embedded outcome remains identical. Migration `d4196a2f3011` adds nullable
+validated outcome JSONB and the new status/check/width, preserving old runs. Legacy packages may lack outcome.
+
+Discovery endpoints expose Job/Application packages, Run final package, historical package context and
+resume choices with hints. Task outputs link through target artifacts; intermediates remain state refs,
+not requested outputs. No Application status/event is changed by generating materials. Known limits remain:
+synchronous transaction rollback on uncaught exceptions and non-global DB/filesystem atomicity, with no
+worker/recovery implementation. Offline E2E uses synthetic API inputs, fake models, fixture research, real
+PostgreSQL and real Typst, including missing/corrupt PDFs and real overflow/semantic compression/recompile.
 
 The seven task types are extraction, research synthesis, fit, tailoring, compression, greeting and
 interview preparation, using the full identifiers in `TaskType`. Transport retry and schema repair
@@ -383,7 +421,8 @@ configuration flag is set. Canonical schemas and prompts do not branch by model 
 capability requirement gates structured outputs. Prompts are Python specs in the repository, not
 hosted prompt services, with allowlisted input blocks and schema/version hashes.
 
-ResearchAdapter normalizes Fixture/Tavily into ResearchEvidence. Tavily always uses basic depth,
+The retained research executor/ResearchAdapter normalizes Fixture/Tavily into ResearchEvidence.
+The v0.1d target orchestrator only loads existing research; it never calls this search/refresh path. Tavily always uses basic depth,
 max five results, no raw-page fetch or built-in generated answer. Each attempt consumes one of
 at most two slots. The second query runs only when the first fails or provides less than 60 snippet
 characters. This sufficiency threshold is deliberately simple, not semantic evidence scoring.
@@ -392,11 +431,11 @@ expiry, mode, conclusions, unknowns and explicit inference. Freshness defaults t
 A company row lock serializes cache refresh/version allocation; no distributed infrastructure.
 Different Company IDs never share cache solely because their names match.
 
-PreparationArtifact stores Pydantic-validated private fit/greeting/interview/package JSONB. A kind
+PreparationArtifact stores Pydantic-validated private fit/greeting/interview/package/target JSONB. A kind
 validator enforces the matching output schema. Its run/profile/exact-JD foreign keys RESTRICT
 history deletion; referenced runs cannot be cascade-deleted until artifacts are handled. Report
-references inside JSONB are application-validated, not general relational foreign keys. The new
-migration adds these two tables, optional extraction metadata and tool usage JSONB. No existing
+references inside JSONB are application-validated, not general relational foreign keys. The v0.1c
+migration added these two tables, optional extraction metadata and tool usage JSONB. No existing
 fact-verification or resume revision/font/template semantics are changed.
 
 Input limits bound JD size, verified fact count (stable first 60), optional selected notes/stories,
@@ -445,7 +484,7 @@ Final v0.1c review retains one general smoke entry using the real workflow imple
 One-off recovery scripts bound to historical run IDs/budgets and duplicated direct-provider
 compression code were removed from the public source tree. Private acceptance records remain
 outside git. All requested live tasks passed across separate attempts; final offline checks
-passed without new live calls. v0.1d remains planned, not implemented.
+passed without new live calls. v0.1d adds offline integration acceptance only; no new live quality claim.
 
 
 Cost accounting separates provider-reported usage, price-table `estimated_cost` (USD),
@@ -456,3 +495,10 @@ provider usage. Tavily dispatch counts are observed, credits/free-credit coverag
 USD 0.008 is a configured PAYG-equivalent retail estimate. No billing integrations/admin key.
 Historical pre-fix private summaries retain their earlier combined semantics; docs label their
 cumulative amounts as conservative budget consumption, not expenses or reported usage.
+
+
+v0.1d local acceptance: 235 offline tests passed, including empty real PostgreSQL migration and
+Alembic drift; Ruff/format, strict mypy, offline dependency installation, wheel/sdist inspection,
+Typst 0.15.1 and pinned-font hash preflight passed. The generic fixture smoke completed both
+explicit workflows. No external model/search call was made for this milestone. These are synthetic
+integration checks, not evidence of real job-search quality or production crash recovery.

@@ -16,11 +16,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from career_agent.api.app import create_app
-from career_agent.application import services
+from career_agent.application import resumes, services
 from career_agent.config import Settings
 from career_agent.domain.schemas import Experience, FactCreate, JobCreate, ProfileData, ProfileWrite
 from career_agent.infrastructure import entities as e
 from career_agent.models.contracts import ModelGatewayError
+from career_agent.resume.schemas import ResumeDocument
 
 
 async def smoke(settings, live):
@@ -91,8 +92,37 @@ async def smoke(settings, live):
             revision = await session.scalar(
                 select(e.JobRevision).where(e.JobRevision.job_id == job.id)
             )
+            base = await resumes.create_variant(
+                session,
+                ResumeDocument.model_validate(
+                    {
+                        "profile_id": str(profile.id),
+                        "profile_revision": profile.revision,
+                        "job_revision_id": str(revision.id),
+                        "sections": [
+                            {
+                                "section_id": str(uuid4()),
+                                "name": "projects",
+                                "priority": 80,
+                                "ordering": 0,
+                                "items": [
+                                    {
+                                        "item_id": str(uuid4()),
+                                        "kind": "bullet",
+                                        "text": fixture["facts"][0]["statement"],
+                                        "fact_refs": [str(ids[0])],
+                                        "priority": 80,
+                                        "ordering": 0,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ),
+            )
             payload = {
                 "profile_id": str(profile.id),
+                "resume_revision_id": str(base.id),
                 "job_revision_id": str(revision.id),
                 "mode": summary["mode"],
                 "limits": {"max_estimated_cost": "0.60", "max_model_calls": 8},
