@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.1b Resume Compiler — implemented; final verification recorded in CHANGELOG.**
-v0.1c is the next milestone, not implemented or authorized in this change.
+**v0.1c Job Preparation Workflow — completed; live and final offline acceptance passed.**
+Next: v0.1d Integration / E2E (not started).
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -29,14 +29,30 @@ See CHANGELOG for verified details.
 - [x] Explicit layout failure; no fabricated facts, invisible clipping or arbitrary font shrinkage.
 - [x] Renderer/grounding tests using synthetic data. No unrelated job workflow yet.
 
-### v0.1c Job Preparation Workflow (planned)
+### v0.1c Job Preparation Workflow (completed locally)
 
-- [ ] Thin LangGraph graph with explicit state, structured observations and bounded repair branches.
-- [ ] Configured real model adapter with capability/usage/error handling and privacy review.
-- [ ] Manual JD extraction, bounded company research with evidence and safe public text access.
-- [ ] Fit analysis, greeting draft, interview-preparation generation.
-- [ ] Untrusted-content boundary, tool arguments, timeouts/retry caps and per-run limits.
-- [ ] Trace concrete workflow/prompt/schema/tool versions; never fabricate missing metadata.
+- [x] Two fixed LangGraph workflows; ref-only state and one semantic compression branch.
+- [x] OpenAI Responses/Pydantic adapter, cheap/strong policy, no premium auto-escalation.
+- [x] Seven versioned/hashed prompts and canonical output schemas.
+- [x] JD evidence extraction, Tavily/fixture boundary and company cache with freshness.
+- [x] Fit, grounded zh-CN Variant/compiler, greeting and explicit interview preparation.
+- [x] Static reservation/accounting, bounded transport/schema repair, private trace metadata.
+- [x] Separate reported usage, price estimates and unknown-call reservations; billed cost/tier unknown.
+- [x] Offline PostgreSQL/Typst tests and mocked native SDK/research contracts.
+- [x] User configured local .env; one bounded live smoke attempted on 2026-10-12.
+- [x] Safe failure metadata preserves native response status/usage before Pydantic parsing; no schema bypass.
+- [x] Retain future live smoke databases so successful upstream domain results can be reused.
+- [x] Original smoke context declared unrecoverable; user authorized fresh canonical synthetic reconstruction.
+- [x] Targeted tailoring and one-page zh-CN PDF passed real acceptance on 2026-10-12.
+- [x] Live Greeting passed zh-CN and reference guardrails; not automatically sent.
+- [x] Local 60-second SDK/HTTP timeout identified; configurable per-task timeout policy added.
+- [x] One authorized Interview Prep with 120-second timeout passed in 78,393 ms; refs validated.
+- [x] One real controlled compression passed grounding and produced an accepted one-page PDF.
+- [x] Preserve cumulative budget: USD 0.3350816 accounted, USD 0.6649184 remaining (includes unknown-usage reservations).
+  Historical recovery scripts are retired; any new paid run requires a fresh explicit budget decision.
+- [x] Record actual models/tokens/cost/latency/searches, live PDF and compression outcomes.
+- [x] Final offline full suite (195 passed), static checks, empty PostgreSQL migration/drift and package checks.
+- [x] v0.1c local DoD complete; synthetic acceptance is not real job-search quality verification.
 
 ### v0.1d Integration / E2E (planned)
 
@@ -82,9 +98,9 @@ See CHANGELOG for verified details.
   Normal request rollback already removes newly written PDF artifacts.
 - Company identity: add explicit resolution only when duplicate company records impede use.
 - Query efficiency: batch current-job projections if measured list-query overhead warrants it.
-- Runtime: add real execution accounting before claiming hard budget enforcement; current policy
-  admission only checks output allowance/cost floor and fake calls cost zero.
-- Runtime call cost: canonicalize structured usage versus searchable cost projections at execution integration.
+- Runtime: v0.1c reserves input/output/cost before each attempt; unknown usage retains
+  conservative reservations. Provider billing reconciliation and durable recovery remain future work.
+- Runtime call cost: estimated-cost projection now excludes unknown reservations; retain future provider invoice reconciliation.
 - Access control: local-only Foundation; authentication must precede any deliberate public exposure.
 - Dependencies: maintain uv.lock and immutable migrations; reevaluate supported Python/DB versions.
 - Resume review follow-ups (not v0.1b blockers): simultaneous Variant revision requests,
@@ -113,6 +129,7 @@ See CHANGELOG for verified details.
 - Multiple resume templates.
 - Natural-language intent routing.
 - Cross-provider judge.
+- OpenAI built-in web search as an optional future ResearchAdapter.
 - Prompt experiments / A-B infrastructure.
 - Tool version rollout.
 - Email/calendar integration.

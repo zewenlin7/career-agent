@@ -107,9 +107,14 @@ async def add_job_revision(
 
 async def create_job(session: AsyncSession, payload: s.JobCreate) -> e.JobPosting:
     # Names are not reliable company identities: never merge companies solely by name.
-    company = e.Company(name=payload.company_name)
-    session.add(company)
-    await session.flush()
+    if payload.company_id:
+        company = await require(session, e.Company, payload.company_id)
+        if company.name != payload.company_name:
+            raise DomainError("company_name_mismatch", 422)
+    else:
+        company = e.Company(name=payload.company_name)
+        session.add(company)
+        await session.flush()
     job = e.JobPosting(company_id=company.id)
     session.add(job)
     await session.flush()
@@ -160,6 +165,7 @@ async def job_view(session: AsyncSession, job: e.JobPosting) -> dict[str, Any]:
     )
     return {
         "id": job.id,
+        "job_revision_id": revision.id,
         "created_at": job.created_at,
         "company_id": company.id,
         "company_name": company.name,

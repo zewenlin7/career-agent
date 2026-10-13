@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/v1")
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "milestone": "v0.1b"}
+    return {"status": "ok", "milestone": "v0.1c"}
 
 
 @router.get("/profile", response_model=out.ProfileOut)
@@ -198,6 +198,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from career_agent.api.resumes import router as resume_router
 
     app.include_router(resume_router)
+    from career_agent.api.preparation import router as preparation_router
+
+    app.include_router(preparation_router)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:

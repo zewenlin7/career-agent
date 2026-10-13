@@ -27,6 +27,11 @@ from career_agent.domain.rules import (
 )
 from career_agent.domain.schemas import InterviewNoteData, ProfileData, StarStoryData
 from career_agent.infrastructure.db import Base, ValidatedJSON, ValidatedList
+from career_agent.preparation.contracts import (
+    ExtractedRequirement,
+    PrivateResult,
+    ResearchData,
+)
 from career_agent.runtime.contracts import Budget, Identifier, Usage, VersionMetadata
 
 
@@ -131,6 +136,9 @@ class JobRequirement(Row, Base):
     category: Mapped[str] = mapped_column(String(200))
     importance: Mapped[str] = mapped_column(String(30))
     source_quote: Mapped[str | None] = mapped_column(Text)
+    extraction_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        ValidatedJSON(ExtractedRequirement)
+    )
 
 
 class Application(Row, Base):
@@ -260,6 +268,7 @@ class ToolCall(Row, Base):
     )
     tool_name: Mapped[str] = mapped_column(String(128))
     tool_version: Mapped[str | None] = mapped_column(String(128))
+    usage: Mapped[dict[str, Any] | None] = mapped_column(ValidatedJSON(Usage))
     attempt: Mapped[int] = mapped_column(default=1)
     status: Mapped[CallStatus] = mapped_column(enum_type(CallStatus), default=CallStatus.PENDING)
     latency_ms: Mapped[int | None] = mapped_column()
@@ -382,3 +391,32 @@ class RenderArtifact(Row, Base):
     artifact_ref: Mapped[UUID | None] = mapped_column(unique=True)
     file_hash: Mapped[str | None] = mapped_column(String(64))
     report: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(RenderReport))
+
+
+class CompanyResearch(Row, Base):
+    __tablename__ = "company_research"
+    __table_args__ = (
+        UniqueConstraint("company_id", "research_version"),
+        CheckConstraint("research_version > 0", name="positive_version"),
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        ForeignKey("companies.id", ondelete="RESTRICT"), index=True
+    )
+    research_version: Mapped[int] = mapped_column()
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(ResearchData))
+
+
+class PreparationArtifact(Row, Base):
+    __tablename__ = "preparation_artifacts"
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), index=True
+    )
+    job_revision_id: Mapped[UUID] = mapped_column(
+        ForeignKey("job_revisions.id", ondelete="RESTRICT")
+    )
+    profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("personal_profiles.id", ondelete="RESTRICT")
+    )
+    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(PrivateResult))

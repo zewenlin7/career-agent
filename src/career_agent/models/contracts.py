@@ -5,7 +5,13 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from career_agent.domain.schemas import Contract
-from career_agent.runtime.contracts import Budget, Identifier, Usage, VersionMetadata
+from career_agent.runtime.contracts import (
+    Budget,
+    Identifier,
+    OutputDiagnostic,
+    Usage,
+    VersionMetadata,
+)
 
 
 class ModelTier(StrEnum):
@@ -34,6 +40,9 @@ class ModelRequestContext(Contract):
     privacy_class: PrivacyClass = PrivacyClass.SYNTHETIC
     budget_remaining: Budget = Field(default_factory=Budget)
     output_schema: type[BaseModel]
+    prompt_version: Identifier | None = None
+    input_schema_version: Identifier | None = None
+    output_schema_version: Identifier | None = None
     max_output_tokens: int = Field(default=512, ge=1, le=32768)
 
 
@@ -54,10 +63,12 @@ class ModelCandidate(Contract):
     allowed_privacy: frozenset[PrivacyClass]
     input_cost_per_million: Decimal = Field(ge=0)
     output_cost_per_million: Decimal = Field(ge=0)
+    cached_input_cost_per_million: Decimal | None = Field(default=None, ge=0)
     pricing_version: Identifier | None = None
 
 
 class ProviderResponse(Contract):
+    diagnostic: OutputDiagnostic | None = None
     output: dict[str, Any]
     usage: Usage
     finish_reason: Identifier
@@ -90,6 +101,16 @@ class ProviderAdapter(Protocol):
 class ModelGatewayError(Exception):
     """Only stable error codes may cross the provider boundary."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool = False,
+        usage: Usage | None = None,
+        diagnostic: OutputDiagnostic | None = None,
+    ) -> None:
+        self.diagnostic = diagnostic
+        self.retryable = retryable
+        self.usage = usage
         self.code = code
         super().__init__(code)

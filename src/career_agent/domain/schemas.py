@@ -63,6 +63,7 @@ class RequirementInput(Contract):
 
 
 class JobCreate(Contract):
+    company_id: UUID | None = None
     company_name: Label
     title: Label
     jd_text: Text

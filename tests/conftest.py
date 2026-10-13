@@ -69,7 +69,40 @@ async def sessions(migrated_url):
 
 @pytest.fixture
 async def client(migrated_url, sessions, tmp_path):
-    app = create_app(Settings(database_url=SecretStr(migrated_url), data_dir=tmp_path))
+    app = create_app(
+        Settings(database_url=SecretStr(migrated_url), data_dir=tmp_path, live_enabled=False)
+    )
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
+
+
+@pytest.fixture(autouse=True)
+def offline_network_boundary(monkeypatch):
+    """Tests may reach temporary local PostgreSQL, never a live external provider."""
+    import socket
+
+    original = socket.socket.connect
+    original_ex = socket.socket.connect_ex
+    original_dns = socket.getaddrinfo
+
+    def check(address):
+        if isinstance(address, tuple) and address[0] not in {"127.0.0.1", "::1", "localhost"}:
+            raise AssertionError("external_network_disabled_in_tests")
+
+    def connect(sock, address):
+        check(address)
+        return original(sock, address)
+
+    def connect_ex(sock, address):
+        check(address)
+        return original_ex(sock, address)
+
+    def dns(host, *args, **kwargs):
+        if host not in {None, "127.0.0.1", "::1", "localhost", b"localhost"}:
+            raise AssertionError("external_network_disabled_in_tests")
+        return original_dns(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    monkeypatch.setattr(socket, "getaddrinfo", dns)

@@ -1,6 +1,6 @@
 # Career Agent architecture
 
-Status: **v0.1a Foundation and v0.1b Resume Compiler implemented**. Every capability below marked **planned** is not
+Status: **v0.1a/v0.1b/v0.1c complete and locally verified**. Every capability below marked **planned** is not
 present in the executable application. This is an independent project and does not reuse an
 unrelated RAG application's data or code.
 
@@ -24,7 +24,8 @@ email/calendar integration or mobile application is included in the committed ro
 - `application`: transactional use cases; calls domain rules and persistence. No model/provider names.
 - `api`: explicit user operations, validated request/response models and safe errors.
 - `infrastructure`: async SQLAlchemy/asyncpg, PostgreSQL entities, validated JSONB types.
-- `models`: canonical request/task/output contracts, model registry entries, static policy, fake adapter.
+- `models`: canonical request/task/output contracts, model registry entries, static policy, fake and OpenAI Responses adapters.
+- `preparation`: fixed LangGraph workflows, task prompts/schemas, guardrails, research and budgets.
 - `runtime`: metadata contracts. Not a workflow engine, memory store or checkpoint layer.
 - `security`: allowlisted events and basic redaction. Not a complete DLP solution.
 - `resume`: structured variant schemas, deterministic grounding/content/layout validation, trusted Typst and private PDF storage.
@@ -64,8 +65,9 @@ existence, while STAR semantic/reference validation belongs to its future write 
 ### Jobs and applications
 
 `Company → JobPosting → JobRevision → JobRequirement` preserves JD history and requirement
-provenance per revision. v0.1a accepts manual requirements; no LLM extraction is performed.
-Names alone do not establish company identity; no name-based company merge occurs.
+provenance per revision. v0.1a accepts manual requirements; v0.1c appends validated extracted requirements with exact JD evidence and extraction metadata. Existing referenced rows are never silently rewritten.
+Names alone do not establish company identity; no name-based company merge occurs. An optional
+existing company_id with matching company_name explicitly reuses a Company across new jobs.
 
 Each created job has one application in Foundation. Reapplication cycles are not exposed.
 `ApplicationEvent` records creation, status changes, corrections and communication notes.
@@ -104,13 +106,13 @@ A failed replacement or other multi-row mutation rolls back the entire request t
 
 Persisted now: `AgentRun`, `AgentStep`, `ModelCall`, `ToolCall`, `Observation`.
 Read API: run metadata and ordered/paginated steps. Calls/observations can be queried through
-persistence; no execution or public runtime mutation endpoint exists.
+persistence; explicit fixed workflow APIs now create runs. There is no generic runtime mutation API.
 
 - Run: workflow/version, requested outputs, status/timestamps, stop code, budget, consumed usage.
 - Step: sequence, node/action, status, attempt, latency, structured reason code, versions.
 - ModelCall: task, provider/model, attempts, usage/cost, latency, finish reason, schema result,
   safe error code/retryability and versions.
-- ToolCall: name/version, attempt/status, latency and safe error code/retryability.
+- ToolCall: name/version, attempt/status, latency, estimated usage/cost and safe error code/retryability.
 - Observation: exactly one model/tool call FK, status, opaque UUID data/evidence references,
   warning codes, error code and retryability.
 
@@ -124,7 +126,7 @@ Runtime metadata fields reject paths/free-text errors at the ORM boundary. Metad
 must still be authored by trusted application code; regex validation is not complete PII detection.
 There are no prompt/response/JD/resume/reasoning body columns in runtime tables. Version and
 usage JSON are validated. Unknown usage/cost is null, never automatically reported as zero.
-Run aggregates are a storage contract only; no executing runtime currently maintains them.
+v0.1c maintains per-attempt and aggregate run usage. Unknown attempts retain separate budget/token reservations; ordinary usage/cost fields remain unknown.
 
 Agent Observation is structured feedback for an executor; Operational Observability is timing,
 usage/failure/control telemetry. They share call identifiers but are different responsibilities.
@@ -144,14 +146,17 @@ injected by provider identifier. Static task policy chooses a tier, promotes hig
 tasks to strong, filters capability/privacy eligibility and chooses deterministically within a tier.
 It never silently upgrades to premium. Missing eligible candidates fail explicitly.
 
-Foundation budget admission checks the requested output-token allowance and known output
-cost floor. It is **not full tokenization, input-cost reservation or hard runtime budget enforcement**.
-Only the injected fake adapter exists, with explicit synthetic output and zero actual billed tokens/cost.
-Real adapter token estimation, timeout/retry accounting and reservation are future runtime work.
-Fake output is validated against the caller's canonical schema. Raw adapter exceptions become
-`provider_error`; validation failures become `invalid_model_output`. Results contain actual selected
-provider/model, usage, latency, attempts, finish/schema status, estimated cost and nullable versions.
-No workflow/prompt/schema version is invented for fake calls.
+Gateway admission checks capabilities/privacy and the requested output allowance/cost floor.
+The v0.1c caller additionally reserves a conservative UTF-8 input bound (including canonical schema
+and envelope allowance), max output tokens and configured cost before **every** network attempt.
+Input contexts above 80,000 bytes plus schema/envelope are rejected. Actual known usage reconciles
+the reservation; unknown usage retains separate `budget_reserved_usd` and reserved token bounds. This is static admission,
+not provider billing reconciliation or production control. Configured prices must track selected
+models; the API has no price guarantee.
+OpenAI Responses uses native Pydantic structured output and `store=False`; no model tools are sent.
+SDK retries are disabled so workflow attempt accounting owns transport retries and schema repair.
+Fake and HTTP-mocked adapters exercise the same canonical contracts offline. All requested real
+API task cases passed bounded synthetic acceptance; this does not establish real job-search quality.
 
 Model-family prompt overrides, additional real providers and judges are not implemented.
 
@@ -169,9 +174,10 @@ Validation errors omit original inputs; unexpected exceptions are caught before 
 Documented Uvicorn startup disables access logs. SQL echo is off and bound parameters are hidden.
 Model task content remains in memory and is not automatically persisted to traces.
 
-Manual JD is stored as data, never interpreted as instructions in Foundation. External web tools,
-SSRF protection, prompt injection evaluation and capability enforcement at a tool gateway are
-**planned** with their implementing milestones. There is no shell/browser/web execution tool now.
+JD and research evidence are untrusted external data. The only web adapter calls a fixed Tavily
+endpoint with a validated search query. Returned URLs are evidence, never fetched or executed.
+No shell, SQL, arbitrary HTTP, browser or filesystem tool is available to a model. Injection fixtures
+exercise the structural boundary; this does not certify universal model resistance to injection.
 
 ## Planned architecture and roadmap
 
@@ -184,7 +190,7 @@ system is present in Foundation.
 | --- | --- |
 | v0.1a Foundation | Implemented: domain, persistence, APIs, runtime/model/privacy/testing contracts |
 | v0.1b Resume Compiler | Implemented: hand-authored Variant, grounding, Typst, one-page PDF, deterministic compression/validation |
-| v0.1c Job Preparation Workflow | Planned: bounded research, fit, greeting, prep and minimal graph |
+| v0.1c Job Preparation Workflow | Completed locally: two fixed workflows, providers, guardrails, budgets and bounded live acceptance |
 | v0.1d Integration / E2E | Planned: complete job-preparation path, failure cases, acceptance and v0.1.0 release |
 | v0.2 Agent Runtime | Planned: bounded planner/executor/evaluator/replan, checkpoints/worker, mock/debrief |
 | v0.3 Harness / Evaluation / Safety | Planned: scenarios/golden/regression, replay, fault injection, deterministic + human + LLM evaluation |
@@ -192,7 +198,7 @@ system is present in Foundation.
 | v0.5 Real Usage Loop | Planned: actual outcomes, feedback, real bad cases, continuous regression |
 
 Resume compilation now separates verified fact references, hand-authored structured variants,
-deterministic layout and validation. Model-based variant generation remains **planned for v0.1c**.
+deterministic layout and validation. v0.1c adds structured model generation before the unchanged compiler boundary; bounded synthetic live acceptance passed.
 Typst is the canonical renderer; DOCX and other templates remain optional future work.
 
 Production control will scope action by dependency/tool/workflow, use windows/minimum samples,
@@ -212,7 +218,7 @@ or embedding pipeline is installed now. Optional extensions are listed separatel
 The compiler does not decide what a job calls for, extract semantic requirements, generate
 prompts, call a model, or perform semantic tailoring. It only validates an already structured
 input, selects from its full/short/optional content, renders, validates and persists the outcome.
-All content fixtures are synthetic; there is no v0.1c workflow implementation.
+All content fixtures are synthetic. The preparation layer generates Variant data without changing this compiler boundary.
 
 ### Variant and input snapshots
 
@@ -347,3 +353,106 @@ Tests use real temporary PostgreSQL databases and temporary artifact directories
 session end. The manual synthetic-example command intentionally retains its three accepted PDFs
 and four reports in a caller-selected private directory for review. No PDF/font binary belongs
 in the public repository.
+
+## v0.1c fixed preparation layer
+
+Two product workflows use a thin LangGraph StateGraph with finite named nodes, no LLM-selected
+edges, checkpointer, worker, planner or ReAct loop. Graph state carries references, usage, warnings
+and stop codes. Private input material is selected in the executor, not duplicated into graph state.
+LangSmith tracing is explicitly disabled even if enabled in the environment; no external callbacks.
+
+Application: validate → extract → research → fit → tailor → compile → greeting → persist.
+Only eligible `layout_failed` has an edge to compress → compile once more. All terminal failures
+persist a failed/partial package. Research failure can continue with a warning; exhausted budget
+stops new calls. Interview: validate → load exact prior package/context → generate → persist.
+The second workflow requires an accepted exact resume revision, same profile/JD and fixture/live
+mode, and current verified facts. It does not refresh company research automatically; stale research
+is a warning. Knowledge notes/STAR stories are explicit bounded context, never auto-verified facts.
+
+The seven task types are extraction, research synthesis, fit, tailoring, compression, greeting and
+interview preparation, using the full identifiers in `TaskType`. Transport retry and schema repair
+keep task_type and increment the attempt ordinal. Semantic compression is a new task type, at most
+one network attempt (no hidden retry). Typst compilation attempts remain only in render reports.
+ModelCall rows represent individual network attempts; `attempts` is an ordinal, not a multiplier
+when aggregating usage. `prompt_version`, SHA-256, schema versions and policy version are recorded
+per attempt. No private prompt/input/output/reasoning text is stored in runtime tables.
+
+OpenAI is the only live model adapter. Cheap extraction and strong other tasks are configurable
+composition-root mappings. Premium is absent from the executable registry even if its reserved
+configuration flag is set. Canonical schemas and prompts do not branch by model family. An explicit
+capability requirement gates structured outputs. Prompts are Python specs in the repository, not
+hosted prompt services, with allowlisted input blocks and schema/version hashes.
+
+ResearchAdapter normalizes Fixture/Tavily into ResearchEvidence. Tavily always uses basic depth,
+max five results, no raw-page fetch or built-in generated answer. Each attempt consumes one of
+at most two slots. The second query runs only when the first fails or provides less than 60 snippet
+characters. This sufficiency threshold is deliberately simple, not semantic evidence scoring.
+CompanyResearch stores immutable numbered report/evidence snapshots, source URLs, retrieved time,
+expiry, mode, conclusions, unknowns and explicit inference. Freshness defaults to 168 hours.
+A company row lock serializes cache refresh/version allocation; no distributed infrastructure.
+Different Company IDs never share cache solely because their names match.
+
+PreparationArtifact stores Pydantic-validated private fit/greeting/interview/package JSONB. A kind
+validator enforces the matching output schema. Its run/profile/exact-JD foreign keys RESTRICT
+history deletion; referenced runs cannot be cascade-deleted until artifacts are handled. Report
+references inside JSONB are application-validated, not general relational foreign keys. The new
+migration adds these two tables, optional extraction metadata and tool usage JSONB. No existing
+fact-verification or resume revision/font/template semantics are changed.
+
+Input limits bound JD size, verified fact count (stable first 60), optional selected notes/stories,
+context bytes, calls/searches and estimated USD/tokens. Profile contact/preferences are excluded;
+common name/email/phone forms are minimized in selected prose. This is a baseline, not complete DLP.
+Tailoring receives a fixed layout budget; factual items and short forms pass existing v0.1b grounding
+before revision persistence/render. Compression preserves identity, section/item IDs and retained
+reference sets, required content, numbers and explicitly protected fields. Greeting checks refs and
+numbers; fit requires exact requirement coverage, distinguishes unknown from explicit confirmed
+gaps, and has no score/probability field. Interview answers are short outlines with validated refs.
+Reference/numeric checks cannot establish complete semantic truth, prevent all undeclared named
+entity hallucinations, or detect subtle responsibility inflation; human review remains required.
+
+Each synchronous HTTP request owns its database transaction, including network waits. Normal
+budget/provider/validation failure commits available partial results and metadata. A process crash
+can lose the uncommitted run and its billing trace; no durable recovery is claimed before v0.2.
+PDF/DB commits remain non-atomic globally, with the existing normal rollback cleanup and planned
+orphan reconciliation. Live smoke uses an isolated synthetic database, now retained with its generated database_ref
+for targeted follow-up; fixture mode still cleans its temporary database. Private reports/PDFs persist; it is a bounded acceptance script, not the planned v0.3 general harness.
+
+
+Structured-output failure diagnostics use the native SDK raw-response wrapper to read allowlisted
+response metadata and usage before invoking the same native Pydantic parser. No free-form JSON
+fallback or output schema weakening is introduced. Incomplete/refusal, malformed structured output,
+canonical validation and business guardrail failures are separate categories. ModelCall version
+metadata contains bounded safe diagnostics alongside prompt/hash/schema versions; business failures
+retain their specific stop code with `output_guardrail_failed` in AgentStep version metadata.
+Validation locations use schema property names or redacted unknown-field markers. Messages are
+fixed whitelist values; validation inputs, custom message interpolation, refusal text and raw bodies
+never enter diagnostic persistence. The first failed live response did not retain these diagnostics
+or a response ID (`store=False`), so its exact validation cause cannot be recovered retrospectively.
+
+
+### Model request timeout policy (implemented)
+
+`ModelTimeoutPolicy` is injected at the provider composition boundary. Settings supply the
+60-second default and per-task overrides (Interview Prep: 120 seconds); no prompt, model name,
+output schema or workflow edge selects the timeout. External content cannot override it.
+The adapter passes the effective timeout per request to the SDK/HTTP transport. It is independent
+of model-call counts and token/cost admission, and is not a total workflow duration budget.
+Timeout diagnostics record only policy version, effective seconds and a whitelisted transport
+phase. `provider_timeout` remains stable; missing response/model/usage are not fabricated.
+
+
+Final v0.1c review retains one general smoke entry using the real workflow implementation.
+One-off recovery scripts bound to historical run IDs/budgets and duplicated direct-provider
+compression code were removed from the public source tree. Private acceptance records remain
+outside git. All requested live tasks passed across separate attempts; final offline checks
+passed without new live calls. v0.1d remains planned, not implemented.
+
+
+Cost accounting separates provider-reported usage, price-table `estimated_cost` (USD),
+`budget_reserved_usd`, and nullable `actual_billed_cost_usd`. ModelCall's searchable cost column
+is only the estimated cost projection, null for unknown-usage failures. Run admission includes
+estimated + reserved cost and reported + reserved tokens; reserve bounds never masquerade as
+provider usage. Tavily dispatch counts are observed, credits/free-credit coverage are unknown;
+USD 0.008 is a configured PAYG-equivalent retail estimate. No billing integrations/admin key.
+Historical pre-fix private summaries retain their earlier combined semantics; docs label their
+cumulative amounts as conservative budget consumption, not expenses or reported usage.

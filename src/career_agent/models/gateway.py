@@ -14,7 +14,8 @@ from career_agent.models.contracts import (
     ProviderAdapter,
     TaskSpec,
 )
-from career_agent.runtime.contracts import VersionMetadata
+from career_agent.models.diagnostics import validation_issues
+from career_agent.runtime.contracts import OutputDiagnostic, VersionMetadata
 
 
 @dataclass(frozen=True)
@@ -75,12 +76,19 @@ class ModelGateway:
         started = time.perf_counter()
         try:
             response = await self.adapters[candidate.provider].generate(candidate, context, task)
+        except ModelGatewayError:
+            raise
         except Exception:
             raise ModelGatewayError("provider_error") from None
         try:
             output = context.output_schema.model_validate(response.output)
-        except ValidationError:
-            raise ModelGatewayError("invalid_model_output") from None
+        except ValidationError as exc:
+            diagnostic = response.diagnostic or OutputDiagnostic()
+            diagnostic.failure_kind = "output_validation_failed"
+            diagnostic.validation_issues = validation_issues(exc, context.output_schema)
+            raise ModelGatewayError(
+                "output_validation_failed", usage=response.usage, diagnostic=diagnostic
+            ) from None
         return ModelResult(
             validated_output=output,
             provider=candidate.provider,
@@ -93,6 +101,7 @@ class ModelGateway:
             schema_validation_state="valid",
             model_policy_version=self.policy.version,
             versions=VersionMetadata(
+                output_diagnostic=response.diagnostic,
                 prompt_version=task.prompt_version,
                 input_schema_version=task.input_schema_version,
                 output_schema_version=task.output_schema_version,

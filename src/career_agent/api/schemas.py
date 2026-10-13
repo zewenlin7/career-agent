@@ -8,6 +8,7 @@ from career_agent.domain.schemas import (
     ProfileData,
     RequirementInput,
 )
+from career_agent.preparation.contracts import ExtractedRequirement
 from career_agent.runtime.contracts import Budget, Usage, VersionMetadata
 
 
@@ -35,9 +36,11 @@ class FactOut(RowOut):
 
 class RequirementOut(RequirementInput):
     id: UUID
+    extraction_metadata: ExtractedRequirement | None = None
 
 
 class JobOut(RowOut):
+    job_revision_id: UUID
     company_id: UUID
     company_name: str
     revision: int

@@ -91,7 +91,7 @@ def test_budget_and_no_premium_escalation(policy):
 
 async def test_output_validation_and_provider_error(policy):
     gateway = ModelGateway([candidate()], policy, {"synthetic": FakeProvider({"wrong": True})})
-    with pytest.raises(ModelGatewayError, match="invalid_model_output"):
+    with pytest.raises(ModelGatewayError, match="output_validation_failed"):
         await gateway.generate(context(), TaskSpec(instruction="synthetic"))
 
     class Broken:
