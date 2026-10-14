@@ -196,7 +196,7 @@ system is present in Foundation.
 | v0.1c Job Preparation Workflow | Completed locally: two fixed workflows, providers, guardrails, budgets and bounded live acceptance |
 | v0.1d Integration / E2E | Completed locally: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E |
 | v0.2a Runtime Core | Bounded planner/validator/executor/evaluator, shared budgets, explicit checkpoint resume |
-| v0.2b Interview Loop | Planned: Mock Interview / assisted Debrief; no distributed worker |
+| v0.2b Interview Loop | Actual intake, text Mock, standalone snapshot Debrief; offline acceptance |
 | v0.3 Harness / Evaluation / Safety | Planned: scenarios/golden/regression, replay, fault injection, deterministic + human + LLM evaluation |
 | v0.4 Production Engineering | Planned: Ops dashboard, metrics, dynamic routing/budgets, concurrency/rate limits, circuits/fallback/control/cache |
 | v0.5 Real Usage Loop | Planned: actual outcomes, feedback, real bad cases, continuous regression |
@@ -619,4 +619,66 @@ claim invoice accuracy, add pricing snapshots, aggregate cache metrics, or autom
 The existing unknown-usage reservation and actual-billed-cost-null boundaries remain unchanged.
 
 Acceptance uses fake providers, HTTP mocks and real local PostgreSQL/Typst only. It verifies metadata
-and execution boundaries, not real model quality. v0.2b remains unimplemented.
+and execution boundaries, not real model quality. The Interview Loop below adds three registered tasks.
+
+
+## v0.2b Interview Loop
+
+`interview/actual.py` owns deterministic current-state intake. InterviewSession keeps Application,
+round name, occurrence time, legacy notes, ordered validated JSONB QA and positive content_revision.
+Row locking + expected_revision CAS applies to every update including notes; there is no selectable
+per-edit content history. Full entry replacement supports corrections/deletion and validates unique
+IDs/orders plus same-session primary-only parent links. It never marks an application applied.
+
+MockInterviewSession/Turn are separate records. A session freezes existing exact domain context
+via v0.1 ContextLoader/grounding (Profile revision/fact revision map/JD/explicit Resume, optional
+existing InterviewPreparation). No missing-context generation or automatic Resume selection.
+The deterministic scheduler chooses legal next kind and exact target progress; one shared strong
+`mock_interview_turn_generation` prompt generates only the question. Immutable answer acceptance,
+receipt/idempotency hash and generation admission are committed together after input preflight.
+Generation then runs outside that transaction; failure retains answer and ready state. Waiting
+state has no time expiry, and only active calls count toward execution time. Retry is explicit and
+uses the same cumulative attempt quota. Context/policy JSON is frozen at session creation.
+
+DebriefRun stores immutable SourceSnapshot, source hash, policy and one authoritative ledger.
+Snapshot includes ordered actual/mock entries, notes, source schema/revision, exact optional domain
+context. DebriefArtifact stores each independent group's/overall's validated output and status;
+DebriefEvent is a durable ordered business event log. A QuestionGroup joins primary+follow-ups.
+`interview_group_debrief` sees that group; `interview_overall_debrief` sees the authoritative source
+without group analyses. Both are strong tasks registered through feature-local PromptSpec and the
+shared registry; career-model-policy-v3 explicitly maps all three to strong without premium fallback.
+Evidence is validated against answered entries in the correct snapshot/group.
+Example answers use only a conservative verbatim verified-fact composition. Unknown semantics and
+quality still require human review; this is not an evaluator ground-truth mechanism.
+
+A fixed-size async worker pool is local to the request, not a durable/background worker service.
+Each provider attempt uses independent short DB sessions for reservation/settlement; concurrent
+workers never share AsyncSession. The owner row lock serializes ledger writes and event sequence.
+ModelCall/AgentStep/Observation reuse existing metadata contracts. Every attempt reserves once,
+settles once; parent AgentRun usage mirrors owner usage and is never re-added. Unknown costs stay
+reserved; billed cost remains null. Cache-write usage is not separately guessed or double-charged.
+Time admission reserves maximum call duration, then records elapsed duration; concurrent durations
+are summed conservatively, while user waiting time is excluded. Actual and Mock have independent
+per-group/overall safety profiles, and all oversized input is rejected without truncation.
+
+SSE execution emits completed only after schema/evidence/privacy validation and the artifact/event
+transaction commits. Persistent events support reconnect/readback; reconnect does not restart the
+run. Overall has bottom display order even when it finishes first. Transport/schema repair retains
+task identity and consumes budget. Exhaustion leaves a failed artifact, never semantic fallback.
+Aggregate outcome is derived from artifact success/failure, allowing independent partial results.
+Closing the iterator cancels local workers and preserves completed artifacts; no hidden work is
+promised. Crash/in-flight request recovery, exactly-once, DB/filesystem atomicity and automated
+cleanup/reconciliation remain outside this milestone.
+
+The v0.2a engine, PlanValidator, two business Action Registry entries, v0.1d target orchestrator and
+Resume Compiler remain intact. Interview endpoints are explicit standalone workflows; a Planner
+cannot invoke them via invented actions. There is no Mock/Actual transcript parser, LLM summary,
+judge, scores, automatic knowledge verification, dynamic routing/concurrency or cache controller.
+
+
+Subsequent bounded synthetic live verification exercised the existing OpenAI path without changing
+these contracts: 3-primary/1-follow-up Quick, single group, concurrent all+overall, and Actual group.
+Observed peak concurrency was 3; groups completed Q3/Q2/Q1 before Overall, while retrieval retained
+source order. Cached-read/write metadata reached trace, and cost/usage projections equalled call
+sums without duplicate settlement. All reservations cleared. This verifies a small synthetic path,
+not broad semantic quality, live failure recovery or production network/proxy SSE buffering.

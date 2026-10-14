@@ -4,6 +4,7 @@ from uuid import UUID
 from career_agent.domain.rules import ApplicationStatus, CallStatus, FactStatus, RunStatus
 from career_agent.domain.schemas import (
     Contract,
+    InterviewEntry,
     InterviewNoteData,
     ProfileData,
     RequirementInput,
@@ -67,6 +68,9 @@ class ApplicationOut(RowOut):
 
 
 class InterviewOut(RowOut):
+    content_revision: int
+    occurred_at: datetime | None
+    entries: list[InterviewEntry]
     application_id: UUID
     round_name: str
     notes: list[InterviewNoteData]

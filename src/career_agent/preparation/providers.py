@@ -30,7 +30,7 @@ from career_agent.preparation.research import (
 from career_agent.runtime.contracts import Usage
 
 POLICY = ModelPolicy(
-    version="career-model-policy-v2",
+    version="career-model-policy-v3",
     task_tiers={
         **{
             t.value: ModelTier.CHEAP if t == TaskType.EXTRACTION else ModelTier.STRONG
@@ -38,6 +38,9 @@ POLICY = ModelPolicy(
         },
         "goal_planning": ModelTier.STRONG,
         "goal_replanning": ModelTier.STRONG,
+        "mock_interview_turn_generation": ModelTier.STRONG,
+        "interview_group_debrief": ModelTier.STRONG,
+        "interview_overall_debrief": ModelTier.STRONG,
     },
 )
 
@@ -48,6 +51,26 @@ class FixtureTaskProvider:
     async def generate(
         self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
     ) -> ProviderResponse:
+        if context.task_type in {
+            "mock_interview_turn_generation",
+            "interview_group_debrief",
+            "interview_overall_debrief",
+        }:
+            from career_agent.interview.fixture import output as fixture_output
+
+            return ProviderResponse(
+                output=fixture_output(context.task_type, task.inputs),
+                usage=Usage(
+                    input_tokens=100,
+                    output_tokens=100,
+                    cached_tokens=0,
+                    cache_write_tokens=0,
+                    reasoning_tokens=0,
+                    estimated_cost=Decimal(0),
+                    measurement="reported",
+                ),
+                finish_reason="fixture_completed",
+            )
         if context.task_type in {"goal_planning", "goal_replanning"}:
             from career_agent.runtime.planner import fixture_plan
 
@@ -195,7 +218,7 @@ def registry(settings: Settings, live: bool) -> list[ModelCandidate]:
 
 @asynccontextmanager
 async def dependencies(
-    settings: Settings, mode: str
+    settings: Settings, mode: str, *, require_research: bool = True
 ) -> AsyncIterator[tuple[ModelGateway, ResearchAdapter]]:
     if mode == "fixture":
         yield (
@@ -203,7 +226,11 @@ async def dependencies(
             FixtureResearchAdapter(),
         )
         return
-    if not settings.live_enabled or not settings.openai_api_key or not settings.tavily_api_key:
+    if (
+        not settings.live_enabled
+        or not settings.openai_api_key
+        or (require_research and not settings.tavily_api_key)
+    ):
         raise ModelGatewayError("live_configuration_missing")
     # Only two tiers registered. Premium flag is reserved and never enables automatic routing.
     async with (
@@ -231,5 +258,7 @@ async def dependencies(
             ),
             TavilyResearchAdapter(
                 settings.tavily_api_key.get_secret_value(), http, settings.search_timeout_seconds
-            ),
+            )
+            if require_research and settings.tavily_api_key
+            else FixtureResearchAdapter(),
         )

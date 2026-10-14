@@ -102,8 +102,10 @@ async def test_interview_knowledge(client, synthetic):
     assert response.status_code == 201, response.text
     interview = response.json()
     url = f"/api/v1/interviews/{interview['id']}/notes"
-    assert (await client.post(url, json={"text": "Synthetic question"})).status_code == 201
-    response = await client.post(url, json={"text": "Synthetic follow-up"})
+    assert (
+        await client.post(url, json={"text": "Synthetic question", "expected_revision": 1})
+    ).status_code == 201
+    response = await client.post(url, json={"text": "Synthetic follow-up", "expected_revision": 2})
     assert len(response.json()["notes"]) == 2
     response = await client.post(
         "/api/v1/knowledge-notes",

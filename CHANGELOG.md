@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Verified — v0.2b bounded synthetic live smoke
+
+- Real `gpt-6.1-sol`: Mock Quick completed 3 primary questions + 1 follow-up; single QuestionGroup,
+  all three groups + independent Overall, and a synthetic Actual-source group Debrief passed.
+- Ten calls, no retry/schema repair, 20,993 input / 7,418 output tokens (420 reasoning),
+  2,169 cached-read / 18,794 cache-write tokens. Estimated cost USD 0.1120449; no remaining unknown
+  reservations, provider billed cost unknown. No Tavily calls or functional changes needed.
+- Observed bounded provider concurrency 3, out-of-order completion and incremental persisted results;
+  stable Q1/Q2/Q3/Overall presentation, valid evidence refs, matching ledger/call totals and immutable
+  Actual snapshot after a later source edit. No production proxy buffering or quality generalization.
+- Post-smoke offline regression: 32 targeted tests passed in 11.40s; full suite 349 passed in
+  58.22s. Ruff/formatter, strict mypy and staged/unstaged diff checks passed.
+
+
+### Added / Changed — v0.2b Interview Loop
+
+- Actual InterviewSession current-state Q&A intake: ordered stable primary/follow-up entries,
+  same-session primary references, occurred_at, CAS content_revision, correction/replacement and
+  legacy notes through the same mutation boundary. No per-edit immutable history or status changes.
+- Separate frozen-context MockInterviewSession/Turn with explicit Resume selection, Quick/Standard/
+  Long/Custom exact primary quotas, bounded follow-ups, immutable answers, idempotency receipts,
+  explicit generation retry and persistent waiting states. No implicit Interview Prep generation.
+- Standalone Debrief source snapshots/hashes from Actual or completed/early-ended Mock; independent
+  none/single/all question analysis and overall target. Evidence-validated group/overall artifacts,
+  deterministic source joins/display ordering and conservative grounded example answers.
+- Bounded concurrent provider calls with isolated DB sessions, shared row-locked budget reservations,
+  once-only settlement and metadata-only ModelCall/AgentStep/Observation. Unknown usage stays reserved;
+  actual billed cost remains unknown. No duplicated parent/child charging.
+- Post-commit incremental SSE delivery and durable event readback, finite transport/schema retries,
+  independent partial failures and cancellation that preserves completed artifacts. No worker service.
+- Three feature-local versioned PromptSpecs and explicit strong routing in career-model-policy-v3;
+  existing preparation/planner contracts preserved. Interview-only live configuration does not require
+  a Tavily key or expose research capability. Initial implementation acceptance was offline.
+- Migration a841c3d12342 follows f730b2c01231, adds six interview workflow tables and backfills legacy
+  InterviewSession revision/entries without losing notes. Downgrade/re-upgrade and drift verified.
+- Offline acceptance: **32 new tests passed**; full suite **349 passed in 58.01s**, including real
+  PostgreSQL migration/drift and existing real Typst cases. Ruff/format, strict mypy, offline locked
+  install, wheel/sdist build and isolated wheel imports, Typst 0.15.1/font hashes and hygiene passed.
+- Synthetic fixture acceptance establishes contract/runtime behavior, not real interview assessment
+  quality. Live calibration, semantic evaluation and production recovery remain outside this work.
+
+
 ### Added / Changed — shared version governance before v0.2b
 
 - Shared code-managed PromptSpec/Registry for all nine LLM tasks, with feature-local definitions,

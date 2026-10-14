@@ -231,18 +231,20 @@ async def application_note(
 
 async def create_interview(session: AsyncSession, payload: s.InterviewCreate) -> e.InterviewSession:
     await require(session, e.Application, payload.application_id)
-    interview = e.InterviewSession(**payload.model_dump())
+    interview = e.InterviewSession(**payload.model_dump(exclude={"expected_revision"}))
     session.add(interview)
     await session.flush()
     return interview
 
 
 async def interview_note(
-    session: AsyncSession, row_id: UUID, payload: s.NoteCreate
+    session: AsyncSession, row_id: UUID, payload: s.InterviewNoteCreate
 ) -> e.InterviewSession:
     interview = await require(session, e.InterviewSession, row_id, lock=True)
+    check_revision(interview.content_revision, payload.expected_revision)
     note = s.InterviewNoteData(text=payload.text, recorded_at=e.utcnow().isoformat())
     interview.notes = [*interview.notes, note.model_dump()]
+    interview.content_revision += 1
     await session.flush()
     return interview
 

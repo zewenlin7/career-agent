@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current milestone is **v0.2a Runtime Core (completed locally)**, built on the completed v0.1 Domain MVP.
+The current milestone is **v0.2b Interview Loop (completed locally; offline acceptance passed)**, built on the completed v0.1 Domain MVP.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -9,7 +9,9 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 - Versioned personal profile, user-confirmed facts and replacement history.
 - Manual JD ingestion, explicit requirements, immutable JD revisions, company records.
 - Application tracker with optimistic revision checks, status/correction/note events.
-- Interview rounds and manual notes; knowledge-note CRUD basics.
+- Actual interview rounds with CAS-protected ordered primary/follow-up Q&A and legacy notes.
+- Separate text Mock Interview sessions and snapshot-based standalone Interview Debrief.
+- Knowledge-note CRUD basics; generated knowledge candidates never auto-promote to facts.
 - PostgreSQL persistence for source documents, STAR structures and runtime metadata.
 - Run/step/call metadata APIs and two explicitly invoked fixed preparation workflows.
 - Model-independent contracts, static policy/capability filtering and an injected fake provider.
@@ -22,7 +24,7 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 OpenAI Responses and Tavily adapters, deterministic target orchestration, versioned prompts,
 structured zh-CN tailoring and static budget controls are implemented and tested offline.
 **Live extraction/research/fit/tailoring/PDF/greeting have been exercised; Interview Prep passed after a timeout-policy fix, and controlled compression produced an accepted PDF. v0.1c live acceptance is historical; v0.1d acceptance is offline only. Synthetic acceptance does not establish real job-search quality.**
-No automatic applications/messages, unrestricted planner, durable worker, mock interview, LLM judge,
+No automatic applications/messages, unrestricted planner, durable worker, LLM judge,
 vector search or frontend are implemented. Interview preparation is an explicit separate request.
 
 ## Architecture
@@ -43,6 +45,7 @@ src/career_agent/
   infrastructure/  async persistence and mapped entities
   models/          contracts, static policy/gateway, fake and OpenAI adapters
   preparation/     task schemas/prompts, research, guardrails, budgets and fixed workflows
+  interview/       current-state intake, frozen mock sessions, concurrent snapshot debrief
   runtime/         usage, budget and nullable version metadata
   security/        redaction and allowlisted logging
   resume/          structured variants, grounding, content policy, Typst and PDF checks
@@ -159,7 +162,7 @@ real Typst E2E, static checks and offline installation/build. No commit or push 
 - v0.1b: Resume Compiler, Typst and PDF validation (implemented).
 - v0.1c: Job Preparation Workflow (completed and locally verified).
 - v0.1d: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E.
-- v0.2a: bounded Runtime Core; v0.2b: Interview Loop (planned).
+- v0.2a: bounded Runtime Core; v0.2b: deterministic intake, text Mock and standalone Debrief (offline).
 - v0.3: Harness / Evaluation / Safety (planned).
 - v0.4: Production Engineering; v0.5: Real Usage Loop (planned).
 
@@ -395,7 +398,7 @@ only safe status and a relative report reference. The report captures model/sear
 
 Default routing is extraction → cheap (`gpt-6-luna`), other tasks → strong (`gpt-6.1-sol`).
 Premium configuration is reserved and never added to the active registry. Model names and prices
-are operator configuration, not domain logic. All nine LLM tasks use the shared code-managed `models/prompts.py` contract/registry;
+are operator configuration, not domain logic. All twelve LLM tasks use the shared code-managed `models/prompts.py` contract/registry;
 feature definitions remain in `preparation/prompts.py` and `runtime/prompts.py`. Planning and
 replanning share one prompt identity. Canonical SHA-256 covers name/version, instructions,
 input contract/schema version and output schema/version, never request data. Gateway rejects
@@ -548,4 +551,89 @@ schema versions. Migration `f730b2c01231` adds nullable schema columns; old unkn
 Render reports additionally capture `resume-render-wrapper-v1` and `resume-validation-v1`, separately
 from template/font/layout/Typst versions; old reports retain unknown wrapper/validation versions.
 Planner success/failure retains safe provider diagnostics. This governance update is offline-only;
-Mock Interview / Debrief remain planned, and no new live quality claim is made.
+Interview Loop adds three feature-local registered prompts; no new live quality claim is made.
+
+
+## v0.2b Interview Loop
+
+Three explicit API capabilities reuse the existing Model Gateway, PromptRegistry, runtime trace
+and budget primitives. They do not replace the v0.2a Planner or add actions to its authorized scope.
+Offline acceptance uses synthetic data. A bounded OpenAI synthetic smoke also passed Mock Quick,
+single/all-plus-overall Mock Debrief and Actual-source Debrief. This is not real interview assessment
+quality validation.
+
+**Actual intake.** `POST /api/v1/interviews` creates a real interview round (free-text `round_name`,
+optional `occurred_at`, Application binding). GET one or GET with `application_id` lists rounds.
+`POST /interviews/{id}/entries` appends a typed primary/follow-up entry; `PATCH /interviews/{id}`
+corrects current fields or replaces the ordered entries list (also supports deletion).
+Entries carry stable UUIDs, unique order, question, nullable answer and a same-session primary parent
+for follow-ups. Updates and legacy `POST /interviews/{id}/notes` require `expected_revision`.
+Successful mutations increment `content_revision`; stale mutations return conflict. Creation starts
+at revision 1 (`expected_revision=0`). No per-edit immutable history, transcript parser or Application
+status changes. Debrief freezes its own immutable snapshot before later edits.
+
+**Mock.** `POST /api/v1/mock-interviews` requires explicit `context` with `profile_id`,
+`job_revision_id`, `resume_revision_id` and optional `interview_preparation_id`.
+It freezes verified facts and exact context without generating missing preparation.
+Creation returns `ready_to_generate`. POST `/{id}/generate` starts/retries one generation;
+POST `/{id}/answers` accepts an immutable answer and attempts the next generation;
+POST `/{id}/end` ends early; GET retrieves durable progress/transcript.
+All continuations require `expected_revision` and `request_id`; answers additionally require
+`pending_question_id`. Identical request IDs return current progress without another call.
+Conflicting IDs/stale revisions fail. A generation failure retains an accepted answer and returns
+`ready_to_generate` with `stop_reason`; retry needs a new request ID, not a repeated answer.
+
+Quick/Standard/Long have exactly 3/5/8 primary questions and at most 1/3/5 follow-ups.
+Custom allows 1–8 primary, 0–5 follow-ups (not above primary target). The fixed policy spends the
+follow-up allowance on earliest answered primaries, at most one each. The model cannot stop early
+or choose an illegal kind. Waiting for an answer has no deadline and consumes no execution time.
+Unknown/failed attempts consume the same session call quota; exhausted resources can prevent
+reaching target, leaving a visible stop reason for explicit user action. No auto-paid retry in Mock.
+Only the current answer is included in each next-turn request, alongside question-only history.
+
+**Debrief.** `POST /api/v1/interview-debriefs` takes `source_kind=actual|mock`, `interview_id`,
+`expected_source_revision`, `question_analysis=none|single|all` and independent `overall_analysis`.
+Single requires a primary `primary_entry_id`; arbitrary subsets and empty targets are rejected.
+Mock sources must be completed (including early-ended). Optional actual context uses explicit
+exact bindings. Creation freezes a source hash/snapshot and preflights all requested input sizes;
+it does not call a model. `POST /{id}/execute` drives bounded concurrent work as SSE in the current
+request. GET `/{id}` returns status, artifacts and deterministic presentation; GET `/{id}/events?after=N`
+replays persisted business events. This is artifact delivery, not token streaming or a worker.
+
+Each group includes its primary and all follow-ups. Overall analyzes the source independently,
+not other evaluations. Results can complete out of order; display metadata always orders groups
+by source question number and Overall last. Evidence labels/previews join the immutable snapshot;
+internal refs are machine fields, not user-facing labels. Missing answers cannot support quality
+findings. Retryable/schema failures use finite existing retry limits, with persisted retrying/failed
+states. Completed artifacts remain available during other failures; a new single/overall request
+can retry that target. Such a request freezes the selected source's then-current revision.
+
+Operator configuration `CAREER_AGENT_INTERVIEW_POLICY` accepts a JSON object with `concurrency`
+(default 3, hard maximum 8), `mock_generation`, `mock_group`, `actual_group`, `mock_overall`,
+`actual_overall`, plus cumulative `mock_session`, `mock_debrief`, `actual_debrief` limits.
+Call profiles contain `max_input_tokens`, `max_output_tokens`, `max_estimated_cost`, `max_seconds`.
+These are loose safety ceilings, not calibrated product prices. Actual profiles allow larger
+contexts. Transport/schema retry counts inherit `CAREER_AGENT_MODEL_RETRY_LIMIT` and
+`CAREER_AGENT_SCHEMA_REPAIR_LIMIT`. Provider timeout settings still apply underneath the per-call
+runtime ceiling. Mock quota is primary target + follow-up maximum, including failed attempts.
+A row-locked shared ledger reserves before calls, settles once and keeps unknown usage reserved;
+AgentRun usage is a projection, not an additional charge. Reported cache/write/reasoning usage is
+preserved when available. Estimated/reserved budget is not actual billed cost.
+
+Limits: no bulk import, voice, answer edits in Mock, summary/chunking, scoring, judge, auto-KB writes,
+background continuation, exactly-once or production crash recovery. Disconnect cancels active work
+and preserves committed results; unknown in-flight cost remains reserved. Process/DB failures can
+leave in-progress state requiring operator inspection. Example answers conservatively use only
+verbatim supplied verified fact statements. Deterministic guards validate references, basic privacy
+and explicit prohibitions, not the complete semantic truth of generated analysis.
+
+Local v0.2b acceptance: 349 tests passed (32 new Interview Loop tests), Ruff/formatter, strict mypy,
+empty PostgreSQL migration/drift and legacy backfill, offline locked install/build/import, pinned
+Typst/font checks and repository hygiene. Subsequent synthetic live smoke used 10 OpenAI calls,
+no Tavily calls or retries, with USD 0.1120449 estimated cost (not provider-billed cash cost).
+
+The live run observed peak provider concurrency 3, out-of-order group completion with stable display
+order, and committed artifacts available before the all-mode request ended. One call reported
+2,169 cached input tokens; all calls preserved cache-write telemetry without inventing a separate
+write surcharge. Run/call accounting matched and all reservations settled. Synthetic source, results
+and one-off scripts remain outside the repository. No production network/proxy buffering claim.

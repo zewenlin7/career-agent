@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.2a Runtime Core — completed locally; final offline acceptance passed.**
-Next planned milestone: v0.2b Interview Loop (not started).
+**v0.2b Interview Loop — completed locally; offline acceptance passed.**
+Next planned milestone: v0.3 Harness / Evaluation / Safety. Bounded synthetic v0.2b live smoke passed.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -88,10 +88,21 @@ See CHANGELOG for verified details.
 - Governance acceptance is offline only; legacy unpinned pending plans cannot silently resume.
 - [ ] Future refinement: typed PlannerContext and task input contracts; immutable pricing snapshots.
 
-### v0.2b Interview Loop (planned; not implemented)
+### v0.2b Interview Loop
 
-- [ ] Mock interview and assisted debrief on the bounded runtime.
-- [ ] New personal knowledge remains proposed until explicit user verification.
+- [x] Deterministic current-state Actual Q&A intake with CAS and same-session follow-up ownership.
+- [x] Frozen explicit-context Mock sessions, exact quotas, immutable answers and idempotent continuation.
+- [x] Standalone immutable-source Debrief, independent group/overall targets and evidence validation.
+- [x] Bounded provider concurrency, row-locked cumulative reservations and post-commit SSE/events.
+- [x] Shared prompt/version/strong model registrations and metadata-only trace.
+- [x] No automatic verified facts/KB writes; absent answers never support answer-quality findings.
+- [x] 349 offline tests (32 new), static checks, empty/legacy PostgreSQL migration and drift,
+  offline locked install/build/import, Typst/font and repository hygiene passed.
+- [x] Bounded synthetic live smoke: Mock Quick, single/all+overall Debrief, Actual-source Debrief;
+  10 OpenAI calls, observed concurrency/cache hit, no retries; USD 0.1120449 estimated cost.
+- [ ] Broader evidence before tightening product safety ceilings or claiming real interview quality.
+- [ ] Optional future exact prior-Debrief-snapshot retry selection (current new requests snapshot current source).
+- [ ] Operational recovery of in-flight generation after process/DB interruption remains unsupported.
 - Distributed workers and production crash recovery are outside v0.2a; no exactly-once claim.
 
 ### v0.3 Harness / Evaluation / Safety (planned)

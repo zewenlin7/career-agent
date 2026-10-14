@@ -139,7 +139,9 @@ async def create_interview(payload: inp.InterviewCreate, session: DB) -> e.Inter
 
 
 @router.post("/interviews/{row_id}/notes", response_model=out.InterviewOut, status_code=201)
-async def interview_note(row_id: UUID, payload: inp.NoteCreate, session: DB) -> e.InterviewSession:
+async def interview_note(
+    row_id: UUID, payload: inp.InterviewNoteCreate, session: DB
+) -> e.InterviewSession:
     return await svc.interview_note(session, row_id, payload)
 
 
@@ -197,6 +199,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from career_agent.api.agents import router as agent_router
 
     app.include_router(agent_router)
+    from career_agent.api.interview import router as interview_router
+
+    app.include_router(interview_router)
     app.include_router(router)
     from career_agent.api.resumes import router as resume_router
 

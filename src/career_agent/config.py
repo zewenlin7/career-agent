@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from career_agent.interview.policy import InterviewPolicy
 from career_agent.models.timeouts import TimeoutSeconds
 from career_agent.runtime.contracts import Identifier
 
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("TAVILY_API_KEY", "tavily_api_key")
     )
     live_enabled: bool = False
+    interview_policy: InterviewPolicy = Field(default_factory=InterviewPolicy)
     research_fail_fast: bool = False
     cheap_model: str = "gpt-6-luna"
     strong_model: str = "gpt-6.1-sol"

@@ -25,7 +25,12 @@ from career_agent.domain.rules import (
     ObservationStatus,
     RunStatus,
 )
-from career_agent.domain.schemas import InterviewNoteData, ProfileData, StarStoryData
+from career_agent.domain.schemas import (
+    InterviewEntry,
+    InterviewNoteData,
+    ProfileData,
+    StarStoryData,
+)
 from career_agent.infrastructure.db import Base, ValidatedJSON, ValidatedList
 from career_agent.preparation.contracts import (
     ExtractedRequirement,
@@ -178,6 +183,12 @@ class ApplicationEvent(Row, Base):
 
 class InterviewSession(Row, Base):
     __tablename__ = "interview_sessions"
+    __table_args__ = (CheckConstraint("content_revision > 0", name="positive_revision"),)
+    content_revision: Mapped[int] = mapped_column(default=1)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entries: Mapped[list[dict[str, Any]]] = mapped_column(
+        ValidatedList(InterviewEntry), default=list
+    )
     application_id: Mapped[UUID] = mapped_column(
         ForeignKey("applications.id", ondelete="RESTRICT"), index=True
     )
@@ -489,3 +500,108 @@ class AgentResumeReceipt(Row, Base):
     run_id: Mapped[UUID] = mapped_column(ForeignKey("agent_runs.id", ondelete="RESTRICT"))
     request_id: Mapped[UUID] = mapped_column()
     request_hash: Mapped[str] = mapped_column(String(64))
+
+
+from career_agent.interview.contracts import (  # noqa: E402
+    EvaluationData,
+    EventData,
+    FrozenContext,
+    InterviewLimits,
+    InterviewUsage,
+    MockPolicy,
+    SourceSnapshot,
+    TurnOutput,
+)
+from career_agent.interview.policy import InterviewPolicy  # noqa: E402
+
+
+class MockInterviewSession(Row, Base):
+    __tablename__ = "mock_interview_sessions"
+    __table_args__ = (
+        CheckConstraint("revision > 0", name="positive_revision"),
+        CheckConstraint(
+            "status IN ('ready_to_generate','waiting_answer','completed')", name="status"
+        ),
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True
+    )
+    revision: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(40), default="ready_to_generate")
+    mode: Mapped[str] = mapped_column(String(20))
+    focus: Mapped[str] = mapped_column(String(40))
+    policy: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(MockPolicy))
+    context: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(FrozenContext))
+    execution_policy: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewPolicy))
+    limits: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewLimits))
+    usage: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewUsage), default=dict)
+    primary_question_count: Mapped[int] = mapped_column(default=0)
+    followup_count: Mapped[int] = mapped_column(default=0)
+    interviewer_turn_count: Mapped[int] = mapped_column(default=0)
+    pending_question_id: Mapped[UUID | None] = mapped_column()
+    generation_active: Mapped[bool] = mapped_column(default=False)
+    completion_type: Mapped[str | None] = mapped_column(String(40))
+    stop_reason: Mapped[str | None] = mapped_column(String(128))
+
+
+class MockInterviewTurn(Row, Base):
+    __tablename__ = "mock_interview_turns"
+    __table_args__ = (UniqueConstraint("session_id", "sequence"),)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("mock_interview_sessions.id", ondelete="RESTRICT"), index=True
+    )
+    sequence: Mapped[int] = mapped_column()
+    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(TurnOutput))
+    answer: Mapped[str | None] = mapped_column(Text)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MockRequestReceipt(Row, Base):
+    __tablename__ = "mock_request_receipts"
+    __table_args__ = (UniqueConstraint("session_id", "request_id"),)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("mock_interview_sessions.id", ondelete="RESTRICT")
+    )
+    request_id: Mapped[UUID] = mapped_column()
+    request_hash: Mapped[str] = mapped_column(String(64))
+
+
+class DebriefRun(Row, Base):
+    __tablename__ = "debrief_runs"
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True
+    )
+    status: Mapped[str] = mapped_column(String(30), default="ready")
+    mode: Mapped[str] = mapped_column(String(20))
+    snapshot: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(SourceSnapshot))
+    source_hash: Mapped[str] = mapped_column(String(64))
+    execution_policy: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewPolicy))
+    limits: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewLimits))
+    usage: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewUsage), default=dict)
+    event_sequence: Mapped[int] = mapped_column(default=0)
+
+
+class DebriefArtifact(Row, Base):
+    __tablename__ = "debrief_artifacts"
+    __table_args__ = (UniqueConstraint("debrief_id", "display_order"),)
+    debrief_id: Mapped[UUID] = mapped_column(
+        ForeignKey("debrief_runs.id", ondelete="RESTRICT"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20))
+    group_ref: Mapped[UUID | None] = mapped_column()
+    group_index: Mapped[int | None] = mapped_column()
+    display_order: Mapped[int] = mapped_column()
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    attempts: Mapped[int] = mapped_column(default=0)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    data: Mapped[dict[str, Any] | None] = mapped_column(ValidatedJSON(EvaluationData))
+
+
+class DebriefEvent(Row, Base):
+    __tablename__ = "debrief_events"
+    __table_args__ = (UniqueConstraint("debrief_id", "sequence"),)
+    debrief_id: Mapped[UUID] = mapped_column(
+        ForeignKey("debrief_runs.id", ondelete="RESTRICT"), index=True
+    )
+    sequence: Mapped[int] = mapped_column()
+    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(EventData))

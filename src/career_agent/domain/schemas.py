@@ -1,7 +1,7 @@
-from typing import Annotated
-from uuid import UUID
+from typing import Annotated, Literal
+from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from career_agent.domain.rules import ApplicationStatus
 
@@ -95,8 +95,43 @@ class NoteCreate(Contract):
 
 
 class InterviewCreate(Contract):
+    expected_revision: Literal[0] = 0
     application_id: UUID
     round_name: Label
+    occurred_at: AwareDatetime | None = None
+
+
+class InterviewEntry(Contract):
+    entry_id: UUID = Field(default_factory=uuid4)
+    order: int = Field(ge=1, le=10000)
+    kind: Literal["primary", "follow_up"]
+    question: Text
+    answer: Text | None = None
+    primary_entry_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def parent(self) -> "InterviewEntry":
+        if (self.kind == "follow_up") != (self.primary_entry_id is not None):
+            raise ValueError("invalid_primary_binding")
+        return self
+
+
+class InterviewMutation(Contract):
+    expected_revision: int = Field(ge=1)
+
+
+class InterviewEntryCreate(InterviewMutation):
+    entry: InterviewEntry
+
+
+class InterviewUpdate(InterviewMutation):
+    round_name: Label | None = None
+    occurred_at: AwareDatetime | None = None
+    entries: list[InterviewEntry] | None = Field(default=None, max_length=500)
+
+
+class InterviewNoteCreate(InterviewMutation):
+    text: Text
 
 
 class KnowledgeCreate(Contract):

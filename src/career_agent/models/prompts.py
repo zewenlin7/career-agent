@@ -89,7 +89,8 @@ class PromptRegistry:
 
 def application_prompts() -> PromptRegistry:
     # Composition only; no feature prompt text or provider configuration lives here.
+    from career_agent.interview.prompts import PROMPTS as interview
     from career_agent.preparation.prompts import PROMPTS as preparation
     from career_agent.runtime.prompts import PROMPTS as runtime
 
-    return PromptRegistry([*preparation.values(), *runtime.values()])
+    return PromptRegistry([*preparation.values(), *runtime.values(), *interview.values()])
