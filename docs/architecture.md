@@ -113,13 +113,15 @@ persistence; explicit fixed workflow APIs now create runs. There is no generic r
 - Step: sequence, node/action, status, attempt, latency, structured reason code, versions.
 - ModelCall: task, provider/model, attempts, usage/cost, latency, finish reason, schema result,
   safe error code/retryability and versions.
-- ToolCall: name/version, attempt/status, latency, estimated usage/cost and safe error code/retryability.
+- ToolCall: name/version, input/output schema versions, attempt/status, latency, estimated usage/cost
+  and safe error code/retryability.
 - Observation: exactly one model/tool call FK, status, opaque UUID data/evidence references,
   warning codes, error code and retryability.
 
 VersionMetadata supports workflow, prompt, input/output schema, tool implementation,
 model policy, provider/model, resume template and evaluator versions. Missing versions remain
-null. No fabricated prompt/tool versions are generated. No prompt registry, rollout or A/B system.
+null for historical/unused fields. Active model calls require the shared code-managed PromptRegistry
+contract described below. No hosted prompt service, rollout or A/B system.
 Resume artifact records extend this contract with variant-schema, layout-policy and compiler/font
 metadata. Unused model/workflow versions remain null; the compiler does not fabricate Agent calls.
 
@@ -572,3 +574,49 @@ restart. It does not cover in-flight paid calls, unknown side effects, exactly-o
 transactions, filesystem/database atomicity, distributed workers or production crash recovery.
 Synchronous validation/finalization is not preemptively interrupted at a wall-clock deadline.
 All acceptance is synthetic/offline; no claim is made about live planner or job-search quality.
+
+
+## Shared version governance (before v0.2b)
+
+`models/prompts.py` defines shared PromptSpec and a small PromptRegistry. Definitions remain local
+in preparation/prompts.py and runtime/prompts.py; future features can register their own specs.
+All seven preparation tasks and goal_planning/goal_replanning resolve through this contract. The
+latter share name/version/hash, not duplicated instructions. Registry identities reject conflicting
+contracts for the same name/version. `prompt-sha256-v1` canonical sorted UTF-8 JSON hashes prompt
+name/version, instruction, stable input contract/schema version, and complete output JSON schema/
+version. Private request payloads and task routing labels are excluded. Preparation `_v3` and
+`goal-planner-v2` explicitly identify the new contract/hash boundary. No typed PlannerContext
+refactor is included: its compact input shape remains a versioned descriptor.
+
+TaskSpec and ModelRequestContext both carry prompt name/version/hash and input/output schema
+versions. Gateway validates both against the registered spec, checks instruction and canonical
+output schema identity, then generates trace metadata including policy/provider/model/workflow.
+Unknown task → `unregistered_prompt_task`; inconsistency → `prompt_contract_mismatch`, before
+provider dispatch. Both preparation and planning use the same trace builder, including failed
+attempt metadata and safe success diagnostics. `career-model-policy-v2` explicitly maps planning
+and replanning to strong; current cheap/strong model selection is unchanged.
+
+ActionSpec requires explicit args/result schema versions as well as action version. A PlanAction
+pins the registered version before it becomes executable; `agent-plan-v2` records this contract.
+Validation, resume of outstanding actions and dispatch require exact version equality. Old plans
+and checkpoints can still be read; missing/incompatible action versions are rejected, never
+inferred from today's Registry. Completed actions remain provenance. Action semantics/schema
+changes require a version bump; no compatibility rollout platform is implemented.
+
+Search ToolCall stores input/output schema versions alongside tool name/version. Migration
+`f730b2c01231` follows `e620a1b90120`; new columns are nullable to preserve historical unknowns.
+AgentStep records action name/version and args/result schema versions. These are distinct from
+underlying tools. RenderReport records explicit render-wrapper and validation implementation
+versions independently of template/font/layout/actual Typst versions. Historical reports do not
+receive invented implementation versions. No generic Tool/Action/Prompt/Model mega-registry.
+
+OpenAI adapter preserves optional provider `cache_write_tokens` through Usage and ModelCall JSONB.
+Absent is null, not zero; cached read, total input/output and reasoning counters remain unchanged.
+No independent write surcharge is inferred: current estimation is non-cached input × input rate +
+cached input × cached rate + output × output rate. A write-specific tariff/inclusion relationship
+would require a reliable provider pricing contract before changing arithmetic. This update does not
+claim invoice accuracy, add pricing snapshots, aggregate cache metrics, or automate cache policy.
+The existing unknown-usage reservation and actual-billed-cost-null boundaries remain unchanged.
+
+Acceptance uses fake providers, HTTP mocks and real local PostgreSQL/Typst only. It verifies metadata
+and execution boundaries, not real model quality. v0.2b remains unimplemented.

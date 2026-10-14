@@ -395,8 +395,14 @@ only safe status and a relative report reference. The report captures model/sear
 
 Default routing is extraction → cheap (`gpt-6-luna`), other tasks → strong (`gpt-6.1-sol`).
 Premium configuration is reserved and never added to the active registry. Model names and prices
-are operator configuration, not domain logic. The seven prompt versions are repo-owned in
-`preparation/prompts.py`; hashes cover instructions, input keys and output schema, never private text.
+are operator configuration, not domain logic. All nine LLM tasks use the shared code-managed `models/prompts.py` contract/registry;
+feature definitions remain in `preparation/prompts.py` and `runtime/prompts.py`. Planning and
+replanning share one prompt identity. Canonical SHA-256 covers name/version, instructions,
+input contract/schema version and output schema/version, never request data. Gateway rejects
+unregistered tasks or mismatched request/task metadata before provider dispatch. Every ModelCall
+records prompt name/version/hash, schema versions, model policy/provider/model and workflow version.
+Preparation specs now use `_v3`; the planning spec is `goal-planner-v2` / `agent-plan-v2`.
+Changed hashes conservatively invalidate reuse fingerprints; existing artifacts remain readable.
 
 Default run limits: 12 model attempts, 2 basic search calls, 200,000 reserved/consumed input tokens,
 40,000 output tokens, USD 1 estimated total, one semantic compression. Every retry/repair consumes
@@ -442,10 +448,13 @@ provider usage retains its conservative budget reservation.
 
 ### Usage, cost estimates and budget reservations
 
-- `input_tokens` / `output_tokens` / `cached_tokens` / `reasoning_tokens` are provider-reported
+- `input_tokens` / `output_tokens` / `cached_tokens` / `cache_write_tokens` / `reasoning_tokens` are provider-reported
   usage. `measurement=reported` describes usage, not a paid invoice. Unknown per-call usage is null.
 - Existing `estimated_cost` (with `currency=USD`) is the USD estimate, equivalent to
   `estimated_cost_usd`: reported OpenAI usage × the versioned configured price table.
+- `cache_write_tokens` is nullable per-call telemetry. No separate write charge is inferred:
+  the estimate still partitions total input into cached reads and other input, plus output.
+  Independent cache-write billing is not claimed; no pricing snapshot or billing API is added.
 - `budget_reserved_usd` and `reserved_input_tokens` / `reserved_output_tokens` are conservative
   bounds for unsettled/unknown attempts. They are separate from usage and estimated cost.
 - `actual_billed_cost_usd=null` and `billing_tier=unknown`: no billing/account integration, Admin
@@ -524,3 +533,19 @@ Full goal text is private DB content, excluded from checkpoints and operational 
 Offline runtime acceptance is included in `pytest`; it uses fake models/planner, fixture research,
 real temporary PostgreSQL and the pinned real Typst/fonts. Synthetic acceptance does not demonstrate
 real recruitment outcomes or planner quality.
+
+
+### Version governance before v0.2b
+
+Business Action Registry and model/prompt registries remain separate. Actions declare
+`version`, `args_schema_version`, `result_schema_version` and existing policy metadata.
+New plans pin `action_version`; validation, resume and dispatch require an exact Registry match.
+Legacy unpinned pending actions remain readable but cannot resume (`action_version_mismatch`);
+completed actions remain historical provenance. No automatic contract upgrade/replay is performed.
+Action/schema changes require an action version bump. AgentStep records the bound action and schema
+versions. Search ToolCall/API records `company_search` / `company-search-v1` with input/output
+schema versions. Migration `f730b2c01231` adds nullable schema columns; old unknown values stay null.
+Render reports additionally capture `resume-render-wrapper-v1` and `resume-validation-v1`, separately
+from template/font/layout/Typst versions; old reports retain unknown wrapper/validation versions.
+Planner success/failure retains safe provider diagnostics. This governance update is offline-only;
+Mock Interview / Debrief remain planned, and no new live quality claim is made.

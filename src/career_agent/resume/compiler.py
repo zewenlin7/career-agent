@@ -22,7 +22,10 @@ def compile_resume(
     name: str,
     renderer: TypstRenderer,
 ) -> tuple[RenderReport, bytes | None]:
-    versions = RenderVersions()
+    versions = RenderVersions(
+        render_wrapper_version="resume-render-wrapper-v1",
+        validation_implementation_version="resume-validation-v1",
+    )
     report = RenderReport(render_status="failed", validation_status="not_run", versions=versions)
     selection = initial_selection(document)
     try:

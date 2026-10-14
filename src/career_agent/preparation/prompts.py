@@ -1,14 +1,12 @@
 """Repository-owned, model-independent prompts. Hashes exclude private task data."""
 
-import hashlib
-import json
-from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from career_agent.domain.schemas import Contract
 from career_agent.models.contracts import TaskSpec
+from career_agent.models.prompts import PromptSpec
 from career_agent.preparation.contracts import (
     FitOutput,
     GreetingOutput,
@@ -135,45 +133,31 @@ INSTRUCTIONS = {
 }
 
 
-@dataclass(frozen=True)
-class PromptSpec:
-    task_type: TaskType
+PROMPTS = {
+    task: PromptSpec(
+        prompt_name=task.value,
+        prompt_version=f"{task.value}_v3",
+        task_type=task.value,
+        input_schema_version="task-input-v1",
+        output_schema_version=f"{task.value}-output-v1",
+        instruction=BASE + INSTRUCTIONS[task],
+        input_contract={
+            "schema": TaskInput.model_json_schema(),
+            "allowed_context_keys": sorted(ALLOWLIST[task]),
+            "schema_repair_marker": "schema_invalid",
+        },
+        output_schema=OUTPUTS[task],
+    )
+    for task in TaskType
+}
 
-    @property
-    def version(self) -> str:
-        return (
-            f"{self.task_type.value}_v2"
-            if self.task_type in {TaskType.TAILOR, TaskType.GREETING, TaskType.INTERVIEW}
-            else f"{self.task_type.value}_v1"
-        )
 
-    @property
-    def instruction(self) -> str:
-        return BASE + INSTRUCTIONS[self.task_type]
-
-    @property
-    def digest(self) -> str:
-        data = {
-            "instruction": self.instruction,
-            "input_keys": sorted(ALLOWLIST[self.task_type]),
-            "input_schema": "task-input-v1",
-            "output_schema": OUTPUTS[self.task_type].model_json_schema(),
-        }
-        return hashlib.sha256(
-            json.dumps(data, sort_keys=True, ensure_ascii=False).encode()
-        ).hexdigest()
-
-    def task(self, blocks: dict[str, Any], *, schema_repair: bool = False) -> TaskSpec:
-        if set(blocks) - ALLOWLIST[self.task_type]:
-            raise ValueError("invalid_context_block")
-        payload = TaskInput(context=blocks)
-        inputs = payload.model_dump(mode="json")
-        if schema_repair:
-            inputs["repair_reason"] = "schema_invalid"
-        return TaskSpec(
-            instruction=self.instruction,
-            inputs=inputs,
-            prompt_version=self.version,
-            input_schema_version="task-input-v1",
-            output_schema_version=f"{self.task_type.value}-output-v1",
-        )
+def task_spec(
+    task_type: TaskType, blocks: dict[str, Any], *, schema_repair: bool = False
+) -> TaskSpec:
+    if set(blocks) - ALLOWLIST[task_type]:
+        raise ValueError("invalid_context_block")
+    inputs = TaskInput(context=blocks).model_dump(mode="json")
+    if schema_repair:
+        inputs["repair_reason"] = "schema_invalid"
+    return PROMPTS[task_type].task(inputs)

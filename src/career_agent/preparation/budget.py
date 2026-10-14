@@ -15,8 +15,11 @@ from career_agent.runtime.contracts import Usage
 
 def input_bound(context: ModelRequestContext, task: TaskSpec) -> int:
     # UTF-8 bytes upper-bound ordinary text tokens; include output schema and envelope margin.
-    value = task.model_dump(mode="json") | {
-        "output_schema": context.output_schema.model_json_schema()
+    # Version/hash telemetry is not sent to the model and must not consume context budget.
+    value = {
+        "instruction": task.instruction,
+        "inputs": task.inputs,
+        "output_schema": context.output_schema.model_json_schema(),
     }
     count = len(json.dumps(value, ensure_ascii=False).encode()) + 1024
     if count > 80000:

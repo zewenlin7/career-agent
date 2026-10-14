@@ -12,7 +12,7 @@ from career_agent.config import Settings
 from career_agent.models.contracts import ModelGatewayError, ModelRequestContext
 from career_agent.models.openai_adapter import OpenAIProvider
 from career_agent.preparation.contracts import TaskType
-from career_agent.preparation.prompts import PromptSpec
+from career_agent.preparation.prompts import task_spec
 from career_agent.preparation.providers import POLICY, registry
 from career_agent.resume.schemas import ResumeDocument
 
@@ -82,7 +82,7 @@ async def test_safe_native_failure_metadata(case, expected, caplog):
                 await OpenAIProvider(sdk).generate(
                     POLICY.select(ctx, registry(Settings(), True)),
                     ctx,
-                    PromptSpec(TaskType.TAILOR).task({}),
+                    task_spec(TaskType.TAILOR, {}),
                 )
     error = caught.value
     assert error.code == expected

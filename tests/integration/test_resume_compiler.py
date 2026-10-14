@@ -37,6 +37,8 @@ def test_real_acceptance_and_repeatability(name, expected, attempts, tmp_path):
     assert report.render_status == expected, report.model_dump_json()
     assert len(report.attempts) == attempts
     assert report.versions.compiler_version == "0.15.1"
+    assert report.versions.render_wrapper_version == "resume-render-wrapper-v1"
+    assert report.versions.validation_implementation_version == "resume-validation-v1"
     assert report.versions.locale == "zh-CN"
     assert report.versions.font_family == FONT_FAMILY
     assert report.versions.font_policy_version == FONT_POLICY_VERSION

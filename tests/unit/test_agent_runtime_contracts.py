@@ -40,6 +40,7 @@ def proposal(state):
         policies=state.scope,
         actions=[
             PlanAction(
+                action_version="business-action-v1",
                 action_id=uuid4(),
                 name="prepare_application",
                 args=ActionArgs(targets=["fit_analysis"]),
@@ -77,6 +78,7 @@ def test_four_actions_and_dependency_depth():
     for target in state.scope.targets:
         actions.append(
             PlanAction(
+                action_version="business-action-v1",
                 action_id=uuid4(),
                 name="prepare_application"
                 if target != "interview_preparation"
@@ -132,6 +134,7 @@ def test_dangling_dependency_in_later_node_is_structured_failure():
     state = context()
     plan = proposal(state)
     second = PlanAction(
+        action_version="business-action-v1",
         action_id=uuid4(),
         name="prepare_application",
         args=ActionArgs(targets=["greeting_generation"]),

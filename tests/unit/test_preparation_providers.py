@@ -13,7 +13,7 @@ from career_agent.models.contracts import ModelGatewayError, ModelRequestContext
 from career_agent.models.openai_adapter import OpenAIProvider
 from career_agent.preparation.budget import BudgetLedger, input_bound
 from career_agent.preparation.contracts import Accounting, RunLimits, TaskType
-from career_agent.preparation.prompts import OUTPUTS, PromptSpec
+from career_agent.preparation.prompts import OUTPUTS, PROMPTS, task_spec
 from career_agent.preparation.providers import POLICY, registry
 from career_agent.preparation.research import SearchInput, TavilyResearchAdapter
 from career_agent.runtime.contracts import Usage
@@ -33,18 +33,18 @@ def test_native_schema_and_static_routing(task):
     candidate = POLICY.select(context(task), registry(Settings(), True))
     assert candidate.tier == (ModelTier.CHEAP if task == TaskType.EXTRACTION else ModelTier.STRONG)
     assert all(c.tier != ModelTier.PREMIUM for c in registry(Settings(premium_enabled=True), True))
-    spec = PromptSpec(task)
-    assert spec.digest == PromptSpec(task).digest and len(spec.digest) == 64
+    spec = PROMPTS[task]
+    assert spec.prompt_hash == PROMPTS[task].prompt_hash and len(spec.prompt_hash) == 64
     assert "quoted data/evidence" in spec.instruction
     with pytest.raises(ValueError, match="invalid_context_block"):
-        spec.task({"output_path": "/private/forbidden"})
+        task_spec(task, {"output_path": "/private/forbidden"})
 
 
 def test_unsupported_capability_and_context_size():
     ctx = context().model_copy(update={"required_capabilities": frozenset({"shell"})})
     with pytest.raises(ModelGatewayError, match="no_eligible_model"):
         POLICY.select(ctx, registry(Settings(), True))
-    task = PromptSpec(TaskType.EXTRACTION).task({"job": {"jd_text": "中" * 80000}})
+    task = task_spec(TaskType.EXTRACTION, {"job": {"jd_text": "中" * 80000}})
     with pytest.raises(ModelGatewayError, match="context_too_large"):
         input_bound(context(), task)
 
@@ -76,7 +76,8 @@ def test_cost_and_search_hard_limits():
 
 
 @pytest.mark.parametrize("cached_price", [Decimal("0"), Decimal("0.01")])
-async def test_responses_native_schema_and_usage(cached_price):
+@pytest.mark.parametrize("cache_write_tokens", [None, 0, 40])
+async def test_responses_native_schema_and_usage(cached_price, cache_write_tokens):
     output = {
         "requirements": [
             {
@@ -120,7 +121,14 @@ async def test_responses_native_schema_and_usage(cached_price):
                     "input_tokens": 100,
                     "output_tokens": 20,
                     "total_tokens": 120,
-                    "input_tokens_details": {"cached_tokens": 10},
+                    "input_tokens_details": {
+                        "cached_tokens": 10,
+                        **(
+                            {"cache_write_tokens": cache_write_tokens}
+                            if cache_write_tokens is not None
+                            else {}
+                        ),
+                    },
                     "output_tokens_details": {"reasoning_tokens": 0},
                 },
             },
@@ -135,10 +143,11 @@ async def test_responses_native_schema_and_usage(cached_price):
             result = await OpenAIProvider(sdk).generate(
                 candidate,
                 context(),
-                PromptSpec(TaskType.EXTRACTION).task({"job": {"jd_text": "Python"}}),
+                task_spec(TaskType.EXTRACTION, {"job": {"jd_text": "Python"}}),
             )
     assert result.output == output
     assert result.usage.input_tokens == 100 and result.usage.cached_tokens == 10
+    assert result.usage.cache_write_tokens == cache_write_tokens
     assert result.usage.reasoning_tokens == 0
     assert result.usage.actual_model == candidate.model
     assert result.usage.measurement == "reported" and result.usage.estimated_cost > 0
@@ -169,7 +178,7 @@ async def test_provider_raw_error_redacted(status, code, retryable):
                 await OpenAIProvider(sdk).generate(
                     POLICY.select(context(), registry(Settings(), True)),
                     context(),
-                    PromptSpec(TaskType.EXTRACTION).task({"job": {}}),
+                    task_spec(TaskType.EXTRACTION, {"job": {}}),
                 )
     assert str(error.value) == code and error.value.retryable == retryable
 

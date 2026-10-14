@@ -15,6 +15,7 @@ from career_agent.models.contracts import (
     TaskSpec,
 )
 from career_agent.models.diagnostics import validation_issues
+from career_agent.models.prompts import PromptRegistry, application_prompts
 from career_agent.runtime.contracts import OutputDiagnostic, VersionMetadata
 
 
@@ -64,14 +65,28 @@ class ModelGateway:
         registry: list[ModelCandidate],
         policy: ModelPolicy,
         adapters: dict[str, ProviderAdapter],
+        prompts: PromptRegistry | None = None,
     ) -> None:
         if len({(c.provider, c.model) for c in registry}) != len(registry):
             raise ValueError("duplicate model candidate")
         if any(c.provider not in adapters for c in registry):
             raise ValueError("missing provider adapter")
         self.registry, self.policy, self.adapters = registry, policy, adapters
+        self.prompts = prompts if prompts is not None else application_prompts()
+
+    def trace_metadata(self, context: ModelRequestContext, task: TaskSpec) -> VersionMetadata:
+        versions = self.prompts.trace_metadata(context, task)
+        candidate = self.policy.select(context, self.registry)
+        return versions.model_copy(
+            update={
+                "model_policy_version": self.policy.version,
+                "provider": candidate.provider,
+                "model": candidate.model,
+            }
+        )
 
     async def generate(self, context: ModelRequestContext, task: TaskSpec) -> ModelResult:
+        versions = self.trace_metadata(context, task)
         candidate = self.policy.select(context, self.registry)
         started = time.perf_counter()
         try:
@@ -100,13 +115,5 @@ class ModelGateway:
             estimated_cost=response.usage.estimated_cost,
             schema_validation_state="valid",
             model_policy_version=self.policy.version,
-            versions=VersionMetadata(
-                output_diagnostic=response.diagnostic,
-                prompt_version=task.prompt_version,
-                input_schema_version=task.input_schema_version,
-                output_schema_version=task.output_schema_version,
-                model_policy_version=self.policy.version,
-                provider=candidate.provider,
-                model=candidate.model,
-            ),
+            versions=versions.model_copy(update={"output_diagnostic": response.diagnostic}),
         )

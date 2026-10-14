@@ -75,6 +75,19 @@ See CHANGELOG for verified details.
 - [x] Final offline DoD: 271 passed; Ruff/format, strict mypy, empty PostgreSQL migration/drift,
   clean offline install, wheel/sdist/package, pinned Typst/font and git hygiene checks passed.
 
+### Version governance before v0.2b
+
+- [x] Shared code-managed PromptSpec/Registry for all nine tasks with feature-local definitions.
+- [x] Gateway rejects prompt metadata/hash/schema mismatch before dispatch; unified ModelCall trace.
+- [x] Explicit planner/replanner routing and safe success diagnostics.
+- [x] Action schema versions, pinned plan action versions and strict resume/dispatch compatibility.
+- [x] Search schema versions in ToolCall/API; independent render-wrapper/validation versions.
+- [x] Optional provider cache-write usage preserved without speculative extra billing.
+- [x] Governance offline acceptance: 317 passed; Ruff/format, strict mypy, empty PostgreSQL
+  migration/drift, offline install/build/package and pinned Typst/font checks passed.
+- Governance acceptance is offline only; legacy unpinned pending plans cannot silently resume.
+- [ ] Future refinement: typed PlannerContext and task input contracts; immutable pricing snapshots.
+
 ### v0.2b Interview Loop (planned; not implemented)
 
 - [ ] Mock interview and assisted debrief on the bounded runtime.

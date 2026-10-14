@@ -7,6 +7,7 @@ from sqlalchemy import select
 from career_agent.infrastructure import entities as e
 from career_agent.models.contracts import ModelGatewayError
 from career_agent.models.gateway import ModelGateway
+from career_agent.models.prompts import application_prompts
 from career_agent.preparation.contracts import TaskType
 from career_agent.preparation.providers import POLICY, FixtureTaskProvider, registry
 from career_agent.preparation.research import FixtureResearchAdapter
@@ -136,7 +137,8 @@ async def test_two_workflows_cache_trace_and_privacy(client, sessions, prep_inpu
     assert all(c["model"] == "fixture-strong" for c in calls["model_calls"][1:])
     for c in calls["model_calls"]:
         assert len(c["versions"]["prompt_hash"]) == 64
-        assert c["versions"]["prompt_version"].endswith(("_v1", "_v2"))
+        spec = application_prompts().resolve(c["task_type"])
+        assert all(c["versions"][key] == value for key, value in spec.metadata.items())
     import json
 
     trace = json.dumps(calls, ensure_ascii=False)

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from career_agent.models.contracts import ModelGatewayError
 from career_agent.preparation.contracts import Target, WorkflowRequest
 from career_agent.runtime.agent_contracts import AgentState, PlanAction, PlanProposal
-from career_agent.runtime.registry import REGISTRY
+from career_agent.runtime.registry import REGISTRY, validate_action_version
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,8 @@ def validate_plan(plan: PlanProposal, state: AgentState, evidence: set[str]) -> 
     def reject(code: str = "invalid_plan") -> None:
         raise ModelGatewayError(code)
 
+    if plan.plan_version != "agent-plan-v2":
+        reject("plan_version_mismatch")
     if plan.bindings != state.bindings or plan.policies != state.scope:
         reject("plan_authority_violation")
     if not set(plan.requested_targets) <= set(state.scope.targets):
@@ -74,6 +76,7 @@ def validate_plan(plan: PlanProposal, state: AgentState, evidence: set[str]) -> 
     for action in plan.actions:
         if action.name not in REGISTRY or not set(action.dependencies) <= ids:
             reject("unregistered_action")
+        validate_action_version(action)
         if len(action.dependencies) != len(set(action.dependencies)):
             reject()
         depth(action.action_id, set())

@@ -48,7 +48,7 @@ from career_agent.preparation.guardrails import (
     validate_interview,
     validate_research,
 )
-from career_agent.preparation.prompts import OUTPUTS, PromptSpec
+from career_agent.preparation.prompts import OUTPUTS, task_spec
 from career_agent.preparation.research import ResearchAdapter, SearchInput, SearchToolMetadata
 from career_agent.resume.grounding import FactEvidence, validate_grounding
 from career_agent.resume.renderer import CompileError
@@ -92,16 +92,17 @@ class PreparationWorkflow:
         self.base_document: ResumeDocument | None = None
 
     async def call(self, task_type: TaskType, blocks: dict[str, Any]) -> BaseModel:
-        spec = PromptSpec(task_type)
+        spec = self.gateway.prompts.resolve(task_type.value)
         transport_retries = repairs = 0
         attempt = 0
         previous: str | None = None
         while True:
-            task = spec.task(blocks, schema_repair=repairs > 0)
+            task = task_spec(task_type, blocks, schema_repair=repairs > 0)
             u, b = self.state.usage, self.state.limits
             context = ModelRequestContext(
                 task_type=task_type.value,
                 workflow=self.state.workflow,
+                workflow_version=self.state.workflow_version,
                 privacy_class=PrivacyClass.SYNTHETIC
                 if self.request.mode == "fixture"
                 else PrivacyClass.PRIVATE,
@@ -109,9 +110,7 @@ class PreparationWorkflow:
                 max_output_tokens=6000
                 if task_type in {TaskType.TAILOR, TaskType.COMPRESS, TaskType.INTERVIEW}
                 else 3000,
-                prompt_version=spec.version,
-                input_schema_version=task.input_schema_version,
-                output_schema_version=task.output_schema_version,
+                **spec.metadata,
                 budget_remaining=Budget(
                     token_limit=max(
                         0,
@@ -125,23 +124,18 @@ class PreparationWorkflow:
                     cost_limit=max(0, b.max_estimated_cost - u.budget_consumed_usd),
                 ),
             )
+            self.gateway.prompts.trace_metadata(context, task)
             candidate = self.gateway.policy.select(context, self.gateway.registry)
             ledger = self.runtime_budget.ledger(b, u) if self.runtime_budget else BudgetLedger(b, u)
             reservation = ledger.reserve_model(
                 candidate, input_bound(context, task), context.max_output_tokens
             )
             attempt += 1
-            versions = VersionMetadata(
-                workflow_version=self.state.workflow_version,
-                prompt_version=spec.version,
-                prompt_hash=spec.digest,
-                input_schema_version=task.input_schema_version,
-                output_schema_version=task.output_schema_version,
-                model_policy_version=self.gateway.policy.version,
-                provider=candidate.provider,
-                model=candidate.model,
-                retry_reason=previous if transport_retries else None,
-                repair_reason="schema_invalid" if repairs else None,
+            versions = self.gateway.trace_metadata(context, task).model_copy(
+                update={
+                    "retry_reason": previous if transport_retries else None,
+                    "repair_reason": "schema_invalid" if repairs else None,
+                }
             )
             row = e.ModelCall(
                 step_id=self.step.id,
@@ -372,6 +366,8 @@ class PreparationWorkflow:
                 step_id=self.step.id,
                 tool_name=meta.tool_name,
                 tool_version=meta.tool_version,
+                input_schema_version=meta.input_schema_version,
+                output_schema_version=meta.output_schema_version,
                 usage=reservation.model_dump(mode="json"),
                 attempt=self.state.usage.search_calls,
                 status=CallStatus.RUNNING,

@@ -36,7 +36,6 @@ from career_agent.preparation.orchestrator import Orchestrator
 from career_agent.preparation.research import ResearchAdapter
 from career_agent.preparation.workflows import PreparationWorkflow
 from career_agent.resume.renderer import CompileError
-from career_agent.runtime import planner
 from career_agent.runtime.agent_contracts import (
     ActionObservation,
     ActionProgress,
@@ -51,7 +50,7 @@ from career_agent.runtime.budget import RuntimeBudget, run_limits
 from career_agent.runtime.contracts import Budget, Usage, VersionMetadata
 from career_agent.runtime.evaluator import evaluate
 from career_agent.runtime.plans import action_targets, fingerprint, validate_plan
-from career_agent.runtime.registry import REGISTRY
+from career_agent.runtime.registry import REGISTRY, validate_action_version
 
 TERMINAL = {"completed", "partial", "failed", "cancelled"}
 SAFE_FAILURES = (ModelGatewayError, DomainError, CompileError, ValidationError)
@@ -240,6 +239,9 @@ class AgentEngine:
     async def validate_context(
         self, session: AsyncSession, state: AgentState
     ) -> PreparationWorkflow:
+        for progress in state.progress.actions.values():
+            if progress.status not in {"completed", "failed"}:
+                validate_action_version(progress.action)
         r = self.runner(session, state)
         await r.validate_inputs()
         snapshot = {id: f.revision for id, f in r.fact_rows.items()}
@@ -395,7 +397,11 @@ class AgentEngine:
             versions=VersionMetadata(
                 workflow_version="agent-runtime-v1",
                 action_name=action.name if action else None,
-                action_version=REGISTRY[action.name].version if action else None,
+                action_version=action.action_version if action else None,
+                input_schema_version=REGISTRY[action.name].args_schema_version if action else None,
+                output_schema_version=REGISTRY[action.name].result_schema_version
+                if action
+                else None,
                 evaluator_version="runtime-evaluator-v1" if node == "evaluate" else None,
             ).model_dump(mode="json"),
         )
@@ -450,7 +456,11 @@ class AgentEngine:
             "bindings": state.bindings.model_dump(mode="json"),
             "authorized_scope": state.scope.model_dump(mode="json"),
             "allowed_actions": [
-                {"name": v.name, "version": v.version, "permission_policy": v.permission_policy}
+                {
+                    "name": v.name,
+                    "version": v.version,
+                    "permission_policy": v.permission_policy,
+                }
                 for v in REGISTRY.values()
             ],
             "artifacts": artifacts,
@@ -468,9 +478,12 @@ class AgentEngine:
         self, session: AsyncSession, state: AgentState, step: e.AgentStep, budget: RuntimeBudget
     ) -> None:
         context = await self.planner_context(session, state)
-        spec = planner.task(context)
+        task_type = "goal_replanning" if state.plan_revision else "goal_planning"
+        prompt = self.gateway.prompts.resolve(task_type)
+        spec = prompt.task(context)
         request = ModelRequestContext(
-            task_type="goal_replanning" if state.plan_revision else "goal_planning",
+            task_type=task_type,
+            workflow_version="agent-runtime-v1",
             workflow="agent_goal",
             output_schema=PlanProposal,
             max_output_tokens=2048,
@@ -482,10 +495,9 @@ class AgentEngine:
                     Decimal(0), state.limits.max_estimated_cost - state.usage.budget_consumed_usd
                 )
             ),
-            prompt_version=planner.PLANNER_VERSION,
-            input_schema_version="planner-context-v1",
-            output_schema_version="agent-plan-v1",
+            **prompt.metadata,
         )
+        self.gateway.prompts.trace_metadata(request, spec)
         bound = input_bound(request, spec)
         if bound > 8000:
             raise ModelGatewayError("planner_context_too_large")
@@ -498,14 +510,7 @@ class AgentEngine:
             model=candidate.model,
             status=CallStatus.RUNNING,
             attempts=1,
-            versions=VersionMetadata(
-                workflow_version="agent-runtime-v1",
-                prompt_version=planner.PLANNER_VERSION,
-                prompt_hash=planner.PLANNER_HASH,
-                input_schema_version="planner-context-v1",
-                output_schema_version="agent-plan-v1",
-                model_policy_version=self.gateway.policy.version,
-            ).model_dump(mode="json"),
+            versions=self.gateway.trace_metadata(request, spec).model_dump(mode="json"),
         )
         session.add(call)
         await session.flush()
@@ -527,6 +532,11 @@ class AgentEngine:
             assert result is not None
             usage = budget.root.settle(reserved, result.usage)
             call.status = CallStatus.SUCCEEDED
+            if result.versions.output_diagnostic:
+                call.versions = {
+                    **call.versions,
+                    "output_diagnostic": result.versions.output_diagnostic.model_dump(mode="json"),
+                }
             error = None
         call.usage = usage.model_dump(mode="json")
         call.estimated_cost = usage.estimated_cost
@@ -605,6 +615,7 @@ class AgentEngine:
             state.scope.targets
         ):
             raise ModelGatewayError("plan_authority_violation")
+        validate_action_version(action)
         await self.validate_context(session, state)
         started = self.clock()
         deadline = started + REGISTRY[action.name].timeout_seconds
@@ -723,6 +734,7 @@ class AgentEngine:
                             raise ModelGatewayError("action_budget_exhausted")
                         if fingerprint(action) in state.attempted_fingerprints:
                             raise ModelGatewayError("no_progress")
+                        validate_action_version(action)
                         state.usage.business_actions += 1
                         step = await self.step(session, state, "execute", action)
                         state.phase = "executing"

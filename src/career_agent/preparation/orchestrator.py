@@ -26,7 +26,7 @@ from career_agent.preparation.contracts import (
     WorkflowOutcome,
     WorkflowState,
 )
-from career_agent.preparation.prompts import PromptSpec
+from career_agent.preparation.prompts import PROMPTS
 from career_agent.resume.renderer import CompileError
 from career_agent.resume.schemas import RenderReport, ResumeDocument
 from career_agent.runtime.contracts import Budget, Usage
@@ -113,7 +113,7 @@ class Orchestrator:
         r = self.r
         payload = {
             "workflow": "preparation-v2",
-            "task": PromptSpec(TaskType(target)).digest,
+            "task": PROMPTS[TaskType(target)].prompt_hash,
             "mode": r.request.mode,
             "profile": str(r.profile.id),
             "revision": r.profile.revision,
@@ -209,7 +209,7 @@ class Orchestrator:
             return row.id
         reused_legacy = False
         if target == "fit_analysis":
-            legacy = await self.loader.compatible_legacy_fit(PromptSpec(TaskType.FIT).digest)
+            legacy = await self.loader.compatible_legacy_fit(PROMPTS[TaskType.FIT].prompt_hash)
             if legacy:
                 r.fit = await self.loader.fit(legacy)
                 r.state.fit_analysis_id = legacy

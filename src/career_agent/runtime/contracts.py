@@ -50,6 +50,7 @@ class OutputDiagnostic(Contract):
 
 class VersionMetadata(Contract):
     workflow_version: Identifier | None = None
+    prompt_name: Identifier | None = None
     prompt_version: Identifier | None = None
     prompt_hash: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")] | None = None
     input_schema_version: Identifier | None = None
@@ -72,6 +73,7 @@ class Usage(Contract):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     cached_tokens: int | None = Field(default=None, ge=0)
+    cache_write_tokens: int | None = Field(default=None, ge=0)
     reasoning_tokens: int | None = Field(default=None, ge=0)
     actual_model: Identifier | None = None
     estimated_cost: Decimal | None = Field(default=None, ge=0)

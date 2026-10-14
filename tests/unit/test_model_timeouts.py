@@ -10,7 +10,7 @@ from career_agent.models.contracts import ModelGatewayError, ModelRequestContext
 from career_agent.models.openai_adapter import OpenAIProvider
 from career_agent.models.timeouts import ModelTimeoutPolicy
 from career_agent.preparation.contracts import TaskType
-from career_agent.preparation.prompts import OUTPUTS, PromptSpec
+from career_agent.preparation.prompts import OUTPUTS, task_spec
 from career_agent.preparation.providers import POLICY, dependencies, registry
 
 
@@ -68,7 +68,7 @@ async def test_per_request_timeout_native_sdk_and_safe_diagnostic(task, seconds,
                 sdk, ModelTimeoutPolicy(task_seconds={"interview_preparation": 120})
             )
             with pytest.raises(ModelGatewayError) as caught:
-                await provider.generate(candidate, ctx, PromptSpec(task).task({}))
+                await provider.generate(candidate, ctx, task_spec(task, {}))
     exc = caught.value
     assert exc.code == "provider_timeout" and exc.retryable
     assert exc.usage is None

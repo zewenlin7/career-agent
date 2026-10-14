@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added / Changed — shared version governance before v0.2b
+
+- Shared code-managed PromptSpec/Registry for all nine LLM tasks, with feature-local definitions,
+  canonical contract hashes and pre-dispatch rejection of unregistered/mismatched metadata/schema.
+- Unified prompt name/version/hash/schema/policy/provider/model/workflow ModelCall trace; explicit
+  planning/replanning strong routing and safe diagnostics on successful planner responses.
+- Action args/result schema versions, pinned action versions in new plans, strict plan/resume/
+  dispatch checks; legacy unpinned pending actions remain readable but cannot silently execute.
+- Search ToolCall input/output schema columns/API fields; nullable historical values preserved by
+  migration `f730b2c01231`. Independent render-wrapper and validation implementation versions.
+- Optional OpenAI cache-write usage retained through adapter/Usage/ModelCall, without inventing
+  independent cache-write fees. Existing estimated/reserved/billed-cost semantics remain intact.
+- Offline regressions cover metadata/schema/instruction mismatch, all task registrations, action
+  compatibility, planner diagnostics, persisted tool schema versions and cache-write usage.
+- Keep Planner's 8k input ceiling: trace-only metadata is excluded from the model input bound.
+- Offline acceptance: **317 passed in 62.06s**, including real PostgreSQL empty-DB migration/drift
+  and real Typst checks; targeted runtime/governance **66 passed in 20.14s**. Ruff/format (83 files),
+  strict mypy (48 source files), offline locked install/build/wheel imports and package hygiene passed.
+- No live calls, Mock Interview, Debrief, typed PlannerContext refactor or pricing snapshots added.
+
 ### Fixed — v0.2a resume state atomicity
 
 - Apply resume bindings, scope and Gate approval to a deep candidate state; publish it only after

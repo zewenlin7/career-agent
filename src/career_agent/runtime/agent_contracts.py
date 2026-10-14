@@ -77,12 +77,14 @@ class ActionArgs(Contract):
 class PlanAction(Contract):
     action_id: UUID
     name: ActionName
+    # None is retained for reading legacy checkpoints; execution rejects unpinned actions.
+    action_version: Identifier | None = None
     args: ActionArgs
     dependencies: list[UUID] = Field(default_factory=list, max_length=3)
 
 
 class PlanProposal(Contract):
-    plan_version: Literal["agent-plan-v1"] = "agent-plan-v1"
+    plan_version: Literal["agent-plan-v1", "agent-plan-v2"] = "agent-plan-v2"
     requested_targets: list[Target] = Field(min_length=1, max_length=4)
     actions: list[PlanAction] = Field(max_length=4)
     bindings: Bindings

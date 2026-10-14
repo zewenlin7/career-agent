@@ -286,6 +286,8 @@ class ToolCall(Row, Base):
     )
     tool_name: Mapped[str] = mapped_column(String(128))
     tool_version: Mapped[str | None] = mapped_column(String(128))
+    input_schema_version: Mapped[str | None] = mapped_column(String(128))
+    output_schema_version: Mapped[str | None] = mapped_column(String(128))
     usage: Mapped[dict[str, Any] | None] = mapped_column(ValidatedJSON(Usage))
     attempt: Mapped[int] = mapped_column(default=1)
     status: Mapped[CallStatus] = mapped_column(enum_type(CallStatus), default=CallStatus.PENDING)

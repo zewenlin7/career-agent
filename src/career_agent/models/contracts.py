@@ -35,11 +35,14 @@ class ModelRequestContext(Contract):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
     task_type: Identifier
     workflow: Identifier | None = None
+    workflow_version: Identifier | None = None
     complexity: Complexity = Complexity.STANDARD
     required_capabilities: frozenset[Identifier] = frozenset({"structured_output"})
     privacy_class: PrivacyClass = PrivacyClass.SYNTHETIC
     budget_remaining: Budget = Field(default_factory=Budget)
     output_schema: type[BaseModel]
+    prompt_name: Identifier | None = None
+    prompt_hash: str | None = None
     prompt_version: Identifier | None = None
     input_schema_version: Identifier | None = None
     output_schema_version: Identifier | None = None
@@ -50,6 +53,8 @@ class TaskSpec(Contract):
     # In-memory canonical task data, never automatically written to runtime trace.
     instruction: str = Field(min_length=1, max_length=20000)
     inputs: dict[str, Any] = Field(default_factory=dict)
+    prompt_name: Identifier | None = None
+    prompt_hash: str | None = None
     prompt_version: Identifier | None = None
     input_schema_version: Identifier | None = None
     output_schema_version: Identifier | None = None

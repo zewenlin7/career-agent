@@ -109,6 +109,8 @@ async def calls(id: UUID, session: DB) -> dict[str, Any]:
                     "step_id",
                     "tool_name",
                     "tool_version",
+                    "input_schema_version",
+                    "output_schema_version",
                     "usage",
                     "attempt",
                     "status",

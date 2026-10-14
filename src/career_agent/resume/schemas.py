@@ -146,6 +146,8 @@ class RenderVersions(VersionMetadata):
     resume_variant_schema_version: str = SCHEMA_VERSION
     resume_template_version: str = TEMPLATE_VERSION
     layout_policy_version: str = POLICY_VERSION
+    render_wrapper_version: str | None = None
+    validation_implementation_version: str | None = None
     compiler_name: Literal["typst"] = "typst"
     compiler_version: str | None = None
     locale: Literal["zh-CN"] = "zh-CN"

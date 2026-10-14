@@ -123,6 +123,8 @@ class OpenAIProvider:
                 input_tokens=raw.input_tokens,
                 output_tokens=raw.output_tokens,
                 cached_tokens=raw.input_tokens_details.get("cached_tokens"),
+                # Preserve provider usage without assuming a separate write surcharge.
+                cache_write_tokens=raw.input_tokens_details.get("cache_write_tokens"),
                 reasoning_tokens=raw.output_tokens_details.get("reasoning_tokens"),
                 actual_model=diagnostic.actual_model,
                 estimated_cost=cost,

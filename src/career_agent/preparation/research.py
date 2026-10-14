@@ -25,8 +25,8 @@ class SearchResult(Contract):
 class SearchToolMetadata(Contract):
     tool_name: str = "company_search"
     tool_version: str = "company-search-v1"
-    input_schema: str = "search-input-v1"
-    output_schema: str = "search-result-v1"
+    input_schema_version: str = "search-input-v1"
+    output_schema_version: str = "search-result-v1"
     side_effect: str = "read_only_external"
     timeout_seconds: int = 15
     max_attempts: int = 1  # A failed attempt consumes one of the two search slots.

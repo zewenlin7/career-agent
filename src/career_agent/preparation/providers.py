@@ -30,9 +30,14 @@ from career_agent.preparation.research import (
 from career_agent.runtime.contracts import Usage
 
 POLICY = ModelPolicy(
-    version="preparation-policy-v1",
+    version="career-model-policy-v2",
     task_tiers={
-        t.value: ModelTier.CHEAP if t == TaskType.EXTRACTION else ModelTier.STRONG for t in TaskType
+        **{
+            t.value: ModelTier.CHEAP if t == TaskType.EXTRACTION else ModelTier.STRONG
+            for t in TaskType
+        },
+        "goal_planning": ModelTier.STRONG,
+        "goal_replanning": ModelTier.STRONG,
     },
 )
 

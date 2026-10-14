@@ -10,15 +10,28 @@ from career_agent.models.contracts import (
     ModelRequestContext,
     ModelTier,
     PrivacyClass,
-    TaskSpec,
 )
 from career_agent.models.fake import FakeProvider
 from career_agent.models.gateway import ModelGateway, ModelPolicy
+from career_agent.models.prompts import PromptRegistry, PromptSpec
 from career_agent.runtime.contracts import Budget
 
 
 class Output(BaseModel):
     category: str
+
+
+SPEC = PromptSpec(
+    prompt_name="synthetic-parse",
+    prompt_version="synthetic-parse-v1",
+    task_type="parse",
+    input_schema_version="synthetic-input-v1",
+    output_schema_version="synthetic-output-v1",
+    instruction="Synthetic classification",
+    input_contract={},
+    output_schema=Output,
+)
+PROMPTS = PromptRegistry([SPEC])
 
 
 def candidate(tier=ModelTier.CHEAP, **changes):
@@ -36,7 +49,7 @@ def candidate(tier=ModelTier.CHEAP, **changes):
 
 
 def context(**changes):
-    values = dict(task_type="parse", output_schema=Output)
+    values = dict(task_type="parse", output_schema=Output, **SPEC.metadata)
     values.update(changes)
     return ModelRequestContext(**values)
 
@@ -48,8 +61,8 @@ def policy():
 
 async def test_fake_contract(policy):
     provider = FakeProvider({"category": "synthetic"})
-    gateway = ModelGateway([candidate()], policy, {"synthetic": provider})
-    result = await gateway.generate(context(), TaskSpec(instruction="Synthetic classification"))
+    gateway = ModelGateway([candidate()], policy, {"synthetic": provider}, prompts=PROMPTS)
+    result = await gateway.generate(context(), SPEC.task({}))
     assert result.validated_output.category == "synthetic"
     assert result.provider == "synthetic" and result.model == "cheap"
     assert result.usage.input_tokens == 0 and result.estimated_cost == 0
@@ -90,17 +103,19 @@ def test_budget_and_no_premium_escalation(policy):
 
 
 async def test_output_validation_and_provider_error(policy):
-    gateway = ModelGateway([candidate()], policy, {"synthetic": FakeProvider({"wrong": True})})
+    gateway = ModelGateway(
+        [candidate()], policy, {"synthetic": FakeProvider({"wrong": True})}, prompts=PROMPTS
+    )
     with pytest.raises(ModelGatewayError, match="output_validation_failed"):
-        await gateway.generate(context(), TaskSpec(instruction="synthetic"))
+        await gateway.generate(context(), SPEC.task({}))
 
     class Broken:
         async def generate(self, *args):
             raise RuntimeError("secret /private/example/resume.txt synthetic@example.invalid")
 
-    gateway = ModelGateway([candidate()], policy, {"synthetic": Broken()})
+    gateway = ModelGateway([candidate()], policy, {"synthetic": Broken()}, prompts=PROMPTS)
     with pytest.raises(ModelGatewayError) as error:
-        await gateway.generate(context(), TaskSpec(instruction="synthetic"))
+        await gateway.generate(context(), SPEC.task({}))
     assert str(error.value) == "provider_error"
     assert error.value.__suppress_context__
 
