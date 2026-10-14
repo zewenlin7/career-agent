@@ -27,6 +27,10 @@ class ApplicationStatus(StrEnum):
 
 
 class RunStatus(StrEnum):
+    COMPLETED = "completed"
+    WAITING_INPUT = "waiting_input"
+    WAITING_DECISION = "waiting_decision"
+    CANCELLED = "cancelled"
     PENDING = "pending"
     RUNNING = "running"
     SUCCEEDED = "succeeded"

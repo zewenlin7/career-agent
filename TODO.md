@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.1d Integration / E2E — completed; final offline acceptance passed.**
-Next planned milestone: v0.2 Agent Runtime (not started).
+**v0.2a Runtime Core — completed locally; final offline acceptance passed.**
+Next planned milestone: v0.2b Interview Loop (not started).
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -65,13 +65,21 @@ See CHANGELOG for verified details.
   Alembic drift, offline install/build/package, pinned Typst/font and git hygiene checks passed.
 - Synthetic acceptance is not real job-search quality verification. No new paid smoke required.
 
-### v0.2 Agent Runtime (planned)
+### v0.2a Runtime Core
 
-- [ ] Planner/executor/evaluator and bounded replan; shared state and stopping criteria.
-- [ ] Persistent checkpoints, recovery, worker and idempotent side effects.
-- [ ] Tool registry and structured observations; timeout/retry/budget enforcement.
-- [ ] Runtime events and usage aggregation, unknown/estimated accounting.
-- [ ] Mock interview and assisted interview debrief; candidate knowledge requires confirmation.
+- [x] Bounded structured Planner → PlanValidator → existing deterministic executor.
+- [x] Coarse action registry, deterministic evaluator, shared cumulative budgets and action observations.
+- [x] Versioned plans/checkpoints, waiting input/decision, explicit CAS/idempotent resume.
+- [x] Preserve exact context, explicit bindings, Fit Gate, artifact reuse and canonical target outcomes.
+- [x] Offline fake-provider / real PostgreSQL / real Typst runtime regression coverage.
+- [x] Final offline DoD: 271 passed; Ruff/format, strict mypy, empty PostgreSQL migration/drift,
+  clean offline install, wheel/sdist/package, pinned Typst/font and git hygiene checks passed.
+
+### v0.2b Interview Loop (planned; not implemented)
+
+- [ ] Mock interview and assisted debrief on the bounded runtime.
+- [ ] New personal knowledge remains proposed until explicit user verification.
+- Distributed workers and production crash recovery are outside v0.2a; no exactly-once claim.
 
 ### v0.3 Harness / Evaluation / Safety (planned)
 
@@ -131,7 +139,7 @@ See CHANGELOG for verified details.
 - Letter / multi-page resume templates.
 - DOCX export.
 - Multiple resume templates.
-- Natural-language intent routing.
+- Broader natural-language routing beyond the two registered runtime business actions.
 - Cross-provider judge.
 - OpenAI built-in web search as an optional future ResearchAdapter.
 - Prompt experiments / A-B infrastructure.
@@ -151,7 +159,7 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
 ### Integration limitations retained
 
 - Uncaught exceptions/transaction crashes roll back the synchronous request; no durable failed-run
-  recovery, worker, checkpoint or restart mechanism is claimed.
+  recovery or worker is claimed. v0.2a adds only committed action-boundary checkpoints and explicit resume.
 - Database/filesystem writes are not globally atomic. Existing best-effort cleanup cannot replace
   orphan artifact reconciliation after crashes.
 - Concurrent identical requests may duplicate model work; artifact reuse is sequential, not a
@@ -162,3 +170,18 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
   compatibility; other legacy outputs without explicit resume-binding provenance are not auto-reused.
 - v0.1d changed orchestration/prompt inputs without new paid acceptance. Historical v0.1c live
   connectivity acceptance does not prove new prompts' real output quality.
+
+### Runtime limitations retained
+
+- In-flight planner/business calls cannot be replayed. A committed dispatch reserves the remaining
+  allocation conservatively; unknown cost is not zero and not actual billed cost. Manual inspection
+  is required after an unexpected failure during dispatch.
+- No model-call-level recovery, unknown-side-effect replay, exactly-once, uncommitted transaction
+  recovery, distributed worker or database/filesystem global atomicity. Orphan artifact cleanup remains
+  future work. Existing preparation endpoints retain their synchronous transaction limitations.
+- Changed/superseded fact context or unavailable completed artifacts blocks resume; immutable context
+  is not silently rebound. Restore the artifact or cancel/create a newly bound goal.
+- Active-time limits stop new work and bound model/compiler calls; synchronous validation/DB finalization
+  can overrun a wall-clock deadline. They are not process-isolation or hard real-time guarantees.
+- Planner validation proves authorization/structure, not that a model correctly understood the goal.
+  No new live planner quality acceptance, judge, harness, dynamic routing or operational control plane.

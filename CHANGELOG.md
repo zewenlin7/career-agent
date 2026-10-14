@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Fixed — v0.2a resume state atomicity
+
+- Apply resume bindings, scope and Gate approval to a deep candidate state; publish it only after
+  validation and pending-plan calculation succeed. Rejected context leaves confirmed authorization
+  unchanged and preserves an outstanding Gate decision.
+- Regressions cover cross-profile/missing Resume rejection followed by a valid selection, and failed
+  Gate approval validation followed by context repair and renewed explicit approval.
+- Shared-budget review found no double counting: root/child accounting are separate projections;
+  `generate`/`search` do not reserve or settle usage again.
+- Offline acceptance: targeted runtime tests **39 passed in 21.36s**; full suite **274 passed in
+  59.62s**, including empty PostgreSQL migration/drift. Ruff/format, strict mypy and diff checks passed.
+
+### Added / Changed — v0.2a Runtime Core
+
+- Bounded Goal Planner → deterministic PlanValidator → registered business actions → action
+  observations → deterministic Evaluator, above the preserved v0.1d orchestrator.
+- Typed versioned plans, exact user bindings, explicit scope/policy validation, finite dependency DAGs,
+  no-progress stopping, limited replanning and canonical requested-target outcomes.
+- Shared parent budget for planner/replan, child calls, unknown reservations, tools and active time;
+  no new budget on resume. Provider-reported usage, estimates, reservations and billed-cost unknowns
+  remain distinct. Internal model retry is not a replan or a Typst attempt.
+- Root waiting-input/decision/completed/cancelled lifecycle; private goals, append-only plan/checkpoint
+  revisions and CAS/idempotent explicit resume. Migration `e620a1b90120` adds control persistence,
+  parent run links and action observations while preserving legacy workflow records.
+- Agent create/query/plan/observation/resume APIs, committed-action reuse and resume-time fact/context/
+  PDF checks. Explicit approval is required after Fit Gate; no automatic resume selection.
+- Offline regression for multiple actions, illegal refs/actions/scope/dependencies, shared budgets,
+  retry accounting, legal replan, wait/continue/cancel, no-progress, checkpoint conflicts, corrupted PDF,
+  verified-fact changes, trace privacy and real Typst overflow → fake compression → real recompile.
+- Existing preparation endpoints remain independently usable. No Mock Interview, Debrief, LLM judge,
+  arbitrary execution tools, dynamic routing, distributed worker or production recovery was added.
+
+### Verified — v0.2a local offline acceptance
+
+- Full suite: **271 passed in 56.48s**, including 36 new runtime tests, empty PostgreSQL migration,
+  Alembic drift and real Typst E2E. Ruff/formatter (78 Python files) and strict mypy (46 source files)
+  passed. No external OpenAI/Tavily call was made.
+- Clean temporary environment `uv sync --locked --offline`, offline wheel/sdist build, installed-wheel
+  imports/template discovery, Typst 0.15.1 and pinned CJK font hash checks passed.
+- Candidate-file scan found no keys, private artifacts, database/PDF/font binaries; `git diff --check`
+  passed. Synthetic acceptance is not live planner or recruitment-quality verification.
+- Action-boundary resume only: no in-flight replay, exactly-once, uncommitted transaction recovery,
+  distributed worker or database/filesystem global atomicity. These limitations remain documented.
+
 ### Added / Changed — v0.1d Integration / E2E
 
 - Arbitrary Fit/Tailoring/Greeting targets; explicit immutable resume selection and optional

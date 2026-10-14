@@ -194,6 +194,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.sessions = async_sessionmaker(engine, expire_on_commit=False)
     app.state.settings = settings
+    from career_agent.api.agents import router as agent_router
+
+    app.include_router(agent_router)
     app.include_router(router)
     from career_agent.api.resumes import router as resume_router
 

@@ -1,4 +1,4 @@
-"""Persistence models. Content tables are private; runtime tables contain metadata only."""
+"""Private content (including AgentGoal) is separate from operational runtime metadata."""
 
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -199,8 +199,21 @@ class KnowledgeNote(Row, Base):
     )
 
 
+from career_agent.runtime.agent_contracts import (  # noqa: E402
+    ActionObservation,
+    AgentCreate,
+    AgentState,
+    PlanProposal,
+    StateTransition,
+)
+
+
 class AgentRun(Row, Base):
     __tablename__ = "agent_runs"
+    parent_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT")
+    )
+    run_kind: Mapped[str] = mapped_column(String(20), default="workflow", server_default="workflow")
     outcome: Mapped[dict[str, Any] | None] = mapped_column(ValidatedJSON(WorkflowOutcome))
     workflow: Mapped[str] = mapped_column(String(128))
     workflow_version: Mapped[str | None] = mapped_column(String(128))
@@ -215,6 +228,9 @@ class AgentRun(Row, Base):
 
 class AgentStep(Row, Base):
     __tablename__ = "agent_steps"
+    action_id: Mapped[UUID | None] = mapped_column()
+    plan_revision: Mapped[int | None] = mapped_column()
+    transition: Mapped[dict[str, Any] | None] = mapped_column(ValidatedJSON(StateTransition))
     __table_args__ = (
         UniqueConstraint("run_id", "sequence"),
         UniqueConstraint("id", "run_id"),
@@ -282,11 +298,20 @@ class Observation(Row, Base):
     __tablename__ = "observations"
     __table_args__ = (
         CheckConstraint(
-            "(model_call_id IS NOT NULL AND tool_call_id IS NULL) OR "
-            "(model_call_id IS NULL AND tool_call_id IS NOT NULL)",
+            "(CASE WHEN model_call_id IS NULL THEN 0 ELSE 1 END + "
+            "CASE WHEN tool_call_id IS NULL THEN 0 ELSE 1 END + "
+            "CASE WHEN action_step_id IS NULL THEN 0 ELSE 1 END) = 1",
             name="exactly_one_call",
         ),
+        CheckConstraint(
+            "(action_step_id IS NULL) = (action_data IS NULL OR action_data = 'null'::jsonb)",
+            name="action_data_pair",
+        ),
     )
+    action_step_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agent_steps.id", ondelete="CASCADE")
+    )
+    action_data: Mapped[dict[str, Any] | None] = mapped_column(ValidatedJSON(ActionObservation))
     model_call_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("model_calls.id", ondelete="CASCADE")
     )
@@ -422,3 +447,43 @@ class PreparationArtifact(Row, Base):
         ForeignKey("personal_profiles.id", ondelete="RESTRICT")
     )
     data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(PrivateResult))
+
+
+class AgentGoal(Row, Base):
+    """Private user content. Never a runtime trace body."""
+
+    __tablename__ = "agent_goals"
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True
+    )
+    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(AgentCreate))
+
+
+class AgentPlan(Row, Base):
+    __tablename__ = "agent_plans"
+    __table_args__ = (
+        UniqueConstraint("run_id", "revision"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+    )
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("agent_runs.id", ondelete="RESTRICT"))
+    revision: Mapped[int] = mapped_column()
+    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(PlanProposal))
+
+
+class AgentCheckpoint(Row, Base):
+    __tablename__ = "agent_checkpoints"
+    __table_args__ = (
+        UniqueConstraint("run_id", "revision"),
+        CheckConstraint("revision > 0", name="positive_revision"),
+    )
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("agent_runs.id", ondelete="RESTRICT"))
+    revision: Mapped[int] = mapped_column()
+    state: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(AgentState))
+
+
+class AgentResumeReceipt(Row, Base):
+    __tablename__ = "agent_resume_receipts"
+    __table_args__ = (UniqueConstraint("run_id", "request_id"),)
+    run_id: Mapped[UUID] = mapped_column(ForeignKey("agent_runs.id", ondelete="RESTRICT"))
+    request_id: Mapped[UUID] = mapped_column()
+    request_hash: Mapped[str] = mapped_column(String(64))

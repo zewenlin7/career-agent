@@ -43,6 +43,19 @@ class FixtureTaskProvider:
     async def generate(
         self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
     ) -> ProviderResponse:
+        if context.task_type in {"goal_planning", "goal_replanning"}:
+            from career_agent.runtime.planner import fixture_plan
+
+            return ProviderResponse(
+                output=fixture_plan(task.inputs),
+                usage=Usage(
+                    input_tokens=100,
+                    output_tokens=100,
+                    estimated_cost=Decimal(0),
+                    measurement="reported",
+                ),
+                finish_reason="fixture_completed",
+            )
         c = task.inputs["context"]
         t = TaskType(context.task_type)
         output: dict[str, Any]

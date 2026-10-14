@@ -26,7 +26,8 @@ email/calendar integration or mobile application is included in the committed ro
 - `infrastructure`: async SQLAlchemy/asyncpg, PostgreSQL entities, validated JSONB types.
 - `models`: canonical request/task/output contracts, model registry entries, static policy, fake and OpenAI Responses adapters.
 - `preparation`: target-driven deterministic orchestration, task prompts/schemas, guardrails, research and budgets.
-- `runtime`: metadata contracts. Not a workflow engine, memory store or checkpoint layer.
+- `runtime`: metadata plus v0.2a bounded control engine, validated plans and action-boundary checkpoints.
+  Business rules remain in the v0.1d preparation orchestrator.
 - `security`: allowlisted events and basic redaction. Not a complete DLP solution.
 - `resume`: structured variant schemas, deterministic grounding/content/layout validation, trusted Typst and private PDF storage.
 
@@ -164,7 +165,7 @@ Model-family prompt overrides, additional real providers and judges are not impl
 
 Public repository: synthetic/sanitized `tests/fixtures` only. Private resume/JD/notes/artifacts
 belong under external `CAREER_AGENT_DATA_DIR`. Optional `.private` is entirely ignored.
-The database, Docker volume, backups and future checkpoints are private, not just source files.
+The database, Docker volume, backups and checkpoints are private, not just source files.
 Secrets belong in ignored `.env`; `.env.example` includes only local-development placeholders.
 No external tracing is enabled; CI has no real data or provider secret.
 
@@ -192,7 +193,8 @@ system is present in Foundation.
 | v0.1b Resume Compiler | Implemented: hand-authored Variant, grounding, Typst, one-page PDF, deterministic compression/validation |
 | v0.1c Job Preparation Workflow | Completed locally: two fixed workflows, providers, guardrails, budgets and bounded live acceptance |
 | v0.1d Integration / E2E | Completed locally: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E |
-| v0.2 Agent Runtime | Planned: bounded planner/executor/evaluator/replan, checkpoints/worker, mock/debrief |
+| v0.2a Runtime Core | Bounded planner/validator/executor/evaluator, shared budgets, explicit checkpoint resume |
+| v0.2b Interview Loop | Planned: Mock Interview / assisted Debrief; no distributed worker |
 | v0.3 Harness / Evaluation / Safety | Planned: scenarios/golden/regression, replay, fault injection, deterministic + human + LLM evaluation |
 | v0.4 Production Engineering | Planned: Ops dashboard, metrics, dynamic routing/budgets, concurrency/rate limits, circuits/fallback/control/cache |
 | v0.5 Real Usage Loop | Planned: actual outcomes, feedback, real bad cases, continuous regression |
@@ -390,7 +392,8 @@ superseded; historical retrieval is deliberately different from new generation e
 otherwise no_evidence >=50% gives insufficient_evidence; otherwise pass (including zero must-haves).
 Matched/partial do not contribute a score, and absence of evidence is not inability. On a gate decision,
 unexecuted targets stay pending and the run ends `decision_required`; an explicit new request may continue
-using existing results. No in-process pause or checkpoint exists.
+using existing results. The standalone v0.1d API remains terminal per request; the v0.2a wrapper maps
+these outcomes to waiting states and adds action-boundary checkpoints.
 
 `WorkflowOutcome` is the sole terminal calculation, persisted on AgentRun and in the PreparationPackage,
 and returned by API. Requested target statuses are completed/failed/blocked/pending; intermediate success
@@ -451,7 +454,8 @@ entity hallucinations, or detect subtle responsibility inflation; human review r
 
 Each synchronous HTTP request owns its database transaction, including network waits. Normal
 budget/provider/validation failure commits available partial results and metadata. A process crash
-can lose the uncommitted run and its billing trace; no durable recovery is claimed before v0.2.
+can lose the uncommitted child run and its billing trace. v0.2a preserves a parent dispatch reservation,
+but does not recover in-flight calls or claim durable crash recovery.
 PDF/DB commits remain non-atomic globally, with the existing normal rollback cleanup and planned
 orphan reconciliation. Live smoke uses an isolated synthetic database, now retained with its generated database_ref
 for targeted follow-up; fixture mode still cleans its temporary database. Private reports/PDFs persist; it is a bounded acceptance script, not the planned v0.3 general harness.
@@ -502,3 +506,69 @@ Alembic drift; Ruff/format, strict mypy, offline dependency installation, wheel/
 Typst 0.15.1 and pinned-font hash preflight passed. The generic fixture smoke completed both
 explicit workflows. No external model/search call was made for this milestone. These are synthetic
 integration checks, not evidence of real job-search quality or production crash recovery.
+
+
+## v0.2a bounded runtime
+
+The runtime adds orchestration above, rather than replacing, `preparation.Orchestrator`. It owns
+user-authorized goals, accepted plan revisions, control checkpoints and cumulative budgets. Domain
+artifacts remain the authoritative business results. Existing preparation APIs run independently.
+
+Planner input contains only goal, explicit IDs, compatible-artifact summaries, allowed actions,
+progress/previous observation, authorization and remaining budget. No full JD, resume, research or
+historical trace is included. Planner discovery conservatively summarizes compatible Fit/Tailoring
+artifacts; richer Greeting/Interview reuse stays in the existing business context loader. The prompt is versioned/hashed; a conservative UTF-8 byte bound including
+prompt and output schema enforces the 8k input ceiling. Context is intentionally compact (4–6k target,
+not padding or a token-count guarantee). `PlanProposal` cannot execute until `validate_plan` produces
+`ExecutablePlan`. Validation checks registry names, typed arguments, exact bindings, scope, evidence,
+legal output dependencies, unique targets, cycles, max 4 actions and dependency depth 3.
+
+Registry entries declare version, args/result schemas, private-domain-write side effects,
+explicit-scope permission, timeout, no action retry, checkpoint/reuse idempotency and shared-budget
+class. Only preparation and explicit interview preparation are exposed. Models, search and compiler
+remain internal; there is no arbitrary shell/Python/SQL/filesystem/HTTP tool.
+
+`AgentState` / `AgentProgress` contain refs, immutable original scope, current allowed subset, exact
+bindings, action/target progress, child package/run/artifact refs, phases, revisions and accumulated
+usage. Goal prose is stored in a separate private `AgentGoal`, never copied into operational trace or
+checkpoint state. `AgentPlan`, `AgentCheckpoint` and resume receipts are private control persistence,
+not business artifact revisions. The migration adds parent run links, action step/transition metadata,
+action observations and distinct root waiting/completed/cancelled statuses without changing legacy
+workflow outcomes.
+
+An action executes the existing deterministic orchestrator. Model-call success is distinct from
+business success: an invalid referenced fact can yield a successful ModelCall and a failed action
+observation. Deterministic Evaluator uses target progress, observation, legal remaining dependencies,
+waiting conditions, limits and no-progress detection; it never calls a judge. Root steps are planner,
+business dispatch and evaluator decisions. Internal child nodes retain their existing separate steps;
+model attempts, semantic compression and Typst rounds remain separate counters.
+
+A root ledger controls planner/replan plus all child model/search reservations and usage. Child
+limits are scoped to remaining resources; parent and child usage are projections, not additive totals.
+Reservations for unknown usage remain distinct from usage-derived estimates and unknown actual billed
+cost. Tool invocations count compiler operations and search attempts; individual deterministic Typst
+rounds remain in RenderReport. Defaults/hard limits are documented in README and RuntimeLimits.
+Waiting time does not count toward active execution time. No adaptive routing/control policy is added.
+
+Plans/checkpoints append revisions. A row lock and expected checkpoint revision serialize explicit
+resume; `(run_id, request_id)` receipts prevent duplicate dispatch and reject payload reuse conflicts.
+A dispatch checkpoint conservatively reserves the remaining token/cost allocation before starting.
+The whole business action, child artifacts, usage, action observation and next checkpoint then commit
+in one database transaction. Completed actions are never replayed after normal checkpoint resume.
+Unexpected in-flight failure leaves a non-resumable dispatch checkpoint with its conservative
+reservation; it does not claim exact consumed usage or actual billing. No automatic recovery is promised.
+
+Resume validates facts, exact context, permissions and completed artifacts including PDF hashes.
+Missing binding yields `waiting_input`; Fit Gate yields `waiting_decision`, with no terminal outcome.
+Explicit user continuation permits the original gated context to proceed; the planner cannot grant
+that approval. User updates can fill missing bindings or select authorized targets within original
+scope, never change existing exact bindings, budget or immutable gate policy. A new plan revision
+retains completed targets and cumulative budgets. Replan is capped at 2, total business actions at 8;
+repeated terminal targets or repeated equivalent plans stop as `no_progress`. Provider retry/schema
+repair is internal to a child and consumes the same ledger, not a replan. Compression remains capped.
+
+Checkpoint recovery covers committed action boundaries, waiting input/decision and normal process
+restart. It does not cover in-flight paid calls, unknown side effects, exactly-once, uncommitted
+transactions, filesystem/database atomicity, distributed workers or production crash recovery.
+Synchronous validation/finalization is not preemptively interrupted at a wall-clock deadline.
+All acceptance is synthetic/offline; no claim is made about live planner or job-search quality.

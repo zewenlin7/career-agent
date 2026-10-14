@@ -4,7 +4,7 @@ import asyncio
 import time
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
@@ -55,6 +55,9 @@ from career_agent.resume.renderer import CompileError
 from career_agent.resume.schemas import RenderReport, ResumeDocument
 from career_agent.runtime.contracts import Budget, OutputDiagnostic, VersionMetadata
 
+if TYPE_CHECKING:
+    from career_agent.runtime.budget import RuntimeBudget
+
 
 class PreparationWorkflow:
     def __init__(
@@ -64,6 +67,7 @@ class PreparationWorkflow:
         gateway: ModelGateway,
         research: ResearchAdapter,
         request: WorkflowRequest,
+        runtime_budget: "RuntimeBudget | None" = None,
     ) -> None:
         self.session, self.settings, self.gateway, self.research, self.request = (
             session,
@@ -72,6 +76,7 @@ class PreparationWorkflow:
             research,
             request,
         )
+        self.runtime_budget = runtime_budget
         self.state: WorkflowState
         self.run: e.AgentRun
         self.step: e.AgentStep
@@ -121,7 +126,7 @@ class PreparationWorkflow:
                 ),
             )
             candidate = self.gateway.policy.select(context, self.gateway.registry)
-            ledger = BudgetLedger(b, u)
+            ledger = self.runtime_budget.ledger(b, u) if self.runtime_budget else BudgetLedger(b, u)
             reservation = ledger.reserve_model(
                 candidate, input_bound(context, task), context.max_output_tokens
             )
@@ -153,7 +158,11 @@ class PreparationWorkflow:
             error: ModelGatewayError | None = None
             result = None
             try:
-                result = await self.gateway.generate(context, task)
+                result = (
+                    await self.runtime_budget.generate(self.gateway, context, task)
+                    if self.runtime_budget
+                    else await self.gateway.generate(context, task)
+                )
             except ModelGatewayError as exc:
                 error = exc
             actual = result.usage if result else error.usage if error else None
@@ -352,7 +361,11 @@ class PreparationWorkflow:
         evidence = []
         for suffix in ["主营业务 产品 技术方向", "工程团队 AI Agent 技术方向"]:
             cost = self.settings.search_cost_per_call if self.request.mode == "live" else Decimal(0)
-            ledger = BudgetLedger(self.state.limits, self.state.usage)
+            ledger = (
+                self.runtime_budget.ledger(self.state.limits, self.state.usage)
+                if self.runtime_budget
+                else BudgetLedger(self.state.limits, self.state.usage)
+            )
             reservation = ledger.reserve_search(cost)
             meta = SearchToolMetadata()
             row = e.ToolCall(
@@ -367,8 +380,11 @@ class PreparationWorkflow:
             await self.session.flush()
             start = time.perf_counter()
             try:
-                result = await self.research.search(
-                    SearchInput(query=f"{minimize(self.company.name)} {suffix}")
+                query = SearchInput(query=f"{minimize(self.company.name)} {suffix}")
+                result = (
+                    await self.runtime_budget.search(self.research, query)
+                    if self.runtime_budget
+                    else await self.research.search(query)
                 )
                 evidence.extend(result.evidence)
                 row.status = CallStatus.SUCCEEDED
@@ -541,7 +557,19 @@ class PreparationWorkflow:
 
     async def compile_resume(self) -> None:
         assert self.variant is not None
-        artifact = await resumes.render_variant(self.session, self.variant, self.settings)
+        settings = self.settings
+        if self.runtime_budget:
+            from career_agent.resume.schemas import MAX_ROUNDS
+
+            settings = settings.model_copy(
+                update={
+                    "compile_timeout_seconds": min(
+                        settings.compile_timeout_seconds,
+                        max(0.001, self.runtime_budget.remaining_seconds() / (MAX_ROUNDS + 2)),
+                    )
+                }
+            )
+        artifact = await resumes.render_variant(self.session, self.variant, settings)
         self.state.render_report_id = artifact.id
         self.report = RenderReport.model_validate(artifact.report)
         if self.report.render_status == "failed" and self.report.error_code != "layout_failed":
@@ -669,6 +697,8 @@ class PreparationWorkflow:
         await self.session.flush()
         started = time.perf_counter()
         try:
+            if self.runtime_budget:
+                self.runtime_budget.before_node(name)
             method = self.compile_resume if name == "recompile_resume" else getattr(self, name)
             await method()
             self.step.status = CallStatus.SUCCEEDED

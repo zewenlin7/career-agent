@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current milestone is **v0.1d Integration / E2E (completed locally)**, built on v0.1a/v0.1b and part of the eventual **v0.1 Domain MVP**.
+The current milestone is **v0.2a Runtime Core (completed locally)**, built on the completed v0.1 Domain MVP.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -22,7 +22,7 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 OpenAI Responses and Tavily adapters, deterministic target orchestration, versioned prompts,
 structured zh-CN tailoring and static budget controls are implemented and tested offline.
 **Live extraction/research/fit/tailoring/PDF/greeting have been exercised; Interview Prep passed after a timeout-policy fix, and controlled compression produced an accepted PDF. v0.1c live acceptance is historical; v0.1d acceptance is offline only. Synthetic acceptance does not establish real job-search quality.**
-No automatic applications/messages, dynamic planner, durable worker, mock interview, LLM judge,
+No automatic applications/messages, unrestricted planner, durable worker, mock interview, LLM judge,
 vector search or frontend are implemented. Interview preparation is an explicit separate request.
 
 ## Architecture
@@ -31,7 +31,8 @@ vector search or frontend are implemented. Interview preparation is an explicit 
 
 Model calls have a separate `ModelRequestContext → policy → candidate → adapter → ModelResult`
 contract. They do not read an Agent State. Domain services contain no provider/model names.
-Runtime records are operational metadata, not domain knowledge or checkpoint storage.
+Operational run/step/call records contain metadata. Private goal records and versioned control checkpoints
+are separate from business artifacts. The original preparation API remains independently usable.
 See [architecture](docs/architecture.md) for boundaries and planned evolution.
 
 ```text
@@ -158,7 +159,8 @@ real Typst E2E, static checks and offline installation/build. No commit or push 
 - v0.1b: Resume Compiler, Typst and PDF validation (implemented).
 - v0.1c: Job Preparation Workflow (completed and locally verified).
 - v0.1d: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E.
-- v0.2: Agent Runtime; v0.3: Harness / Evaluation / Safety (planned).
+- v0.2a: bounded Runtime Core; v0.2b: Interview Loop (planned).
+- v0.3: Harness / Evaluation / Safety (planned).
 - v0.4: Production Engineering; v0.5: Real Usage Loop (planned).
 
 See [TODO](TODO.md) for the full roadmap and optional extensions, and [CHANGELOG](CHANGELOG.md)
@@ -460,3 +462,65 @@ Historical smoke budget consumption USD 0.3350816 comprises USD 0.1576516 price-
 (including USD 0.008 Tavily retail equivalent) + USD 0.1774300 unknown-call reservations.
 Actual billed cost remains unknown. Earlier private smoke summaries used the old combined fields;
 this change does not rewrite those historical records or turn their reservations into expenses.
+
+
+## Bounded Agent Runtime (v0.2a)
+
+`Goal → Planner → deterministic PlanValidator → business action → Observation → deterministic Evaluator`
+
+The planner proposes typed targets, exact bindings and dependency edges. It cannot authorize new
+refs, change scope/budgets, bypass Fit Gate, verify facts or execute arbitrary code. Registered actions
+are only `prepare_application` and `prepare_interview`; they delegate to the existing v0.1d
+orchestrator. Its explicit resume selection, reuse, grounding, compiler and target outcomes remain intact.
+The fixture planner is a small deterministic router for offline testing, not a quality claim about
+natural-language understanding. Live mode uses the existing gateway; no v0.2a paid acceptance was run.
+
+- `POST /api/v1/agent-runs`: `goal`, exact `bindings`, `authorized_scope`, optional `limits`,
+  `mode` (default `fixture`) and `action_slice` (default 4).
+- `GET /api/v1/agent-runs/{id}`: ref-only state, progress, usage and terminal canonical outcome.
+- `GET /api/v1/agent-runs/{id}/plans` and `/observations`: accepted plan history and action feedback.
+- `POST /api/v1/agent-runs/{id}/resume`: `expected_checkpoint_revision`, UUID `request_id`, optional
+  missing resume/package binding, explicit `decision` (`continue`/`cancel`), or `authorized_targets`
+  within the original scope. Reusing the same ID/payload returns current state without executing again;
+  stale revisions or changed payloads conflict. Existing nonempty bindings cannot be silently replaced.
+
+Example body (replace IDs with synthetic domain records created through the existing APIs):
+
+```json
+{
+  "goal": "分析岗位匹配，并用我选择的简历生成招呼语。",
+  "mode": "fixture",
+  "bindings": {
+    "profile_id": "00000000-0000-4000-8000-000000000001",
+    "job_revision_id": "00000000-0000-4000-8000-000000000002",
+    "resume_revision_id": "00000000-0000-4000-8000-000000000003"
+  },
+  "authorized_scope": {
+    "targets": ["fit_analysis", "greeting_generation"],
+    "fit_gate": "informational"
+  }
+}
+```
+
+Missing resume selection yields `waiting_input`; gated low fit yields `waiting_decision`.
+Neither is terminal and neither automatically resumes. `decision=continue` is an explicit user
+approval of the gated, unchanged context. `allow_tailored_greeting=true` authorizes a new-tailored-resume
+binding for Greeting; otherwise the selected historical resume remains the input.
+
+Limits default to 32 root steps, 8 business actions, 12 model calls, 16 tool invocations, 2 searches,
+2 replans, 200k/40k input/output tokens, USD 1 estimated-plus-reserved budget and 600 active seconds.
+A plan has at most 4 actions and dependency depth 3. Planner prompt/context/schema use a conservative
+UTF-8 byte token upper bound, hard capped at 8k; oversized goals fail before any model call.
+Planner/replan and child calls share one ledger. Unknown usage remains reserved, never billed cost.
+Waiting time is excluded; child usage must not be added to the parent total a second time.
+
+Checkpoints are committed at whole-action boundaries. Completed actions are not replayed; facts,
+context and completed PDF availability/hash are checked again before resume. `action_slice` can return
+at a normal `ready` checkpoint with root status `running`; a later resume continues it. In-flight
+requests are deliberately not recoverable or auto-replayed. This is synchronous single-process
+execution, not a distributed worker, exactly-once service or production crash recovery system.
+Full goal text is private DB content, excluded from checkpoints and operational traces.
+
+Offline runtime acceptance is included in `pytest`; it uses fake models/planner, fixture research,
+real temporary PostgreSQL and the pinned real Typst/fonts. Synthetic acceptance does not demonstrate
+real recruitment outcomes or planner quality.
