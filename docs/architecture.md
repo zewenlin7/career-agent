@@ -682,3 +682,22 @@ Observed peak concurrency was 3; groups completed Q3/Q2/Q1 before Overall, while
 source order. Cached-read/write metadata reached trace, and cost/usage projections equalled call
 sums without duplicate settlement. All reservations cleared. This verifies a small synthetic path,
 not broad semantic quality, live failure recovery or production network/proxy SSE buffering.
+
+
+### Audit boundary fixes
+
+`security/model_view.py` creates copied provider-facing data, stripping Resume metadata and contact
+fields and minimizing known personal identity/contact spans without altering stored domain records.
+Preparation applies it centrally before constructing every TaskSpec, including base Resume,
+Greeting/Interview Prep variants and requirements. Frozen Interview context shares the same policy.
+Prompt input contracts hash `model_view_version`; output schemas and grounding remain unchanged.
+The deterministic patterns cannot recognize every possible PII phrase and do not claim complete DLP.
+
+Interview generation allocates a logical operation before its first attempt. Mock retains it after
+failed generation and clears it only when a turn is accepted; each Debrief group/overall owns a
+separate operation. Owner row locks serialize attempt allocation and budget mutation; the DB uniquely
+constrains `(logical_operation_id, attempts)`. Accepted artifact persistence verifies call success,
+matching run and operation, then stores its unique RESTRICT FK in the artifact transaction. SSE
+completion remains after commit. The calls API exposes operation refs, never prompt/transcript bodies.
+Existing rows have nullable provenance: historical unknown links are not guessed. This does not add
+in-flight recovery, exactly-once execution or atomic provider/database transactions.

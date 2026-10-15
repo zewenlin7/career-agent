@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -13,7 +13,7 @@ from career_agent.config import Settings
 from career_agent.domain.rules import DomainError, RunStatus
 from career_agent.domain.schemas import InterviewEntry, InterviewNoteData
 from career_agent.infrastructure import entities as e
-from career_agent.interview.calls import InterviewCalls
+from career_agent.interview.calls import AcceptedCall, InterviewCalls, validate_accepted_call
 from career_agent.interview.context import clean, digest, freeze
 from career_agent.interview.contracts import (
     DebriefCreate,
@@ -221,6 +221,7 @@ class DebriefService:
                 session.add(
                     e.DebriefArtifact(
                         debrief_id=row.id,
+                        logical_operation_id=uuid4(),
                         kind=kind,
                         group_ref=ref,
                         group_index=index,
@@ -253,6 +254,8 @@ class DebriefService:
                     {
                         "id": a.id,
                         "kind": a.kind,
+                        "logical_operation_id": a.logical_operation_id,
+                        "accepted_model_call_id": a.accepted_model_call_id,
                         "group_ref": a.group_ref,
                         "group_index": a.group_index,
                         "status": a.status,
@@ -296,6 +299,7 @@ class DebriefService:
         status: str,
         *,
         result: EvaluationData | None = None,
+        accepted: AcceptedCall | None = None,
         reason: str | None = None,
     ) -> dict[str, Any]:
         async with self.sessions.begin() as session:
@@ -310,6 +314,16 @@ class DebriefService:
             if status == "started":
                 artifact.attempts += 1
             artifact.error_code = reason
+            if status == "completed":
+                if (
+                    accepted is None
+                    or accepted.logical_operation_id != artifact.logical_operation_id
+                ):
+                    raise DomainError("model_call_provenance_mismatch")
+                await validate_accepted_call(
+                    session, accepted, run.run_id, artifact.logical_operation_id
+                )
+                artifact.accepted_model_call_id = accepted.model_call_id
             if result:
                 artifact.data = result.model_dump(mode="json")
             message = (
@@ -337,19 +351,22 @@ class DebriefService:
     async def process(
         self, id: UUID, artifact_id: UUID, queue: asyncio.Queue[dict[str, Any]]
     ) -> None:
-        async with self.sessions() as session:
-            run = await require(session, e.DebriefRun, id)
+        async with self.sessions.begin() as session:
+            run = await require(session, e.DebriefRun, id, lock=True)
             artifact = await require(session, e.DebriefArtifact, artifact_id)
+            artifact.logical_operation_id = artifact.logical_operation_id or uuid4()
+            operation_id = artifact.logical_operation_id
             source = SourceSnapshot.model_validate(run.snapshot)
-            if digest(run.snapshot) != run.source_hash:
-                await queue.put(
-                    await self.artifact_event(
-                        id, artifact_id, "failed", reason="snapshot_integrity_failed"
-                    )
-                )
-                return
+            integrity_failed = digest(run.snapshot) != run.source_hash
             policy = InterviewPolicy.model_validate(run.execution_policy)
             kind, ref = artifact.kind, artifact.group_ref
+        if integrity_failed:
+            await queue.put(
+                await self.artifact_event(
+                    id, artifact_id, "failed", reason="snapshot_integrity_failed"
+                )
+            )
+            return
         transport = repairs = 0
         last: str | None = None
         while True:
@@ -365,7 +382,7 @@ class DebriefService:
                     inputs,
                     call_policy(policy, source, kind),
                     lambda value: validate_evaluation(value, source, ref),
-                    attempt=1 + transport + repairs,
+                    logical_operation_id=operation_id,
                     retry_reason=last if transport else None,
                     repair_reason="schema_invalid" if repairs else None,
                 )
@@ -386,10 +403,14 @@ class DebriefService:
                 )
                 continue
             data = EvaluationData(
-                group=result if isinstance(result, QuestionGroupEvaluation) else None,
-                overall=result if isinstance(result, OverallEvaluation) else None,
+                group=result.output if isinstance(result.output, QuestionGroupEvaluation) else None,
+                overall=result.output if isinstance(result.output, OverallEvaluation) else None,
             )
-            await queue.put(await self.artifact_event(id, artifact_id, "completed", result=data))
+            await queue.put(
+                await self.artifact_event(
+                    id, artifact_id, "completed", result=data, accepted=result
+                )
+            )
             return
 
     async def execute(self, id: UUID) -> AsyncGenerator[dict[str, Any], None]:

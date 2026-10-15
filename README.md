@@ -637,3 +637,15 @@ order, and committed artifacts available before the all-mode request ended. One 
 2,169 cached input tokens; all calls preserved cache-write telemetry without inventing a separate
 write surcharge. Run/call accounting matched and all reservations settled. Synthetic source, results
 and one-off scripts remain outside the repository. No production network/proxy buffering claim.
+
+### Audit fixes: provider privacy and Interview provenance
+
+Preparation model inputs (including base/selected Resume and requirements) and frozen Interview
+context use a shared copy-only minimized view. Resume labels/metadata and contact fields are omitted;
+known personal names/contacts and recognizable contact spans are redacted. Domain records remain
+unchanged. This is a deterministic privacy baseline, not comprehensive DLP.
+
+New Mock turns and Debrief artifacts expose `logical_operation_id` and `accepted_model_call_id`.
+The run's calls endpoint links all attempts for that operation, including explicit Mock retries and
+Debrief schema/transport retries. Historical associations remain null when unknown; migration does
+not reconstruct provenance from timing or task names.

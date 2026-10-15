@@ -3,10 +3,12 @@
 import asyncio
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from career_agent.application.services import require
@@ -21,6 +23,13 @@ from career_agent.runtime.contracts import Budget, OutputDiagnostic, Usage
 
 OwnerKind = Literal["mock", "debrief"]
 Owner = e.MockInterviewSession | e.DebriefRun
+
+
+@dataclass(frozen=True)
+class AcceptedCall:
+    output: BaseModel
+    model_call_id: UUID
+    logical_operation_id: UUID
 
 
 async def owner(session: AsyncSession, kind: OwnerKind, id: UUID, *, lock: bool = True) -> Owner:
@@ -99,12 +108,22 @@ class InterviewCalls:
         policy: CallPolicy,
         validate: Callable[[BaseModel], None],
         *,
-        attempt: int = 1,
+        logical_operation_id: UUID,
         retry_reason: str | None = None,
         repair_reason: str | None = None,
-    ) -> BaseModel:
+    ) -> AcceptedCall:
         async with self.sessions.begin() as session:
             row = await owner(session, kind, id)
+            attempt = 1 + (
+                await session.scalar(
+                    select(func.max(e.ModelCall.attempts)).where(
+                        e.ModelCall.logical_operation_id == logical_operation_id
+                    )
+                )
+                or 0
+            )
+            if attempt > 1 and not retry_reason and not repair_reason:
+                retry_reason = "explicit_generation_retry"
             bound = self.preflight(task, row.mode, inputs, policy)
             context = self.request(task, row.mode, policy)
             spec = self.gateway.prompts.resolve(task).task(inputs)
@@ -128,6 +147,7 @@ class InterviewCalls:
                 run_id=row.run_id,
                 sequence=usage.model_calls,
                 node=task,
+                attempt=attempt,
                 status=CallStatus.RUNNING,
                 versions=versions.model_dump(mode="json"),
             )
@@ -135,6 +155,7 @@ class InterviewCalls:
             await session.flush()
             call = e.ModelCall(
                 step_id=step.id,
+                logical_operation_id=logical_operation_id,
                 task_type=task,
                 provider=candidate.provider,
                 model=candidate.model,
@@ -238,4 +259,22 @@ class InterviewCalls:
         if failure:
             raise failure
         assert result is not None
-        return result.validated_output
+        return AcceptedCall(result.validated_output, call_id, logical_operation_id)
+
+
+async def validate_accepted_call(
+    session: AsyncSession, accepted: AcceptedCall, run_id: UUID, operation_id: UUID | None
+) -> None:
+    """Artifact writes must bind a successful attempt from their own run and operation."""
+    from career_agent.domain.rules import DomainError
+
+    call = await require(session, e.ModelCall, accepted.model_call_id)
+    step = await require(session, e.AgentStep, call.step_id)
+    if (
+        operation_id is None
+        or accepted.logical_operation_id != operation_id
+        or call.logical_operation_id != operation_id
+        or call.status != CallStatus.SUCCEEDED
+        or step.run_id != run_id
+    ):
+        raise DomainError("model_call_provenance_mismatch")

@@ -14,15 +14,7 @@ from career_agent.preparation.contracts import (
 )
 from career_agent.resume.grounding import numbers
 from career_agent.resume.schemas import ResumeDocument
-
-
-def minimize(text: str, name: str = "") -> str:
-    if name:
-        text = text.replace(name, "[PERSON]")
-    text = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[EMAIL]", text)
-    text = re.sub(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d{9}(?!\d)", "[PHONE]", text)
-    text = re.sub(r"(?<!\d)\+\d[\d ()-]{8,}\d", "[PHONE]", text)
-    return text
+from career_agent.security.model_view import minimize as minimize
 
 
 def chinese(text: str) -> None:

@@ -1,7 +1,7 @@
 """Text mock interview: explicit durable answers, bounded single-question generation."""
 
 from typing import Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -10,7 +10,7 @@ from career_agent.application.services import check_revision, require
 from career_agent.config import Settings
 from career_agent.domain.rules import DomainError, RunStatus
 from career_agent.infrastructure import entities as e
-from career_agent.interview.calls import InterviewCalls
+from career_agent.interview.calls import InterviewCalls, validate_accepted_call
 from career_agent.interview.context import clean, digest, freeze
 from career_agent.interview.contracts import (
     AnswerSubmit,
@@ -165,6 +165,8 @@ class MockService:
                     {
                         "id": t.id,
                         "sequence": t.sequence,
+                        "logical_operation_id": t.logical_operation_id,
+                        "accepted_model_call_id": t.accepted_model_call_id,
                         "question": t.data,
                         "answer": t.answer,
                         "answered_at": t.answered_at,
@@ -225,6 +227,7 @@ class MockService:
                         generation_inputs(row, history),
                         policy.mock_generation,
                     )
+                    row.generation_operation_id = row.generation_operation_id or uuid4()
                     row.generation_active = True
                     generate = True
                 row.revision += 1
@@ -256,17 +259,17 @@ class MockService:
                 kind, parent = next_kind(row, history)
                 inputs = generation_inputs(row, history)
                 policy = InterviewPolicy.model_validate(row.execution_policy)
-            output = cast(
-                TurnOutput,
-                await self.calls.generate(
-                    "mock",
-                    id,
-                    "mock_interview_turn_generation",
-                    inputs,
-                    policy.mock_generation,
-                    lambda value: validate_turn(value, context, kind, parent),
-                ),
+            assert row.generation_operation_id is not None
+            accepted = await self.calls.generate(
+                "mock",
+                id,
+                "mock_interview_turn_generation",
+                inputs,
+                policy.mock_generation,
+                lambda value: validate_turn(value, context, kind, parent),
+                logical_operation_id=row.generation_operation_id,
             )
+            output = cast(TurnOutput, accepted.output)
         except ModelGatewayError as exc:
             failure = exc.code
         except asyncio.CancelledError:
@@ -277,13 +280,19 @@ class MockService:
             row.revision += 1
             row.stop_reason = failure
             if output is not None:
+                await validate_accepted_call(
+                    session, accepted, row.run_id, row.generation_operation_id
+                )
                 turn = e.MockInterviewTurn(
                     session_id=id,
                     sequence=row.interviewer_turn_count + 1,
                     data=output.model_dump(mode="json"),
+                    logical_operation_id=accepted.logical_operation_id,
+                    accepted_model_call_id=accepted.model_call_id,
                 )
                 session.add(turn)
                 await session.flush()
+                row.generation_operation_id = None
                 row.pending_question_id = turn.id
                 row.primary_question_count += output.kind == "primary"
                 row.followup_count += output.kind == "follow_up"

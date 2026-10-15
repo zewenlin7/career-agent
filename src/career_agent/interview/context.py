@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from career_agent.application.services import require
 from career_agent.config import Settings
 from career_agent.domain.rules import DomainError
-from career_agent.domain.schemas import ProfileData
 from career_agent.infrastructure import entities as e
 from career_agent.interview.contracts import ContextBinding, FrozenContext
 from career_agent.models.gateway import ModelGateway
@@ -22,9 +21,9 @@ from career_agent.preparation.contracts import (
     WorkflowRequest,
     WorkflowState,
 )
-from career_agent.preparation.guardrails import minimize
 from career_agent.preparation.research import FixtureResearchAdapter
 from career_agent.preparation.workflows import PreparationWorkflow
+from career_agent.security.model_view import model_view
 
 
 def digest(data: Any) -> str:
@@ -34,13 +33,7 @@ def digest(data: Any) -> str:
 
 
 def clean(value: Any, name: str = "") -> Any:
-    if isinstance(value, str):
-        return minimize(value, name)
-    if isinstance(value, dict):
-        return {k: clean(v, name) for k, v in value.items()}
-    if isinstance(value, list):
-        return [clean(v, name) for v in value]
-    return value
+    return model_view(value, name=name)
 
 
 async def freeze(
@@ -101,12 +94,11 @@ async def freeze(
         ):
             raise DomainError("context_revision_mismatch", 422)
         data["interview_preparation"] = parsed.output.model_dump(mode="json")
-    name = ProfileData.model_validate(runner.profile.data).display_name
     return FrozenContext(
         binding=binding,
         profile_revision=runner.profile.revision,
         job_id=runner.job.job_id,
         job_revision=runner.job.revision,
         fact_snapshot={f.id: f.revision for f in runner.fact_rows.values()},
-        data=clean(data, name),
+        data=runner.model_view(data),
     )

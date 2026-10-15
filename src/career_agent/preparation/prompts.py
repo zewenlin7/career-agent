@@ -16,6 +16,7 @@ from career_agent.preparation.contracts import (
     TaskType,
 )
 from career_agent.resume.schemas import ResumeDocument
+from career_agent.security.model_view import MODEL_VIEW_VERSION
 
 
 class TaskInput(Contract):
@@ -136,12 +137,13 @@ INSTRUCTIONS = {
 PROMPTS = {
     task: PromptSpec(
         prompt_name=task.value,
-        prompt_version=f"{task.value}_v3",
+        prompt_version=f"{task.value}_v4",
         task_type=task.value,
-        input_schema_version="task-input-v1",
+        input_schema_version="task-input-v2",
         output_schema_version=f"{task.value}-output-v1",
         instruction=BASE + INSTRUCTIONS[task],
         input_contract={
+            "model_view_version": MODEL_VIEW_VERSION,
             "schema": TaskInput.model_json_schema(),
             "allowed_context_keys": sorted(ALLOWLIST[task]),
             "schema_repair_marker": "schema_invalid",

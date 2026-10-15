@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from career_agent.interview.contracts import OverallEvaluation, QuestionGroupEvaluation, TurnOutput
 from career_agent.models.prompts import PromptSpec
+from career_agent.security.model_view import MODEL_VIEW_VERSION
 
 BASE = """Return canonical structured zh-CN output, retaining English technical terms.
 No hidden reasoning, scores, ability ratings or pass/offer probabilities.
@@ -20,12 +21,16 @@ Knowledge candidates are suggestions, not verified knowledge or facts."""
 PROMPTS = {
     task: PromptSpec(
         prompt_name=task,
-        prompt_version=f"{task}_v1",
+        prompt_version=f"{task}_v2",
         task_type=task,
-        input_schema_version=f"{task}-input-v1",
+        input_schema_version=f"{task}-input-v2",
         output_schema_version=f"{task}-output-v1",
         instruction=BASE + "\n" + instruction,
-        input_contract={"ordered_blocks": blocks, "trust_boundary": "quoted_data_only"},
+        input_contract={
+            "ordered_blocks": blocks,
+            "trust_boundary": "quoted_data_only",
+            "model_view_version": MODEL_VIEW_VERSION,
+        },
         output_schema=cast(type[BaseModel], schema),
     )
     for task, instruction, blocks, schema in [

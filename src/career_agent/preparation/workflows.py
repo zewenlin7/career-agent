@@ -92,6 +92,8 @@ class PreparationWorkflow:
         self.base_document: ResumeDocument | None = None
 
     async def call(self, task_type: TaskType, blocks: dict[str, Any]) -> BaseModel:
+        # All task blocks pass the same copy-only privacy boundary, including resume data.
+        blocks = self.model_view(blocks)
         spec = self.gateway.prompts.resolve(task_type.value)
         transport_retries = repairs = 0
         attempt = 0
@@ -277,6 +279,12 @@ class PreparationWorkflow:
         if len(self.job.jd_text) > 20000:
             raise ModelGatewayError("context_too_large")
 
+    def model_view(self, value: Any) -> Any:
+        from career_agent.security.model_view import contact_values, model_view
+
+        data = ProfileData.model_validate(self.profile.data)
+        return model_view(value, name=data.display_name, contacts=contact_values(data.preferences))
+
     def job_context(self) -> dict[str, Any]:
         return {
             "id": str(self.job.id),
@@ -289,8 +297,8 @@ class PreparationWorkflow:
         return [
             {
                 "id": str(r.id),
-                "text": r.text,
-                "evidence_span": r.source_quote,
+                "text": self.model_view(r.text),
+                "evidence_span": self.model_view(r.source_quote),
                 "trust_level": "untrusted_external",
             }
             for r in self.requirements

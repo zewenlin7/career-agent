@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed — Architecture audit boundaries
+
+- Shared copy-only provider view closes Preparation base/selected Resume, metadata/label, and
+  requirements PII bypasses; preserves domain content, business references and technical context.
+  Preparation and Interview input/prompt identities now include the versioned privacy-view contract.
+- Interview logical operation IDs link transport/schema/explicit-generation retry attempts. New
+  Mock turns and Debrief group/overall artifacts store their accepted ModelCall FK; persistence
+  validates successful status, owner run and operation before publishing a result.
+- Backwards-compatible nullable migration preserves historical content without inventing unknown
+  associations; concurrent accepted results and retry provenance have PostgreSQL regression tests.
+
 ### Verified — v0.2b bounded synthetic live smoke
 
 - Real `gpt-6.1-sol`: Mock Quick completed 3 primary questions + 1 follow-up; single QuestionGroup,

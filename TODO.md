@@ -11,6 +11,10 @@ synthetic tests with real PostgreSQL and documentation. v0.1b adds structured Va
 grounding, bounded Typst/PDF compilation, artifact APIs and three Chinese acceptance fixtures plus a mixed-script regression.
 See CHANGELOG for verified details.
 
+Architecture audit fixes: shared provider-view PII minimization and Interview operation/accepted-call
+provenance are implemented. Historical pre-migration call associations remain unknown; no inferred
+backfill. Privacy minimization is a baseline, not complete free-text DLP. No v0.3 features added.
+
 ## Milestones: committed roadmap
 
 ### v0.1a Foundation (completed)

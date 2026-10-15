@@ -203,6 +203,17 @@ async def test_mock_failure_preserves_answer_and_explicit_retry(client, prep_inp
         )
     ).json()
     assert row["status"] == "waiting_answer" and provider.count == 3
+    calls = (await client.get(f"/api/v1/runs/{row['run_id']}/calls")).json()["model_calls"]
+    turn = row["turns"][-1]
+    attempts = sorted(
+        [c for c in calls if c["logical_operation_id"] == turn["logical_operation_id"]],
+        key=lambda c: c["attempts"],
+    )
+    assert [c["attempts"] for c in attempts] == [1, 2]
+    assert [c["status"] for c in attempts] == ["failed", "succeeded"]
+    assert turn["accepted_model_call_id"] == attempts[-1]["id"]
+    assert attempts[-1]["versions"]["retry_reason"] == "explicit_generation_retry"
+
     row = (
         await client.post(
             path + "/answers",
@@ -379,6 +390,15 @@ async def test_bounded_concurrency_commit_before_event_and_display_order(client,
                 async with sessions() as session:
                     artifact = await session.get(e.DebriefArtifact, UUID(event["artifact_id"]))
                     assert artifact.status == "completed" and artifact.data is not None
+                    call = await session.get(e.ModelCall, artifact.accepted_model_call_id)
+                    assert call.status.value == "succeeded"
+                    assert call.logical_operation_id == artifact.logical_operation_id
+                    assert call.task_type == (
+                        "interview_overall_debrief"
+                        if artifact.kind == "overall"
+                        else "interview_group_debrief"
+                    )
+
     assert provider.maximum == 2
     completed = [v for v in events if v["event"] in {"group_completed", "overall_completed"}]
     assert completed[0]["event"] == "overall_completed"
@@ -535,6 +555,20 @@ async def test_debrief_schema_repair_and_disconnect(client, sessions):
     assert result["status"] == "partial"
     assert sorted(a["status"] for a in result["artifacts"]) == ["completed", "failed"]
     assert result["usage"]["model_calls"] >= 2
+    accepted = next(a for a in result["artifacts"] if a["status"] == "completed")
+    calls = (await client.get(f"/api/v1/runs/{result['run_id']}/calls")).json()["model_calls"]
+    attempts = sorted(
+        [c for c in calls if c["logical_operation_id"] == accepted["logical_operation_id"]],
+        key=lambda c: c["attempts"],
+    )
+    assert [c["attempts"] for c in attempts] == [1, 2]
+    assert attempts[0]["status"] == "failed"
+    assert attempts[1]["status"] == "succeeded"
+    assert accepted["accepted_model_call_id"] == attempts[1]["id"]
+    assert attempts[1]["versions"]["repair_reason"] == "schema_invalid"
+    assert all(
+        a["accepted_model_call_id"] is None for a in result["artifacts"] if a["status"] == "failed"
+    )
 
 
 async def test_concurrent_cost_reservations_cannot_overspend(client, sessions):
@@ -638,3 +672,63 @@ async def test_mock_frozen_context_and_exhausted_quota(client, sessions, prep_in
     assert row["status"] == "ready_to_generate" and row["stop_reason"] == "budget_exhausted"
     assert row["context"] == before and row["turns"] == []
     assert row["usage"]["model_calls"] == 0
+
+
+async def test_accepted_call_binding_and_historical_migration(client, sessions, migrated_url):
+    import asyncio
+
+    from alembic import command
+    from alembic.config import Config
+
+    from career_agent.domain.rules import DomainError
+    from career_agent.interview.calls import AcceptedCall, validate_accepted_call
+    from career_agent.interview.contracts import OverallEvaluation
+
+    row, _ = await actual_session(client)
+    row = await append(client, row, 1)
+    run = (
+        await client.post(
+            "/api/v1/interview-debriefs",
+            json={
+                "source_kind": "actual",
+                "interview_id": row["id"],
+                "expected_source_revision": row["content_revision"],
+                "overall_analysis": True,
+            },
+        )
+    ).json()
+    await client.post(f"/api/v1/interview-debriefs/{run['id']}/execute")
+    result = (await client.get(f"/api/v1/interview-debriefs/{run['id']}")).json()
+    artifact = result["artifacts"][0]
+    async with sessions.begin() as session:
+        call = await session.get(e.ModelCall, UUID(artifact["accepted_model_call_id"]))
+        accepted = AcceptedCall(
+            OverallEvaluation.model_validate(artifact["data"]["overall"]),
+            call.id,
+            call.logical_operation_id,
+        )
+        await validate_accepted_call(
+            session, accepted, UUID(run["run_id"]), call.logical_operation_id
+        )
+        for run_id, operation in [
+            (uuid4(), call.logical_operation_id),
+            (UUID(run["run_id"]), uuid4()),
+        ]:
+            with pytest.raises(DomainError, match="model_call_provenance_mismatch"):
+                await validate_accepted_call(session, accepted, run_id, operation)
+        original_status = call.status
+        call.status = e.CallStatus.FAILED
+        with pytest.raises(DomainError, match="model_call_provenance_mismatch"):
+            await validate_accepted_call(
+                session, accepted, UUID(run["run_id"]), call.logical_operation_id
+            )
+        call.status = original_status
+    cfg = Config("alembic.ini")
+    cfg.attributes["database_url"] = migrated_url
+    await asyncio.to_thread(command.downgrade, cfg, "a841c3d12342")
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+    historical = (await client.get(f"/api/v1/interview-debriefs/{run['id']}")).json()
+    old = historical["artifacts"][0]
+    assert old["status"] == "completed" and old["data"] == artifact["data"]
+    assert old["logical_operation_id"] is None and old["accepted_model_call_id"] is None
+    await asyncio.to_thread(command.check, cfg)

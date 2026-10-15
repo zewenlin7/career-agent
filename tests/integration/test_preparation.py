@@ -882,3 +882,84 @@ async def test_compatible_legacy_fit_no_duplicate_model_call(client, prep_input,
     assert any(
         n["name"] == "fit_analysis" and n["status"] == "reused" for n in again["outcome"]["nodes"]
     )
+
+
+@pytest.mark.parametrize(
+    "task_type,key",
+    [
+        (TaskType.TAILOR, "base_resume"),
+        (TaskType.GREETING, "variant"),
+        (TaskType.INTERVIEW, "variant"),
+        (TaskType.COMPRESS, "variant"),
+    ],
+)
+async def test_all_resume_provider_paths_minimize_copies(
+    client, sessions, prep_input, task_type, key
+):
+    import copy
+    import json
+    from uuid import uuid4
+
+    from career_agent.preparation.contracts import WorkflowRequest, WorkflowState
+    from career_agent.preparation.workflows import PreparationWorkflow
+
+    pii = "隐私姓名 synthetic-pii@example.invalid 13800138000 住址：合成街99号；"
+
+    class Inspect(FixtureTaskProvider):
+        seen = False
+
+        async def generate(self, candidate, context, task):
+            self.seen = True
+            encoded = json.dumps(task.inputs, ensure_ascii=False)
+            for value in ["隐私姓名", "synthetic-pii@example.invalid", "13800138000", "合成街99号"]:
+                assert value not in encoded
+            assert "metadata" not in task.inputs["context"][key]
+            assert "Python" in encoded and "FastAPI" in encoded
+            if task_type != TaskType.COMPRESS:
+                assert "PostgreSQL" in encoded
+            raise ModelGatewayError("inspection_complete")
+
+    provider = Inspect()
+    settings = client._transport.app.state.settings
+    gateway = ModelGateway(registry(settings, False), POLICY, {"fixture": provider})
+    async with sessions.begin() as session:
+        runner = PreparationWorkflow(
+            session, settings, gateway, FixtureResearchAdapter(), WorkflowRequest(**prep_input)
+        )
+        runner.state = WorkflowState(
+            run_id=uuid4(),
+            workflow="prepare_application",
+            profile_id=prep_input["profile_id"],
+            job_revision_id=prep_input["job_revision_id"],
+            requested_outputs=[],
+        )
+        await runner.validate_inputs()
+        run_row = e.AgentRun(id=runner.state.run_id, workflow="prepare_application")
+        session.add(run_row)
+        await session.flush()
+        runner.step = e.AgentStep(run_id=run_row.id, sequence=1, node=task_type.value)
+        session.add(runner.step)
+        await session.flush()
+        revision = await session.get(
+            e.ResumeVariantRevision, UUID(prep_input["resume_revision_id"])
+        )
+        original = copy.deepcopy(revision.document)
+        doc = copy.deepcopy(original)
+        doc["metadata"] = {"label": pii}
+        doc["sections"][0]["items"][0]["text"] = pii + "Python / FastAPI 项目。"
+        # Raw requirements remain untouched; only their provider-facing projection is minimized.
+        runner.requirements = [
+            e.JobRequirement(
+                id=uuid4(), job_revision_id=runner.job.id, text=pii + "PostgreSQL", source_quote=pii
+            )
+        ]
+        blocks = {key: doc}
+        if task_type != TaskType.COMPRESS:
+            blocks["requirements"] = runner.requirements_context()
+        before = copy.deepcopy(blocks)
+        with pytest.raises(ModelGatewayError, match="inspection_complete"):
+            await runner.call(task_type, blocks)
+        assert provider.seen
+        assert blocks == before
+        assert revision.document == original
+        assert runner.requirements[0].text == pii + "PostgreSQL"

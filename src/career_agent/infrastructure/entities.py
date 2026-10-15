@@ -264,6 +264,7 @@ class AgentStep(Row, Base):
 class ModelCall(Row, Base):
     __tablename__ = "model_calls"
     __table_args__ = (
+        UniqueConstraint("logical_operation_id", "attempts"),
         CheckConstraint("attempts > 0", name="positive_attempts"),
         CheckConstraint("latency_ms IS NULL OR latency_ms >= 0", name="latency"),
         CheckConstraint("estimated_cost IS NULL OR estimated_cost >= 0", name="cost"),
@@ -271,6 +272,7 @@ class ModelCall(Row, Base):
     step_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_steps.id", ondelete="CASCADE"), index=True
     )
+    logical_operation_id: Mapped[UUID | None] = mapped_column(index=True)
     task_type: Mapped[str] = mapped_column(String(128))
     provider: Mapped[str] = mapped_column(String(128))
     model: Mapped[str] = mapped_column(String(128))
@@ -539,6 +541,7 @@ class MockInterviewSession(Row, Base):
     followup_count: Mapped[int] = mapped_column(default=0)
     interviewer_turn_count: Mapped[int] = mapped_column(default=0)
     pending_question_id: Mapped[UUID | None] = mapped_column()
+    generation_operation_id: Mapped[UUID | None] = mapped_column()
     generation_active: Mapped[bool] = mapped_column(default=False)
     completion_type: Mapped[str | None] = mapped_column(String(40))
     stop_reason: Mapped[str | None] = mapped_column(String(128))
@@ -547,6 +550,10 @@ class MockInterviewSession(Row, Base):
 class MockInterviewTurn(Row, Base):
     __tablename__ = "mock_interview_turns"
     __table_args__ = (UniqueConstraint("session_id", "sequence"),)
+    logical_operation_id: Mapped[UUID | None] = mapped_column(unique=True)
+    accepted_model_call_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("model_calls.id", ondelete="RESTRICT"), unique=True
+    )
     session_id: Mapped[UUID] = mapped_column(
         ForeignKey("mock_interview_sessions.id", ondelete="RESTRICT"), index=True
     )
@@ -584,6 +591,10 @@ class DebriefRun(Row, Base):
 class DebriefArtifact(Row, Base):
     __tablename__ = "debrief_artifacts"
     __table_args__ = (UniqueConstraint("debrief_id", "display_order"),)
+    logical_operation_id: Mapped[UUID | None] = mapped_column(unique=True)
+    accepted_model_call_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("model_calls.id", ondelete="RESTRICT"), unique=True
+    )
     debrief_id: Mapped[UUID] = mapped_column(
         ForeignKey("debrief_runs.id", ondelete="RESTRICT"), index=True
     )
