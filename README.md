@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current milestone is **v0.2b Interview Loop (completed locally; offline acceptance passed)**, built on the completed v0.1 Domain MVP.
+The current milestone is **v0.3 Evaluation Foundation (offline acceptance passed)**, built on the completed v0.1 Domain MVP.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -24,7 +24,7 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 OpenAI Responses and Tavily adapters, deterministic target orchestration, versioned prompts,
 structured zh-CN tailoring and static budget controls are implemented and tested offline.
 **Live extraction/research/fit/tailoring/PDF/greeting have been exercised; Interview Prep passed after a timeout-policy fix, and controlled compression produced an accepted PDF. v0.1c live acceptance is historical; v0.1d acceptance is offline only. Synthetic acceptance does not establish real job-search quality.**
-No automatic applications/messages, unrestricted planner, durable worker, LLM judge,
+No automatic applications/messages, unrestricted planner, durable worker,
 vector search or frontend are implemented. Interview preparation is an explicit separate request.
 
 ## Architecture
@@ -163,7 +163,7 @@ real Typst E2E, static checks and offline installation/build. No commit or push 
 - v0.1c: Job Preparation Workflow (completed and locally verified).
 - v0.1d: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E.
 - v0.2a: bounded Runtime Core; v0.2b: deterministic intake, text Mock and standalone Debrief (offline).
-- v0.3: Harness / Evaluation / Safety (planned).
+- v0.3: Evaluation Harness / Regression / Sampled Quality Monitoring Foundation (current).
 - v0.4: Production Engineering; v0.5: Real Usage Loop (planned).
 
 See [TODO](TODO.md) for the full roadmap and optional extensions, and [CHANGELOG](CHANGELOG.md)
@@ -620,7 +620,7 @@ A row-locked shared ledger reserves before calls, settles once and keeps unknown
 AgentRun usage is a projection, not an additional charge. Reported cache/write/reasoning usage is
 preserved when available. Estimated/reserved budget is not actual billed cost.
 
-Limits: no bulk import, voice, answer edits in Mock, summary/chunking, scoring, judge, auto-KB writes,
+Limits: no bulk import, voice, answer edits in Mock, summary/chunking, scoring, auto-KB writes,
 background continuation, exactly-once or production crash recovery. Disconnect cancels active work
 and preserves committed results; unknown in-flight cost remains reserved. Process/DB failures can
 leave in-progress state requiring operator inspection. Example answers conservatively use only
@@ -649,3 +649,65 @@ New Mock turns and Debrief artifacts expose `logical_operation_id` and `accepted
 The run's calls endpoint links all attempts for that operation, including explicit Mock retries and
 Debrief schema/transport retries. Historical associations remain null when unknown; migration does
 not reconstruct provenance from timing or task names.
+
+## v0.3 offline evaluation foundation
+
+Evaluation uses code-managed PromptSpec input contracts before provider dispatch. Cases freeze
+inputs, clock and external observations; candidate manifests freeze code/prompt/schema/policy
+identity. Legacy artifacts remain readable but are not reused without compatible execution metadata.
+Debrief regeneration explicitly reuses a frozen source; it creates a new result and preserves history.
+
+The `evaluation/` package provides component, business-workflow and Agent-goal replay, independent
+trials, private operation snapshots, deterministic checks, priority-tier comparison, deterministic
+sampling and pending Judge work. Human annotation, user feedback and Judge judgments are separate.
+Fixture Judge outputs test plumbing only; they are not evidence of human-level quality or job-search
+outcomes. No paid evaluation has been run as part of this milestone.
+
+Run the initial 40-case synthetic suite against local PostgreSQL (the role needs CREATEDB):
+
+```sh
+uv run python -m career_agent.evaluation run tests/fixtures/evaluation/foundation.json
+uv run python -m career_agent.evaluation inspect runs RUN_UUID
+uv run python -m career_agent.evaluation compare BASELINE_UUID CANDIDATE_UUID
+uv run python -m career_agent.evaluation drain-judge --limit 20 --concurrency 2
+uv run python -m career_agent.evaluation calibration
+```
+
+All CLI execution defaults to offline fixture adapters, even if live credentials are configured.
+Workflow/Agent trials create a disposable PostgreSQL database and private temporary artifact directory;
+model-task replay starts directly from frozen model-facing input. Missing frozen observations fail
+closed. Source reconstruction makes zero model calls. Origin re-execution requires
+`--mode origin_reexecution --explicit-diagnostic`; unavailable original model/config is reported,
+never silently substituted. `--trials 3` preserves separate trial results.
+
+REST endpoints under `/api/v1/evaluation` expose cases/suites/runs/trials/operations, comparisons,
+sampling, explicit Judge drain, blind annotation queues/calibration, and private captures.
+Explicit `POST /evaluation/judges` can assess a replay artifact without recursive auto-sampling.
+Use capture `triage` → `sanitized` → explicit `promote`; `/cases/{id}/export` rejects private/unsafe
+payloads. These APIs are local private-data interfaces, not publicly deployable authenticated services.
+Operation snapshots and captures deliberately contain private debug inputs in dedicated DB tables;
+ordinary runtime traces remain metadata-only. Do not publish database dumps or capture responses.
+
+Static concurrency and root/trial reservations bound execution. Estimated usage cost and unknown
+reservations are not provider invoices. Judge draining is explicit, without a worker or scheduler.
+The sanitizer is a deterministic baseline plus explicit human review, not proof of complete DLP.
+No distributed recovery, production reconciliation, automatic sampling control or dashboard is included.
+
+Local v0.3 acceptance: **444 tests passed**, Ruff/formatter and strict mypy passed; empty PostgreSQL
+migration, drift/history upgrades, offline locked install/build/import and Typst/font checks passed.
+A separate minimal synthetic OpenAI smoke passed: component/workflow replay, pending Judge drain,
+blind annotation linkage, comparison and explicit origin re-execution. Six calls cost an estimated
+USD 0.017976 (not billed cost); no Tavily calls. This validates plumbing, not population quality.
+Remote CI has not been run for these uncommitted changes.
+
+Evaluation API/CLI remain offline by default. A trusted caller may explicitly inject an OpenAI
+Gateway into EvalRunner with `allow_paid_models=True` and `live_enabled=True`; the manifest captures
+that actual gateway. Workflow replay still uses temporary PostgreSQL/private storage and frozen
+research. Enabling application live mode alone does not enable paid evaluation.
+
+The v0.3 audit corrections retain ordinal Judge ratings in regression comparisons and distinguish
+not-sampled from requested-but-unavailable quality evidence. Correctness remains independently
+visible, with unconditional Tier 0 blocking. Origin re-execution binds the exact supported origin
+model/config instead of using candidate routing. Private versioned capture conversion supports
+isolated replay without consulting changed production inputs; insufficient historical captures fail
+explicitly. Calibration preserves pair details while selecting one latest pair per subject/stratum.

@@ -3,7 +3,7 @@
 import re
 from typing import Any
 
-MODEL_VIEW_VERSION = "model-view-v1"
+MODEL_VIEW_VERSION = "model-view-v2"
 
 CONTACT_KEYS = frozenset(
     {
@@ -32,6 +32,9 @@ CONTACT_KEYS = frozenset(
 
 
 def minimize(text: str, name: str = "", contacts: tuple[str, ...] = ()) -> str:
+    # Exact structural UUIDs are references, even if a hex segment resembles a phone.
+    if re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", text):
+        return text
     if name:
         # Avoid removing a short Latin name from a longer skill/company identifier.
         pattern = re.escape(name)

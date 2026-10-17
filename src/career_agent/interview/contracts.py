@@ -126,6 +126,12 @@ class DebriefCreate(Contract):
         return self
 
 
+class DebriefRegenerate(Contract):
+    question_analysis: Literal["none", "single", "all"] = "none"
+    overall_analysis: bool = False
+    primary_entry_id: UUID | None = None
+
+
 class Finding(Contract):
     content: str = Field(min_length=1, max_length=2000)
     evidence_refs: list[UUID] = Field(min_length=1, max_length=500)

@@ -17,6 +17,7 @@ from career_agent.interview.calls import AcceptedCall, InterviewCalls, validate_
 from career_agent.interview.context import clean, digest, freeze
 from career_agent.interview.contracts import (
     DebriefCreate,
+    DebriefRegenerate,
     EvaluationData,
     EventData,
     FrozenContext,
@@ -104,9 +105,34 @@ class DebriefService:
         self.sessions, self.settings, self.gateway = sessions, settings, gateway
         self.calls = InterviewCalls(sessions, gateway)
 
-    async def create(self, request: DebriefCreate) -> dict[str, Any]:
+    async def regenerate(self, id: UUID, request: DebriefRegenerate) -> dict[str, Any]:
+        async with self.sessions() as session:
+            old = await require(session, e.DebriefRun, id)
+            source = SourceSnapshot.model_validate(old.snapshot)
+            payload = DebriefCreate(
+                source_kind=source.source_kind,
+                interview_id=source.interview_id,
+                expected_source_revision=source.content_revision,
+                mode=old.mode,
+                **request.model_dump(),
+            )
+        return await self.create(payload, frozen_from=id)
+
+    async def create(
+        self, request: DebriefCreate, *, frozen_from: UUID | None = None
+    ) -> dict[str, Any]:
         async with self.sessions.begin() as session:
-            if request.source_kind == "actual":
+            previous = None
+            root = None
+            if frozen_from:
+                previous = await require(session, e.DebriefRun, frozen_from)
+                root = await require(
+                    session, e.DebriefRun, previous.root_run_id or previous.id, lock=True
+                )
+                if digest(previous.snapshot) != previous.source_hash:
+                    raise DomainError("snapshot_integrity_failed")
+                snapshot = SourceSnapshot.model_validate(previous.snapshot)
+            elif request.source_kind == "actual":
                 interview = await require(
                     session, e.InterviewSession, request.interview_id, lock=True
                 )
@@ -229,11 +255,19 @@ class DebriefService:
                     )
                 )
             id = row.id
+            if previous and root:
+                row.root_run_id = root.id
+                row.supersedes_run_id = previous.id
+                root.selected_run_id = row.id
         return await self.view(id)
 
-    async def view(self, id: UUID) -> dict[str, Any]:
+    async def view(self, id: UUID, *, historical: bool = False) -> dict[str, Any]:
         async with self.sessions() as session:
             row = await require(session, e.DebriefRun, id)
+            root = await require(session, e.DebriefRun, row.root_run_id) if row.root_run_id else row
+            if not historical and root.selected_run_id:
+                row = await require(session, e.DebriefRun, root.selected_run_id)
+                id = row.id
             source = SourceSnapshot.model_validate(row.snapshot)
             artifacts = list(
                 await session.scalars(
@@ -247,6 +281,8 @@ class DebriefService:
                 "run_id": row.run_id,
                 "status": row.status,
                 "source_hash": row.source_hash,
+                "supersedes_run_id": row.supersedes_run_id,
+                "root_run_id": row.root_run_id or row.id,
                 "snapshot": row.snapshot,
                 "usage": row.usage,
                 "event_sequence": row.event_sequence,
@@ -324,6 +360,11 @@ class DebriefService:
                     session, accepted, run.run_id, artifact.logical_operation_id
                 )
                 artifact.accepted_model_call_id = accepted.model_call_id
+                from career_agent.evaluation.recording import bind_artifact
+
+                await bind_artifact(
+                    session, accepted.model_call_id, artifact.id, self.settings.judge_sampling
+                )
             if result:
                 artifact.data = result.model_dump(mode="json")
             message = (

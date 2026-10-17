@@ -698,11 +698,13 @@ async def test_real_overflow_semantic_compression_real_recompile(client, prep_in
 
 
 @pytest.mark.parametrize("expired", [False, True])
+@pytest.mark.parametrize("compatible_metadata", [False, True])
 async def test_existing_research_reuse_or_expiry_never_searches(
-    client, prep_input, sessions, expired
+    client, prep_input, sessions, expired, compatible_metadata
 ):
     from datetime import timedelta
 
+    from career_agent.application.compatibility import execution_versions
     from career_agent.preparation.contracts import ResearchConclusion, ResearchData, ResearchOutput
     from career_agent.preparation.research import SearchInput
 
@@ -716,6 +718,9 @@ async def test_existing_research_reuse_or_expiry_never_searches(
             fetched_at=e.utcnow(),
             expires_at=e.utcnow() + timedelta(hours=-1 if expired else 1),
             data=ResearchData(
+                compatibility_versions=execution_versions("company_research")
+                if compatible_metadata
+                else None,
                 evidence=evidence,
                 mode="fixture",
                 report=ResearchOutput(
@@ -741,7 +746,9 @@ async def test_existing_research_reuse_or_expiry_never_searches(
     inject(client, research=NoSearch())
     result = await run(client, {**prep_input, "targets": ["greeting_generation"]})
     assert result["outcome"]["status"] == "completed"
-    assert result["state"]["research_report_id"] == (None if expired else report_id)
+    assert result["state"]["research_report_id"] == (
+        None if expired or not compatible_metadata else report_id
+    )
     assert result["state"]["usage"]["search_calls"] == 0
     assert result["state"]["usage"]["model_calls"] == 2
 
@@ -862,7 +869,9 @@ async def test_interview_rejects_cross_context_intermediates(
     assert failed["state"]["usage"]["model_calls"] == 0
 
 
-async def test_compatible_legacy_fit_no_duplicate_model_call(client, prep_input, sessions):
+async def test_legacy_fit_readable_but_not_reused_without_compatibility(
+    client, prep_input, sessions
+):
     from sqlalchemy import delete
 
     first = await run(client, {**prep_input, "targets": ["fit_analysis"]})
@@ -876,12 +885,16 @@ async def test_compatible_legacy_fit_no_duplicate_model_call(client, prep_input,
     again = await run(
         client, {**prep_input, "targets": ["fit_analysis"], "limits": {"max_model_calls": 0}}
     )
-    assert again["outcome"]["status"] == "completed", again
-    assert again["state"]["fit_analysis_id"] == first["state"]["fit_analysis_id"]
+    assert again["outcome"]["status"] == "failed", again
     assert again["state"]["usage"]["model_calls"] == 0
-    assert any(
+    assert not any(
         n["name"] == "fit_analysis" and n["status"] == "reused" for n in again["outcome"]["nodes"]
     )
+    async with sessions() as session:
+        assert await session.get(e.PreparationArtifact, UUID(first["state"]["fit_analysis_id"]))
+    regenerated = await run(client, {**prep_input, "targets": ["fit_analysis"]})
+    assert regenerated["outcome"]["status"] == "completed"
+    assert regenerated["state"]["fit_analysis_id"] != first["state"]["fit_analysis_id"]
 
 
 @pytest.mark.parametrize(
@@ -953,7 +966,11 @@ async def test_all_resume_provider_paths_minimize_copies(
                 id=uuid4(), job_revision_id=runner.job.id, text=pii + "PostgreSQL", source_quote=pii
             )
         ]
-        blocks = {key: doc}
+        from career_agent.evaluation.fixtures import initial_cases
+
+        frozen = next(c for c in initial_cases() if c.case_id == task_type.value + ".normal")
+        blocks = copy.deepcopy(frozen.model_input["context"])
+        blocks[key] = doc
         if task_type != TaskType.COMPRESS:
             blocks["requirements"] = runner.requirements_context()
         before = copy.deepcopy(blocks)

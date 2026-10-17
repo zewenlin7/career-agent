@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from input_fixtures import blocks
 from openai import AsyncOpenAI
 
 from career_agent.config import Settings
@@ -82,7 +83,7 @@ async def test_safe_native_failure_metadata(case, expected, caplog):
                 await OpenAIProvider(sdk).generate(
                     POLICY.select(ctx, registry(Settings(), True)),
                     ctx,
-                    task_spec(TaskType.TAILOR, {}),
+                    task_spec(TaskType.TAILOR, blocks(TaskType.TAILOR)),
                 )
     error = caught.value
     assert error.code == expected

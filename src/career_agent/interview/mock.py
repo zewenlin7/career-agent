@@ -292,6 +292,11 @@ class MockService:
                 )
                 session.add(turn)
                 await session.flush()
+                from career_agent.evaluation.recording import bind_artifact
+
+                await bind_artifact(
+                    session, accepted.model_call_id, turn.id, self.settings.judge_sampling
+                )
                 row.generation_operation_id = None
                 row.pending_question_id = turn.id
                 row.primary_question_count += output.kind == "primary"

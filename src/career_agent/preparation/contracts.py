@@ -62,6 +62,7 @@ class ResearchOutput(Contract):
 
 
 class ResearchData(Contract):
+    compatibility_versions: dict[str, str] | None = None
     evidence: list[ResearchEvidence] = Field(max_length=10)
     report: ResearchOutput
     trust_level: Literal["untrusted_external"] = "untrusted_external"
@@ -209,6 +210,7 @@ class WorkflowOutcome(Contract):
 
 
 class TargetArtifact(Contract):
+    compatibility_versions: dict[str, str] | None = None
     target: Target
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
     result_id: UUID | None = None

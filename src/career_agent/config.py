@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from career_agent.evaluation.contracts import JudgeSamplingPolicy
 from career_agent.interview.policy import InterviewPolicy
 from career_agent.models.timeouts import TimeoutSeconds
 from career_agent.runtime.contracts import Identifier
@@ -14,6 +15,7 @@ class Settings(BaseSettings):
     database_url: SecretStr = SecretStr(
         "postgresql+asyncpg://career:career_local_only@127.0.0.1:55432/career_agent"
     )
+    judge_sampling: JudgeSamplingPolicy = Field(default_factory=JudgeSamplingPolicy)
     typst_bin: str = "typst"
     compile_timeout_seconds: float = Field(default=15, gt=0, le=60)
     font_dir: Path = Path("~/.cache/career-agent/fonts/noto-sans-cjk-sc-2.004")

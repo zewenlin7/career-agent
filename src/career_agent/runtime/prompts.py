@@ -1,5 +1,6 @@
 """Feature-local planning prompts, registered through the shared contract."""
 
+from career_agent.models.inputs import InputContract
 from career_agent.models.prompts import PromptSpec
 from career_agent.runtime.agent_contracts import PlanProposal
 
@@ -23,9 +24,9 @@ Return missing_inputs when clarification is required."""
 PROMPTS = {
     task: PromptSpec(
         prompt_name="goal-planner",
-        prompt_version="goal-planner-v2",
+        prompt_version="goal-planner-v3",
         task_type=task,
-        input_schema_version="planner-context-v2",
+        input_schema_version="planner-context-v3",
         output_schema_version="agent-plan-v2",
         instruction=INSTRUCTION,
         input_contract={
@@ -47,6 +48,19 @@ PROMPTS = {
             "trust_boundary": "quoted_data_only",
         },
         output_schema=PlanProposal,
+        executable_input=InputContract(
+            required={
+                "goal": ["string"],
+                "bindings": ["object"],
+                "authorized_scope": ["object"],
+                "allowed_actions": ["array"],
+                "artifacts": ["array"],
+                "progress": ["object"],
+                "previous_observation": ["object", "null"],
+                "remaining_budget": ["object"],
+            },
+            max_bytes=32000,
+        ),
     )
     for task in ("goal_planning", "goal_replanning")
 }

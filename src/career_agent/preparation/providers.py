@@ -30,12 +30,13 @@ from career_agent.preparation.research import (
 from career_agent.runtime.contracts import Usage
 
 POLICY = ModelPolicy(
-    version="career-model-policy-v3",
+    version="career-model-policy-v4",
     task_tiers={
         **{
             t.value: ModelTier.CHEAP if t == TaskType.EXTRACTION else ModelTier.STRONG
             for t in TaskType
         },
+        "quality_judgement": ModelTier.STRONG,
         "goal_planning": ModelTier.STRONG,
         "goal_replanning": ModelTier.STRONG,
         "mock_interview_turn_generation": ModelTier.STRONG,
@@ -51,6 +52,24 @@ class FixtureTaskProvider:
     async def generate(
         self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
     ) -> ProviderResponse:
+        if context.task_type == "quality_judgement":
+            return ProviderResponse(
+                output={
+                    "criteria": [
+                        {
+                            "criterion": name,
+                            "rating": "pass",
+                            "confidence": "low",
+                            "uncertainty_reasons": ["fixture_not_quality_evidence"],
+                            "reason": "合成评估结果仅验证基础设施。",
+                            "evidence_refs": task.inputs["evidence"][:1],
+                        }
+                        for name in task.inputs["rubric"]["criteria"]
+                    ]
+                },
+                usage=Usage(input_tokens=100, output_tokens=100, estimated_cost=0),
+                finish_reason="fixture_completed",
+            )
         if context.task_type in {
             "mock_interview_turn_generation",
             "interview_group_debrief",
@@ -138,7 +157,9 @@ class FixtureTaskProvider:
                 for item in section["items"]:
                     item["requirement_refs"] = [c["requirements"][0]["id"]]
         elif t == TaskType.COMPRESS:
-            output = c["variant"]
+            import copy
+
+            output = copy.deepcopy(c["variant"])
             for section in output["sections"]:
                 for item in section["items"]:
                     if item.get("short_text"):

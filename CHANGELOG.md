@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+### Added — v0.3 offline evaluation foundation
+
+- Executable shared prompt input block/type/size/trust/privacy contracts, with feature-local definitions.
+- Versioned current-execution artifact compatibility; legacy results remain historically readable.
+- Explicit Debrief regeneration against immutable frozen sources, with selected-result/history retrieval.
+- Versioned cases/suites/candidates/runs/trials and private operation provenance; disposable PostgreSQL
+  and temporary artifact stores for workflow/Agent replay, frozen external observations and clock.
+- Deterministic validator/trajectory checks and adapter fault plans, bounded shared budgets/concurrency,
+  candidate drift rejection and priority-tier regression comparison with multi-trial distributions.
+- Stable sampled/not-sampled decisions, independent pending Judge records and explicit offline drain;
+  separate feedback, blind human annotation, confusion/Kappa/F1/confidence calibration reports.
+- Private immutable bad-case payloads with append-only triggers, explicit triage/sanitization/promotion,
+  repo-safe export and local evaluation CLI/API. Forty synthetic foundation cases cover all existing
+  business model tasks plus deterministic, workflow, runtime, privacy and failure paths.
+- Nullable Debrief history links and new evaluation tables; database payload immutability constraints.
+
+### Verified — v0.3 offline acceptance
+
+- 444 tests passed; Ruff/formatter, strict mypy, empty PostgreSQL migration/drift/history upgrades,
+  offline locked install/build/import, Typst/font preflight and repository hygiene passed.
+- Offline acceptance used no paid calls. Fixture Judge output validates plumbing, not real quality.
+
+### Verified — v0.3 minimal live smoke
+
+- Six synthetic OpenAI calls verified component and workflow replay, pending Judge drain, blind
+  annotation linkage, comparison and exact-model origin re-execution. Estimated usage cost was
+  USD 0.017976; no Tavily, retries or schema repairs. Actual billed cost remains unknown.
+- Added explicit, default-off Gateway injection for paid replay; CandidateConfig records the injected
+  registry/policy/prompts. Isolated PostgreSQL, frozen research and shared budgets remain enforced.
+- Judge returned pass/high for three criteria on this tiny sample; this is not quality calibration.
+
+### Fixed — v0.3 verification
+
+- Tier 0 regressions always block; ordinal Judge severities and unavailable requested judgments
+  retain their comparison meaning. Incomplete evaluation evidence is excluded from pass-rate denominators.
+- Origin re-execution binds the original available model, prompt/schema/policy and generation
+  parameters instead of using current routing; unavailable contracts fail closed.
+- Versioned private capture/replay closures preserve authoritative inputs and reusable dependencies.
+  Subject/call/operation identity is validated and promotion cannot overwrite origin provenance.
+- Model/search/Judge deadlines bound admission and in-flight calls while retaining unknown usage
+  reservations on cancellation; repeated annotation/Judge pairs no longer overweight a subject.
+- Replaced eight redundant malformed-output cases with grounding, cross-group evidence, runtime
+  duplicate/cycle/no-progress, search failure, CAS recovery and legacy capture compatibility risks.
+  Added concurrent multi-trial workflow/agent capture-to-promotion-to-replay regression coverage.
+- Exact UUID references remain intact when digit segments resemble phone numbers in PII filtering.
+- Standalone installed Eval imports no longer depend on API import order.
+- Immutable result guards distinguish JSONB null from SQL NULL, allowing first completion while
+  rejecting later payload replacement. Operational traces retain only metadata and references.
+
 ### Fixed — Architecture audit boundaries
 
 - Shared copy-only provider view closes Preparation base/selected Resume, metadata/label, and

@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 import pytest
+from input_fixtures import valid_inputs
 from pydantic import BaseModel, ValidationError
 
 from career_agent.config import Settings
@@ -28,12 +29,12 @@ def test_all_tasks_have_shared_prompt_and_trace_contract(task_type):
         workflow_version="synthetic-v1",
         **spec.metadata,
     )
-    trace = prompts.trace_metadata(ctx, spec.task({}))
+    trace = prompts.trace_metadata(ctx, spec.task(valid_inputs(spec)))
     assert trace.model_dump(include=set(spec.metadata)) == spec.metadata
     assert trace.workflow_version == "synthetic-v1"
     assert spec.prompt_hash == prompts.resolve(task_type).prompt_hash
     assert len(spec.prompt_hash) == 64
-    assert spec.task({"private": "not hashed"}).prompt_hash == spec.task({}).prompt_hash
+    assert spec.task(valid_inputs(spec)).prompt_hash == spec.task(valid_inputs(spec)).prompt_hash
 
 
 def test_shared_planning_prompt_hash_and_canonical_order():
@@ -70,7 +71,7 @@ async def test_mismatched_prompt_metadata_never_dispatches(side, field):
     context = ModelRequestContext(
         task_type=spec.task_type, output_schema=spec.output_schema, **spec.metadata
     )
-    task = spec.task({})
+    task = spec.task(valid_inputs(spec))
     value = "0" * 64 if field == "prompt_hash" else "wrong-v1"
     if side in {"context", "both"}:
         context = context.model_copy(update={field: value})
@@ -89,7 +90,7 @@ async def test_unregistered_task_and_contract_substitution_blocked(kind):
     ctx = ModelRequestContext(
         task_type=spec.task_type, output_schema=spec.output_schema, **spec.metadata
     )
-    task = spec.task({})
+    task = spec.task(valid_inputs(spec))
     if kind == "unregistered":
         ctx = ctx.model_copy(update={"task_type": "unknown"})
     elif kind == "instruction":
@@ -150,8 +151,10 @@ def test_trace_metadata_does_not_consume_model_input_budget():
     ctx = ModelRequestContext(
         task_type=spec.task_type, output_schema=spec.output_schema, **spec.metadata
     )
-    task = spec.task({"goal": "合成目标"})
+    task = spec.task({**valid_inputs(spec), "goal": "合成目标"})
     # No version metadata is sent in either adapter system/user message.
     without_metadata = task.model_copy(update={key: None for key in spec.metadata})
     assert input_bound(ctx, task) == input_bound(ctx, without_metadata)
-    assert input_bound(ctx, spec.task({"goal": "更长的合成目标"})) > input_bound(ctx, task)
+    assert input_bound(
+        ctx, spec.task({**valid_inputs(spec), "goal": "更长的合成目标"})
+    ) > input_bound(ctx, task)

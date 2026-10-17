@@ -16,7 +16,13 @@ from career_agent.domain.rules import DomainError
 from career_agent.domain.schemas import InterviewEntryCreate, InterviewUpdate
 from career_agent.infrastructure import entities as e
 from career_agent.interview import actual
-from career_agent.interview.contracts import AnswerSubmit, Continuation, DebriefCreate, MockCreate
+from career_agent.interview.contracts import (
+    AnswerSubmit,
+    Continuation,
+    DebriefCreate,
+    DebriefRegenerate,
+    MockCreate,
+)
 from career_agent.interview.debrief import DebriefService
 from career_agent.interview.mock import MockService
 from career_agent.models.contracts import ModelGatewayError
@@ -129,11 +135,11 @@ async def debrief_create(payload: DebriefCreate, request: Request) -> dict[str, 
 
 
 @router.get("/interview-debriefs/{id}")
-async def debrief_get(id: UUID, request: Request) -> dict[str, Any]:
+async def debrief_get(id: UUID, request: Request, historical: bool = False) -> dict[str, Any]:
     async with dependencies(request.app.state.settings, "fixture") as (gateway, _):
         return await DebriefService(
             request.app.state.sessions, request.app.state.settings, gateway
-        ).view(id)
+        ).view(id, historical=historical)
 
 
 @router.get("/interview-debriefs/{id}/events")
@@ -178,3 +184,17 @@ async def execute_debrief(id: UUID, request: Request) -> StreamingResponse:
     return StreamingResponse(
         stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
     )
+
+
+@router.post("/interview-debriefs/{id}/regenerate", status_code=201)
+async def debrief_regenerate(
+    id: UUID, payload: DebriefRegenerate, request: Request
+) -> dict[str, Any]:
+    async with request.app.state.sessions() as session:
+        old = await require(session, e.DebriefRun, id)
+        mode = old.mode
+    factory = getattr(request.app.state, "preparation_dependencies", dependencies)
+    async with factory(request.app.state.settings, mode) as (gateway, _):
+        return await DebriefService(
+            request.app.state.sessions, request.app.state.settings, gateway
+        ).regenerate(id, payload)

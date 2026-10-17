@@ -42,7 +42,9 @@ from career_agent.runtime.contracts import Budget, Identifier, Usage, VersionMet
 
 
 def utcnow() -> datetime:
-    return datetime.now(UTC)
+    from career_agent.evaluation.execution import FROZEN_CLOCK
+
+    return FROZEN_CLOCK.get() or datetime.now(UTC)
 
 
 def enum_type(cls: type[PythonEnum], name: str | None = None) -> Enum:
@@ -578,6 +580,15 @@ class DebriefRun(Row, Base):
     run_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True
     )
+    root_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("debrief_runs.id", ondelete="RESTRICT")
+    )
+    supersedes_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("debrief_runs.id", ondelete="RESTRICT")
+    )
+    selected_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("debrief_runs.id", ondelete="RESTRICT")
+    )
     status: Mapped[str] = mapped_column(String(30), default="ready")
     mode: Mapped[str] = mapped_column(String(20))
     snapshot: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(SourceSnapshot))
@@ -616,3 +627,7 @@ class DebriefEvent(Row, Base):
     )
     sequence: Mapped[int] = mapped_column()
     data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(EventData))
+
+
+# Imported after Row/domain definitions so one metadata graph covers nullable cross-feature FKs.
+from career_agent.evaluation import entities as evaluation_entities  # noqa: E402, F401

@@ -5,6 +5,7 @@ from typing import cast
 from pydantic import BaseModel
 
 from career_agent.interview.contracts import OverallEvaluation, QuestionGroupEvaluation, TurnOutput
+from career_agent.models.inputs import InputContract
 from career_agent.models.prompts import PromptSpec
 from career_agent.security.model_view import MODEL_VIEW_VERSION
 
@@ -21,9 +22,9 @@ Knowledge candidates are suggestions, not verified knowledge or facts."""
 PROMPTS = {
     task: PromptSpec(
         prompt_name=task,
-        prompt_version=f"{task}_v2",
+        prompt_version=f"{task}_v3",
         task_type=task,
-        input_schema_version=f"{task}-input-v2",
+        input_schema_version=f"{task}-input-v3",
         output_schema_version=f"{task}-output-v1",
         instruction=BASE + "\n" + instruction,
         input_contract={
@@ -32,6 +33,22 @@ PROMPTS = {
             "model_view_version": MODEL_VIEW_VERSION,
         },
         output_schema=cast(type[BaseModel], schema),
+        executable_input=InputContract(
+            required={
+                block: (
+                    ["array"]
+                    if block == "question_history"
+                    else ["string", "null"]
+                    if block == "current_answer"
+                    else ["object", "null"]
+                    if block in {"current_question", "stable_context"}
+                    else ["object"]
+                )
+                for block in blocks
+            },
+            optional={"repair_reason": ["string"]},
+            max_bytes=300000,
+        ),
     )
     for task, instruction, blocks, schema in [
         (

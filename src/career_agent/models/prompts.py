@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from career_agent.models.contracts import ModelGatewayError, ModelRequestContext, TaskSpec
+from career_agent.models.inputs import InputContract
 from career_agent.runtime.contracts import VersionMetadata
 
 
@@ -21,6 +22,7 @@ class PromptSpec:
     instruction: str
     input_contract: dict[str, Any]
     output_schema: type[BaseModel]
+    executable_input: InputContract | None = None
 
     @property
     def prompt_hash(self) -> str:
@@ -33,6 +35,9 @@ class PromptSpec:
             "instruction": self.instruction,
             "input_schema_version": self.input_schema_version,
             "input_contract": self.input_contract,
+            "executable_input": self.executable_input.model_dump(mode="json")
+            if self.executable_input
+            else None,
             "output_schema_version": self.output_schema_version,
             "output_schema": self.output_schema.model_json_schema(),
         }
@@ -50,7 +55,13 @@ class PromptSpec:
             "output_schema_version": self.output_schema_version,
         }
 
+    def validate_input(self, inputs: dict[str, Any]) -> None:
+        if self.executable_input is None:
+            raise ModelGatewayError("prompt_input_contract_unavailable")
+        self.executable_input.validate_input(inputs)
+
     def task(self, inputs: dict[str, Any]) -> TaskSpec:
+        self.validate_input(inputs)
         return TaskSpec(instruction=self.instruction, inputs=inputs, **self.metadata)
 
 
@@ -66,6 +77,10 @@ class PromptRegistry:
                 raise ValueError("conflicting_prompt_identity")
             identities[key] = spec.prompt_hash
         self._specs = {spec.task_type: spec for spec in specs}
+
+    @property
+    def specs(self) -> dict[str, PromptSpec]:
+        return dict(self._specs)
 
     def resolve(self, task_type: str) -> PromptSpec:
         try:
@@ -84,13 +99,15 @@ class PromptRegistry:
             )
         ):
             raise ModelGatewayError("prompt_contract_mismatch")
+        spec.validate_input(task.inputs)
         return VersionMetadata(workflow_version=context.workflow_version, **spec.metadata)
 
 
 def application_prompts() -> PromptRegistry:
     # Composition only; no feature prompt text or provider configuration lives here.
+    from career_agent.evaluation.prompts import PROMPT as judge
     from career_agent.interview.prompts import PROMPTS as interview
     from career_agent.preparation.prompts import PROMPTS as preparation
     from career_agent.runtime.prompts import PROMPTS as runtime
 
-    return PromptRegistry([*preparation.values(), *runtime.values(), *interview.values()])
+    return PromptRegistry([*preparation.values(), *runtime.values(), *interview.values(), judge])

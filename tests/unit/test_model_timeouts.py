@@ -2,6 +2,7 @@
 
 import httpx
 import pytest
+from input_fixtures import blocks
 from openai import AsyncOpenAI
 from pydantic import ValidationError
 
@@ -68,7 +69,7 @@ async def test_per_request_timeout_native_sdk_and_safe_diagnostic(task, seconds,
                 sdk, ModelTimeoutPolicy(task_seconds={"interview_preparation": 120})
             )
             with pytest.raises(ModelGatewayError) as caught:
-                await provider.generate(candidate, ctx, task_spec(task, {}))
+                await provider.generate(candidate, ctx, task_spec(task, blocks(task)))
     exc = caught.value
     assert exc.code == "provider_timeout" and exc.retryable
     assert exc.usage is None

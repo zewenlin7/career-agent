@@ -5,13 +5,14 @@ import time
 from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from career_agent.application import resumes
+from career_agent.application.compatibility import compatible, execution_versions
 from career_agent.application.services import require
 from career_agent.config import Settings
 from career_agent.domain.rules import (
@@ -90,14 +91,28 @@ class PreparationWorkflow:
         self.report: RenderReport | None = None
         self.protected_fields: list[str] = []
         self.base_document: ResumeDocument | None = None
+        self.accepted_call_id: UUID | None = None
+        self.capture_replay: dict[str, Any] | None = None
 
     async def call(self, task_type: TaskType, blocks: dict[str, Any]) -> BaseModel:
+        from career_agent.evaluation.captured import freeze_inputs
+
+        if self.capture_replay is None:
+            self.capture_replay = await freeze_inputs(
+                self.session,
+                self.profile.id,
+                self.job.id,
+                self.request.resume_revision_id,
+                self.request.model_dump(mode="json"),
+                self.settings.data_dir,
+            )
         # All task blocks pass the same copy-only privacy boundary, including resume data.
         blocks = self.model_view(blocks)
         spec = self.gateway.prompts.resolve(task_type.value)
         transport_retries = repairs = 0
         attempt = 0
         previous: str | None = None
+        logical_operation_id = uuid4()
         while True:
             task = task_spec(task_type, blocks, schema_repair=repairs > 0)
             u, b = self.state.usage, self.state.limits
@@ -141,6 +156,7 @@ class PreparationWorkflow:
             )
             row = e.ModelCall(
                 step_id=self.step.id,
+                logical_operation_id=logical_operation_id,
                 task_type=task_type.value,
                 provider=candidate.provider,
                 model=candidate.model,
@@ -194,7 +210,61 @@ class PreparationWorkflow:
                 )
             )
             await self.session.flush()
+            from career_agent.evaluation.recording import record_model
+
+            replay = self.capture_replay
+            await record_model(
+                self.session,
+                call_id=row.id,
+                run_id=self.step.run_id,
+                step_id=self.step.id,
+                context=context,
+                task=task,
+                output=result.validated_output.model_dump(mode="json") if result else None,
+                versions=row.versions,
+                operation_id=logical_operation_id,
+                source={
+                    "captured_source_version": "captured-source-v1",
+                    "replay": replay,
+                    "request": self.request.model_dump(mode="json"),
+                    "base_resume": self.base_document.model_dump(mode="json")
+                    if self.base_document
+                    else None,
+                    "requirements": self.requirements_context(),
+                    "company": {"id": str(self.company.id), "name": self.company.name},
+                    "profile": self.profile.data,
+                    "profile_id": str(self.profile.id),
+                    "profile_revision": self.profile.revision,
+                    "members": [
+                        str(id) for id in sorted(resumes.profile_fact_ids(self.profile), key=str)
+                    ],
+                    "snapshot": {
+                        "display_name": self.profile.data["display_name"],
+                        "facts": [
+                            {"fact_id": str(f.id), "revision": f.revision}
+                            for f in self.fact_rows.values()
+                        ],
+                    },
+                    "requirement_ids": [str(r.id) for r in self.requirements],
+                    "job": {
+                        "id": str(self.job.id),
+                        "title": self.job.title,
+                        "jd_text": self.job.jd_text,
+                    },
+                    "facts": [
+                        {
+                            "id": str(f.id),
+                            "revision": f.revision,
+                            "status": f.status.value,
+                            "statement": f.statement,
+                        }
+                        for f in self.fact_rows.values()
+                    ],
+                },
+                reason=row.error_code,
+            )
             if result is not None:
+                self.accepted_call_id = row.id
                 return result.validated_output
             assert error is not None
             if task_type == TaskType.COMPRESS:
@@ -226,6 +296,12 @@ class PreparationWorkflow:
         )
         self.session.add(row)
         await self.session.flush()
+        if kind != "package" and self.accepted_call_id:
+            from career_agent.evaluation.recording import bind_artifact
+
+            await bind_artifact(
+                self.session, self.accepted_call_id, row.id, self.settings.judge_sampling
+            )
         return row.id
 
     async def validate_inputs(self) -> None:
@@ -356,10 +432,13 @@ class PreparationWorkflow:
         )
         if cached and not self.request.force_research_refresh:
             data = ResearchData.model_validate(cached.data)
-            self.research_output = data.report
-            self.state.research_report_id = cached.id
-            self.state.evidence_refs = [x.id for x in data.evidence]
-            return
+            if compatible(
+                data.compatibility_versions, execution_versions("company_research")
+            ).reusable_for_current_execution:
+                self.research_output = data.report
+                self.state.research_report_id = cached.id
+                self.state.evidence_refs = [x.id for x in data.evidence]
+                return
         evidence = []
         for suffix in ["主营业务 产品 技术方向", "工程团队 AI Agent 技术方向"]:
             cost = self.settings.search_cost_per_call if self.request.mode == "live" else Decimal(0)
@@ -444,9 +523,12 @@ class PreparationWorkflow:
             research_version=(version or 0) + 1,
             fetched_at=now,
             expires_at=now + timedelta(hours=self.settings.company_research_ttl_hours),
-            data=ResearchData(evidence=evidence, report=output, mode=self.request.mode).model_dump(
-                mode="json"
-            ),
+            data=ResearchData(
+                evidence=evidence,
+                report=output,
+                mode=self.request.mode,
+                compatibility_versions=execution_versions("company_research"),
+            ).model_dump(mode="json"),
         )
         self.session.add(row_report)
         await self.session.flush()
@@ -511,6 +593,12 @@ class PreparationWorkflow:
             )
         self.state.resume_variant_id = self.variant.resume_variant_id
         self.state.resume_variant_revision = self.variant.revision
+        if self.accepted_call_id:
+            from career_agent.evaluation.recording import bind_artifact
+
+            await bind_artifact(
+                self.session, self.accepted_call_id, self.variant.id, self.settings.judge_sampling
+            )
 
     async def tailor_resume(self) -> None:
         assert self.base_document is not None

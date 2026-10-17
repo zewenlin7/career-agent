@@ -13,6 +13,7 @@ from career_agent.models.contracts import (
 )
 from career_agent.models.fake import FakeProvider
 from career_agent.models.gateway import ModelGateway, ModelPolicy
+from career_agent.models.inputs import InputContract
 from career_agent.models.prompts import PromptRegistry, PromptSpec
 from career_agent.runtime.contracts import Budget
 
@@ -29,6 +30,7 @@ SPEC = PromptSpec(
     output_schema_version="synthetic-output-v1",
     instruction="Synthetic classification",
     input_contract={},
+    executable_input=InputContract(),
     output_schema=Output,
 )
 PROMPTS = PromptRegistry([SPEC])

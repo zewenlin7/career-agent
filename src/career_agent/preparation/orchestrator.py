@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from career_agent.application import resumes
+from career_agent.application.compatibility import compatible, execution_versions
 from career_agent.application.services import require
 from career_agent.domain.rules import DomainError, RunStatus
 from career_agent.infrastructure import entities as e
@@ -100,7 +101,12 @@ class Orchestrator:
             )
             .order_by(e.CompanyResearch.research_version.desc())
         )
-        if cached:
+        if (
+            cached
+            and compatible(
+                cached.data.get("compatibility_versions"), execution_versions("company_research")
+            ).reusable_for_current_execution
+        ):
             data = await self.loader.research(cached.id)
             r.research_output = data.report
             r.state.research_report_id = cached.id
@@ -204,18 +210,17 @@ class Orchestrator:
             stored = PrivateResult.model_validate(row.data).output
             if not isinstance(stored, TargetArtifact) or stored.target != target:
                 continue
+            if not compatible(
+                stored.compatibility_versions, execution_versions(target)
+            ).reusable_for_current_execution:
+                continue
             await self.restore(stored)
             self.record(target, "reused")
             return row.id
         reused_legacy = False
         if target == "fit_analysis":
-            legacy = await self.loader.compatible_legacy_fit(PROMPTS[TaskType.FIT].prompt_hash)
-            if legacy:
-                r.fit = await self.loader.fit(legacy)
-                r.state.fit_analysis_id = legacy
-                reused_legacy = True
-            else:
-                await self.node("analyze_fit")
+            # Old outputs remain readable; missing validator/source provenance is not reusable.
+            await self.node("analyze_fit")
             output = TargetArtifact(
                 target=target, fingerprint=key, result_id=r.state.fit_analysis_id
             )
@@ -272,6 +277,7 @@ class Orchestrator:
                 result_id=r.state.interview_prep_id,
                 source_resume_revision_id=source,
             )
+        output.compatibility_versions = execution_versions(target)
         row = e.PreparationArtifact(
             run_id=r.run.id,
             job_revision_id=r.job.id,

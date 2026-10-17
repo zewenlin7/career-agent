@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.2b Interview Loop — completed locally; offline acceptance passed.**
-Next planned milestone: v0.3 Harness / Evaluation / Safety. Bounded synthetic v0.2b live smoke passed.
+**v0.3 Evaluation Foundation — completed locally; offline acceptance passed.**
+Next planned milestone: v0.4 Production Engineering; no v0.4 controls are implemented here.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -13,7 +13,7 @@ See CHANGELOG for verified details.
 
 Architecture audit fixes: shared provider-view PII minimization and Interview operation/accepted-call
 provenance are implemented. Historical pre-migration call associations remain unknown; no inferred
-backfill. Privacy minimization is a baseline, not complete free-text DLP. No v0.3 features added.
+backfill. Privacy minimization is a baseline, not complete free-text DLP. v0.3 builds on these privacy/provenance boundaries.
 
 ## Milestones: committed roadmap
 
@@ -105,16 +105,24 @@ backfill. Privacy minimization is a baseline, not complete free-text DLP. No v0.
 - [x] Bounded synthetic live smoke: Mock Quick, single/all+overall Debrief, Actual-source Debrief;
   10 OpenAI calls, observed concurrency/cache hit, no retries; USD 0.1120449 estimated cost.
 - [ ] Broader evidence before tightening product safety ceilings or claiming real interview quality.
-- [ ] Optional future exact prior-Debrief-snapshot retry selection (current new requests snapshot current source).
+- [x] Explicit frozen-source Debrief regeneration/selection preserves prior results (v0.3).
 - [ ] Operational recovery of in-flight generation after process/DB interruption remains unsupported.
 - Distributed workers and production crash recovery are outside v0.2a; no exactly-once claim.
 
-### v0.3 Harness / Evaluation / Safety (planned)
+### v0.3 Evaluation Harness / Regression / Sampled Quality Monitoring Foundation
 
-- [ ] Scenario harness, golden labels, regression dataset and trajectory evaluation.
-- [ ] Deterministic metrics, human annotation and optional LLM judge (never sole truth).
-- [ ] Recorded-observation replay versus live rerun, fault injection and comparisons.
-- [ ] Factual grounding, layout evaluation, privacy and injection regression.
+- [x] Executable feature-local prompt inputs and versioned artifact reuse eligibility.
+- [x] Case/suite/candidate/trial/operation contracts and isolated frozen replay.
+- [x] Deterministic adapter faults, root/trial budgets, fixed concurrency and comparison tiers.
+- [x] Stable sampling, explicit pending Judge runner, independent feedback/blind annotations.
+- [x] Calibration metrics and private capture/triage/sanitization/explicit promotion.
+- [x] Forty synthetic cases; real PostgreSQL/Typst workflow and Agent replay.
+- [x] Final offline acceptance: 444 tests; Ruff/format/strict mypy; PostgreSQL empty/history migration and drift; locked install/build/import; Typst/font and repository hygiene.
+- [x] Minimal synthetic live replay/Judge/provenance smoke; six calls, no Tavily.
+- [ ] Real Judge quality/calibration evidence: fixture judgments are not quality ground truth.
+- [ ] Sanitizer remains baseline; human review is required before publishing exports.
+- Historical origins without executable versions/input snapshots remain explicitly incompatible.
+- No worker, crash reconciliation, exactly-once guarantees or automatic control policies.
 
 ### v0.4 Production Engineering (planned)
 
@@ -213,3 +221,10 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
   can overrun a wall-clock deadline. They are not process-isolation or hard real-time guarantees.
 - Planner validation proves authorization/structure, not that a model correctly understood the goal.
   No new live planner quality acceptance, judge, harness, dynamic routing or operational control plane.
+
+### v0.3 audit regression checks
+
+- Keep Tier 0 blocking, ordinal Judge comparison, unavailable-Judge coverage and origin model binding
+  regression cases alongside the initial suite.
+- Preserve capture provenance identity and the concurrent capture/promotion/replay integration checks.
+- Keep deadline cancellation/unknown reservation and calibration repeated-pair weighting tests.

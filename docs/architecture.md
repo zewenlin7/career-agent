@@ -1,6 +1,6 @@
 # Career Agent architecture
 
-Status: **v0.1a–v0.1d complete and locally verified**. Every capability below marked **planned** is not
+Status: **v0.1–v0.2 and v0.3 offline foundation complete and locally verified**. Every capability below marked **planned** is not
 present in the executable application. This is an independent project and does not reuse an
 unrelated RAG application's data or code.
 
@@ -133,7 +133,7 @@ v0.1c maintains per-attempt and aggregate run usage. Unknown attempts retain sep
 
 Agent Observation is structured feedback for an executor; Operational Observability is timing,
 usage/failure/control telemetry. They share call identifiers but are different responsibilities.
-Neither is hidden chain-of-thought. Checkpoints are **planned**, distinct from traces and domain KB.
+Neither is hidden chain-of-thought. v0.2a action-boundary checkpoints are distinct from traces and domain KB.
 
 ## Model boundary
 
@@ -142,7 +142,7 @@ Neither is hidden chain-of-thought. Checkpoints are **planned**, distinct from t
 The caller constructs `ModelRequestContext` with task_type, workflow, complexity, capabilities,
 privacy class, remaining budget, output schema and max output tokens. The gateway never reads
 an Agent State. `workflow`, `task_type`, and `requested_outputs` are not natural-language
-intent classification. Intent routing is **optional future work**.
+intent classification. v0.2a uses a constrained goal Planner; arbitrary intent/action routing remains excluded.
 
 Registry entries contain tier/capabilities/privacy eligibility and price metadata; adapters are
 injected by provider identifier. Static task policy chooses a tier, promotes high-complexity cheap
@@ -161,7 +161,8 @@ SDK retries are disabled so workflow attempt accounting owns transport retries a
 Fake and HTTP-mocked adapters exercise the same canonical contracts offline. All requested real
 API task cases passed bounded synthetic acceptance; this does not establish real job-search quality.
 
-Model-family prompt overrides, additional real providers and judges are not implemented.
+Model-family prompt overrides and additional real providers remain unimplemented. v0.3 adds an explicit
+quality Judge runner through the same Gateway, currently verified with offline fixtures only.
 
 ## Privacy boundary
 
@@ -197,7 +198,7 @@ system is present in Foundation.
 | v0.1d Integration / E2E | Completed locally: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E |
 | v0.2a Runtime Core | Bounded planner/validator/executor/evaluator, shared budgets, explicit checkpoint resume |
 | v0.2b Interview Loop | Actual intake, text Mock, standalone snapshot Debrief; offline acceptance |
-| v0.3 Harness / Evaluation / Safety | Planned: scenarios/golden/regression, replay, fault injection, deterministic + human + LLM evaluation |
+| v0.3 Evaluation Foundation | Current: frozen cases/trials/operations, offline replay, sampling/Judge, calibration/capture and priority comparison |
 | v0.4 Production Engineering | Planned: Ops dashboard, metrics, dynamic routing/budgets, concurrency/rate limits, circuits/fallback/control/cache |
 | v0.5 Real Usage Loop | Planned: actual outcomes, feedback, real bad cases, continuous regression |
 
@@ -460,7 +461,7 @@ can lose the uncommitted child run and its billing trace. v0.2a preserves a pare
 but does not recover in-flight calls or claim durable crash recovery.
 PDF/DB commits remain non-atomic globally, with the existing normal rollback cleanup and planned
 orphan reconciliation. Live smoke uses an isolated synthetic database, now retained with its generated database_ref
-for targeted follow-up; fixture mode still cleans its temporary database. Private reports/PDFs persist; it is a bounded acceptance script, not the planned v0.3 general harness.
+for targeted follow-up; fixture mode still cleans its temporary database. Private reports/PDFs persist; it is a bounded acceptance script, separate from the v0.3 frozen evaluation harness.
 
 
 Structured-output failure diagnostics use the native SDK raw-response wrapper to read allowlisted
@@ -701,3 +702,90 @@ matching run and operation, then stores its unique RESTRICT FK in the artifact t
 completion remains after commit. The calls API exposes operation refs, never prompt/transcript bodies.
 Existing rows have nullable provenance: historical unknown links are not guessed. This does not add
 in-flight recovery, exactly-once execution or atomic provider/database transactions.
+
+
+## v0.3 evaluation boundaries
+
+`models/inputs.py` validates code-managed prompt block names/types/size/trust/privacy before dispatch.
+Feature-local prompts supply their contracts; unknown or incompatible inputs fail without provider cost.
+Compatibility policy distinguishes historical readability from current execution eligibility. Missing
+source/schema/validator/grounding/render metadata denies reuse, while pricing and monitoring do not
+invalidate artifacts. Frozen Debrief regeneration appends results and updates selection separately.
+
+`evaluation/contracts.py` and private persistence separate Case (problem), CandidateConfig (implementation),
+Run, Trial and OperationInvocationSnapshot. Candidate code/content hashes plus prompt/schema/action/model
+policy/settings detect drift. Immutable DB payload triggers protect case/suite/candidate/capture identities.
+Workflow/Agent replay reconstructs domain state in a newly migrated disposable PostgreSQL DB; component
+model replay uses frozen provider-facing input. Frozen clock and exact-query observations replace ambient
+external state. Adapter faults affect production retry behavior, with injected-fault provenance separated
+from real errors. Authoritative production validators still decide grounding, references and permissions.
+
+Root/trial budget ledgers are projections, not additive expenses. Model/search reservations use a shared
+lock and settle once per ledger; provider concurrency never shares a SQLAlchemy Session. Static workers
+are in-request coroutines, not durable background processes. Cancellation/crash reconciliation remains
+unsupported; committed results survive but in-flight work has no exactly-once guarantee.
+
+SamplingDecision (including not-sampled) is separate from pending/completed/failed JudgeEvaluation.
+Stable hashes govern ordinary sampling; forced samples remain a separate population. Evaluation-origin
+calls do not recursively sample. Explicit Judge drain uses the existing Gateway and separate budget;
+CLI/API currently default to fixture adapters. Criterion labels/confidence/evidence are stored even on
+pass; deterministic severity aggregation is not a numeric capability score. Human annotations are blind,
+append-only and separate from feedback. Calibration reports separate random and targeted populations.
+
+Private operation/capture tables contain inputs for forensic replay; ordinary ModelCall/step traces do
+not. Captures have one frozen payload plus append-only triggers. Promotion requires explicit triage and
+review, sanitization, repo-safe validation and invariant expectations; it never writes raw data to Git.
+Comparisons retain per-check tiers and trial distributions, report incompatible/insufficient evidence,
+and prohibit lower-priority gains from masking blocking regressions. Operation differences provide
+attribution context only, not causal proof. Synthetic offline acceptance does not validate real quality.
+
+Verified locally for v0.3: 444 offline tests, real PostgreSQL/Typst, migration/drift/history upgrades,
+Ruff/formatter/strict mypy and offline packaging. Real Judge calibration and live quality claims remain
+unverified. Temporary replay PDFs are cleaned; exact compiler reports, revision bindings and hashes
+are retained in private operation snapshots. Unavailable origin code/model/contracts fail explicitly.
+
+### v0.3 correctness audit corrections
+
+Comparison treats every Tier 0 pass-to-fail transition as blocking, regardless of the optional
+materiality annotation. Judge checks retain ordinal category evidence, so minor-to-major changes
+are not lost as binary fail-to-fail ties. Requested but pending/running/failed/cancelled judgments
+remain explicit coverage gaps; not-sampled is a separate state. Incomplete quality evidence cannot
+silently produce a passing quality conclusion; deterministic correctness is reported separately.
+
+Origin re-execution is fail-closed: supported origin prompt/schema identities, policy and generation
+parameters must be available, and the gateway is restricted to the exact origin model. The current
+candidate router cannot substitute another model. Unsupported historical execution configurations
+remain unavailable rather than being approximated.
+
+Private captured sources use `captured-source-v1` and `captured-replay-v1`. Frozen authoritative rows
+are restored only inside the disposable replay database, through an explicit domain-table allowlist
+and the existing database/JSON contracts. Promotion deterministically converts the source; old
+captures missing required inputs are incompatible. Planner captures include validation evidence refs.
+Accepted-call captures validate subject/task/operation/artifact identity and derive payload provenance
+from the authoritative invocation. Promotion can add notes, not replace origin identity.
+
+The frozen closure includes compatible Research/Fit/Resume dependencies and exact artifact bytes
+inside the private capture boundary. Replay restores these only into its temporary store; preserving
+the original request mode preserves cache identity, while injected fixture adapters still prohibit
+network access. Missing dependencies fail closed. Sanitization removes private PDF bytes, so a
+public workflow case that still requires those bytes is incompatible rather than silently rerendered.
+Planner continuation captures remain usable for component diagnostics; they cannot be promoted as
+a fresh goal replay without the required continuation contract. Initial-goal captures support the
+workflow/agent promotion and concurrent replay integration path.
+
+Model and frozen-search admission share an evaluation deadline; in-flight awaits are bounded by its
+remaining time. Judge drain honors its configured execution ceiling. Deadline/cancellation retains
+unknown usage reservations rather than asserting zero cost, and cannot authorize another attempt.
+
+Calibration uses `latest-pair-per-subject-stratum-v1`: within population/task/JudgeSpec/model/criterion,
+select the latest annotation and judgment pair per subject (timestamp then ID as stable tie-break).
+All pair details remain available, but repeated annotations/judgments do not multiply a subject's
+weight in that stratum. Reports include unique subject count. This selection is not adjudication.
+
+Paid evaluation is opt-in dependency injection, not a consequence of application live mode.
+EvalRunner requires an explicit OpenAI Gateway, `allow_paid_models=True` and enabled live settings.
+Its frozen CandidateConfig uses the injected registry/policy/prompts; default API/CLI still use fixtures.
+The workflow sandbox receives the same explicit permission but retains disposable databases, private
+temporary artifacts, frozen search and cleared local credentials. JudgeRunner uses its existing
+injected Gateway boundary. Minimal synthetic live acceptance verified six calls; one blind synthetic
+annotation only validates linkage and selection, not empirical Judge calibration.

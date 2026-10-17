@@ -242,6 +242,23 @@ class InterviewCalls:
                 }
             call.status = step.status = CallStatus.FAILED if failure else CallStatus.SUCCEEDED
             call.error_code = step.reason_code = failure.code if failure else None
+            from career_agent.evaluation.recording import record_model
+
+            await record_model(
+                session,
+                call_id=call.id,
+                run_id=row.run_id,
+                step_id=step.id,
+                context=context,
+                task=spec,
+                output=result.validated_output.model_dump(mode="json")
+                if result and not failure
+                else None,
+                versions=call.versions,
+                operation_id=logical_operation_id,
+                source=row.snapshot if isinstance(row, e.DebriefRun) else row.context,
+                reason=failure.code if failure else None,
+            )
             call.retryable = failure.retryable if failure else False
             call.schema_validation_state = "valid" if result else "not_validated"
             run = await require(session, e.AgentRun, row.run_id)

@@ -477,6 +477,20 @@ class AgentEngine:
     async def plan(
         self, session: AsyncSession, state: AgentState, step: e.AgentStep, budget: RuntimeBudget
     ) -> None:
+        from career_agent.evaluation.captured import freeze_inputs
+
+        goal = await require(session, e.AgentGoal, state.goal_id)
+        replay = await freeze_inputs(
+            session,
+            state.bindings.profile_id,
+            state.bindings.job_revision_id,
+            state.bindings.resume_revision_id,
+            goal.data,
+            self.settings.data_dir,
+        )
+        # A continuation Planner capture remains replayable as a model task. A fresh-goal
+        # replay must not silently discard already-confirmed decisions or resume events.
+        replay["agent_goal_compatible"] = state.plan_revision == 0
         context = await self.planner_context(session, state)
         task_type = "goal_replanning" if state.plan_revision else "goal_planning"
         prompt = self.gateway.prompts.resolve(task_type)
@@ -556,6 +570,29 @@ class AgentEngine:
                 error_code=call.error_code,
             )
         )
+        from career_agent.evaluation.recording import record_model
+
+        await record_model(
+            session,
+            call_id=call.id,
+            run_id=state.run_id,
+            step_id=step.id,
+            context=request,
+            task=spec,
+            output=result.validated_output.model_dump(mode="json") if result else None,
+            versions=call.versions,
+            operation_id=call.logical_operation_id,
+            source={
+                "captured_source_version": "captured-source-v1",
+                "replay": replay,
+                "state": state.model_dump(mode="json"),
+                "evidence": sorted(
+                    {a["id"] for a in context["artifacts"]}
+                    | {str(ref) for ref in state.bindings.model_dump().values() if ref is not None}
+                ),
+            },
+            reason=error.code if error else None,
+        )
         if error:
             raise error
         assert result is not None
@@ -581,13 +618,16 @@ class AgentEngine:
         state.plan_fingerprints.append(digest)
         state.plan_revision += 1
         step.plan_revision = state.plan_revision
-        session.add(
-            e.AgentPlan(
-                run_id=state.run_id,
-                revision=state.plan_revision,
-                data=proposal.model_dump(mode="json"),
-            )
+        plan_row = e.AgentPlan(
+            run_id=state.run_id,
+            revision=state.plan_revision,
+            data=proposal.model_dump(mode="json"),
         )
+        session.add(plan_row)
+        await session.flush()
+        from career_agent.evaluation.recording import bind_artifact
+
+        await bind_artifact(session, call.id, plan_row.id, self.settings.judge_sampling)
         if not state.progress.requested_targets:
             state.progress.requested_targets = {
                 t: TargetOutcome() for t in proposal.requested_targets

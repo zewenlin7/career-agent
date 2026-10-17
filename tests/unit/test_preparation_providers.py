@@ -11,7 +11,7 @@ from openai.lib._pydantic import to_strict_json_schema
 from career_agent.config import Settings
 from career_agent.models.contracts import ModelGatewayError, ModelRequestContext, ModelTier
 from career_agent.models.openai_adapter import OpenAIProvider
-from career_agent.preparation.budget import BudgetLedger, input_bound
+from career_agent.preparation.budget import BudgetLedger
 from career_agent.preparation.contracts import Accounting, RunLimits, TaskType
 from career_agent.preparation.prompts import OUTPUTS, PROMPTS, task_spec
 from career_agent.preparation.providers import POLICY, registry
@@ -44,9 +44,8 @@ def test_unsupported_capability_and_context_size():
     ctx = context().model_copy(update={"required_capabilities": frozenset({"shell"})})
     with pytest.raises(ModelGatewayError, match="no_eligible_model"):
         POLICY.select(ctx, registry(Settings(), True))
-    task = task_spec(TaskType.EXTRACTION, {"job": {"jd_text": "中" * 80000}})
-    with pytest.raises(ModelGatewayError, match="context_too_large"):
-        input_bound(context(), task)
+    with pytest.raises(ModelGatewayError, match="prompt_input_too_large"):
+        task_spec(TaskType.EXTRACTION, {"job": {"jd_text": "中" * 80000}})
 
 
 def test_budget_unknown_usage_is_reserved_not_zero():
