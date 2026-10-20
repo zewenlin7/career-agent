@@ -18,7 +18,6 @@ from career_agent.models.contracts import (
     ProviderResponse,
     TaskSpec,
 )
-from career_agent.models.control.controller import shared_controller
 from career_agent.models.gateway import ModelGateway, ModelPolicy
 from career_agent.models.openai_adapter import OpenAIProvider
 from career_agent.models.timeouts import ModelTimeoutPolicy
@@ -255,7 +254,10 @@ async def dependencies(
     ):
         raise ModelGatewayError("live_configuration_missing")
     # Only two tiers registered. Premium flag is reserved and never enables automatic routing.
+    from career_agent.ops.lifecycle import control_owner
+
     async with (
+        control_owner(settings) as owner,
         AsyncOpenAI(
             api_key=settings.openai_api_key.get_secret_value(),
             base_url="https://api.openai.com/v1",
@@ -278,7 +280,8 @@ async def dependencies(
                         control_policy=settings.runtime_control,
                     )
                 },
-                controller=shared_controller(settings.runtime_control),
+                controller=owner.controller,
+                durable=owner,
             ),
             TavilyResearchAdapter(
                 settings.tavily_api_key.get_secret_value(), http, settings.search_timeout_seconds

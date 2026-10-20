@@ -890,6 +890,87 @@ Original output and trace remain readable. Live controller state is never import
 Paid origin diagnostics additionally require the existing shared control policy and evaluation traffic
 classification; they cannot elevate diagnostic traffic priority to reproduce an old user request.
 
-Phase 2 retains automatic tuning/control policies and Ops aggregation/API/dashboard. Distributed
-coordination, durable queues, crash reconciliation, response caching and generalized partial salvage
-are outside Phase 1. No paid provider fault probes are part of offline acceptance.
+Phase 2 extends this core with the recovery/control backend below. Dashboard/UI, distributed
+coordination, durable queues, response caching and generalized partial salvage remain outside this implementation. No paid provider fault probes are part of offline acceptance.
+
+
+## v0.4 Phase 2: durable control and operational facts
+
+The controller retains its short synchronous admission/settlement lock. `DurableControl` adds an
+independent session factory and a separate asynchronous journal serialization boundary. It never
+locks a business budget-owner row or creates a journal FK to an uncommitted AgentRun/Step/ModelCall.
+No DB I/O, network call or sleep occurs inside the controller's lock.
+
+Live composition obtains one owner per database/quota scope. A dedicated PostgreSQL session advisory
+lock rejects a second owner. Requests borrow that process owner; Judge and explicitly live Eval
+Gateway wrappers retain it. Offline fixtures and sandbox trials have isolated controllers and never
+bootstrap the production owner. Startup is ownership → validated event replay → unsettled-attempt
+classification → effective controls → readiness. Failure closes admission.
+
+`ControllerState` is a replaceable projection. `ControlEvent` is append-only and stores version,
+input window, ordered reason/decision metadata, before/after revision and a UTC state image. The latest
+event can reconstruct a missing/stale projection. `AttemptJournal` fixes attempt/operation/selection,
+owner refs and conservative reservation before dispatch; mutable result/link fields are separate from
+that immutable identity. `RecoveryIncident` records unresolved evidence and operator decisions.
+None of these tables stores model-facing bodies.
+
+Transitions: reserved → dispatch_intent → settled → business_committed; reserved cancellation becomes
+not_dispatched. A restart at dispatch_intent becomes unknown, even if the network might not yet have
+been reached. This ambiguity is intentional. Successful ModelCall is checked for terminal status,
+route/task/operation identity, and committed private invocation or Judge result before linkage.
+`business_committed` means outcome evidence was found, not that every enclosing workflow succeeded;
+an artifact ref is optional and only taken from committed evidence. Missing evidence stays an incident.
+Normal tick linkage does not label a still-running business transaction as a recovery failure.
+
+Unknown/known-but-uncommitted recovered attempts block reuse of their budget owner until evidence is
+reconciled. They never create a new full budget. Unknown token/cost estimates remain reservations,
+not billed cost. Window expiry releases capacity uncertainty only. Reconciliation is metadata/ledger
+work, not checkpoint replay or hidden provider retry. No lost result body is fabricated.
+
+Snapshots persist UTC timestamps/expiries, generation and revision. Restore converts UTC into the new
+process monotonic epoch. Backward clock movement cannot prematurely expire quota debt; long downtime
+can expire quota windows but cannot forgive financial uncertainty. OPEN/disabled routes are restored;
+in-flight HALF_OPEN probes restart OPEN, with bounded probes reacquired normally. Transient semaphore
+slots are rebuilt while uncertain token/window debt remains conservative. Kill flags and TTL overrides
+are separate state; global control events are durable independently of a route's local projection.
+
+Base policy remains versioned and immutable. `AutomaticPolicy` drives a bounded process-local tick
+using a recent observation window and reliable current capacity pressure. Only pressure/concurrency,
+output reservation estimate and future-subject Judge rate can change. Hard output/financial bounds,
+candidate approvals/priorities and security never change. Active manual overrides suppress automatic
+adjustment; safety/kill switches dominate both. Effective state is validated on a copy and published
+after CAS/event commit. The API exposes request-ID idempotency, revisions and override expiry.
+
+Sampling inherits the effective rate/revision associated with the producing call. Existing decisions
+are returned unchanged by their stable subject/policy key; forced and random populations remain
+separate and evaluation-origin calls never recurse into sampling. Pending Judge work still requires
+explicit drain; the control tick is not a Judge worker.
+
+Ops projections use attempt journal rows once per attempt. Unknown dispatch intents are separated
+from confirmed attempts; unknown cost is never a zero-valued observation. Parent/child run projections
+are counted as their own populations, never summed into attempt spend. Events/results returned through
+Ops omit snapshots, prompts, private invocations, transcript and raw provider errors. Local operator
+access requires an environment token; this is not a multi-user authorization system.
+
+Eval CandidateConfig freezes recovery/control algorithms, bounds and base sampling policy. Each trial
+uses a fresh controller, frozen UTC/monotonic scenario, optional persisted initial image, and deterministic
+pre-execution restart/operator events. State transitions are invocation provenance; they do not mutate
+the candidate manifest. Origin re-execution fails closed for effective-control contracts it cannot
+reconstruct exactly. Existing historical artifacts remain readable and their reuse compatibility is
+not invalidated by ordinary control-state changes.
+
+Known limits: single owner per quota scope, no distributed reconciliation/exactly-once guarantee,
+no provider outcome lookup, no automatic replay or unknown-spend waiver, no production worker/UI.
+A changed persisted base-policy identity requires an explicit administrative migration. Event retention
+and larger operational-load optimization are deferred; private artifact/DB commits are still not globally atomic.
+
+Phase 2 audit fixes: global control publication and bootstrap serialize across local owners; global
+writes additionally require expected_global_revision. Local rollback cannot restore stale global state.
+Dispatch rechecks effective RPM/concurrency without preempting dispatched calls. Business transactions
+register commit/rollback acknowledgements; rollback immediately schedules independent journal protection,
+and subsequent prepare/dispatch waits for that protection before admitting the same budget owner.
+Acknowledgement persistence failure closes admission. This is not automatic replay or a durable worker.
+Eval uses the candidate automatic policy; legacy explicit scenario policies must match, and persisted
+initial state must match the base/automatic policy hash. Ops separates deduplicated admission decisions,
+automatic adjustments and lifecycle events, and reports window versus all-time outstanding uncertainty.
+Sampling begins at configured base/per-task rates; prior SamplingDecision records remain unchanged.

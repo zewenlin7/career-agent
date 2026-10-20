@@ -496,6 +496,7 @@ class AgentEngine:
         prompt = self.gateway.prompts.resolve(task_type)
         spec = prompt.task(context)
         request = ModelRequestContext(
+            budget_owner_refs=[state.run_id],
             task_type=task_type,
             workflow_version="agent-runtime-v1",
             workflow="agent_goal",
@@ -520,6 +521,8 @@ class AgentEngine:
         )
         try:
             request = await self.gateway.prepare(request, spec)
+            if self.gateway.durable and request.selection:
+                self.gateway.durable.watch(session, request.selection.attempt_id)
         except ModelGatewayError as exc:
             step.versions = {**step.versions, "control_decisions": exc.control_decisions}
             raise

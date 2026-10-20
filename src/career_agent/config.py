@@ -1,22 +1,32 @@
 from decimal import Decimal
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from career_agent.evaluation.contracts import JudgeSamplingPolicy
 from career_agent.interview.policy import InterviewPolicy
 from career_agent.models.control.contracts import ControlPolicy, TaskControlPolicy
+from career_agent.models.control.recovery_contracts import AutomaticPolicy
 from career_agent.models.timeouts import TimeoutSeconds
 from career_agent.runtime.contracts import Identifier
 
 
 class Settings(BaseSettings):
+    @model_validator(mode="after")
+    def control_sampling_baseline(self) -> "Settings":
+        self.automatic_control.sampling_default = self.judge_sampling.default_rate
+        self.automatic_control.sampling_per_task = dict(self.judge_sampling.per_task)
+        return self
+
     model_config = SettingsConfigDict(env_prefix="CAREER_AGENT_", env_file=".env", extra="ignore")
     database_url: SecretStr = SecretStr(
         "postgresql+asyncpg://career:career_local_only@127.0.0.1:55432/career_agent"
     )
     task_model_policies: dict[str, TaskControlPolicy] = Field(default_factory=dict)
+    automatic_control: AutomaticPolicy = Field(default_factory=AutomaticPolicy)
+    ops_enabled: bool = False
+    ops_token: SecretStr | None = None
     runtime_control: ControlPolicy = Field(default_factory=ControlPolicy)
     judge_sampling: JudgeSamplingPolicy = Field(default_factory=JudgeSamplingPolicy)
     typst_bin: str = "typst"

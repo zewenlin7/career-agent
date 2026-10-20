@@ -1,6 +1,6 @@
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -189,8 +189,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        yield
-        await engine.dispose()
+        from career_agent.ops.lifecycle import control_owner
+
+        try:
+            async with AsyncExitStack() as stack:
+                app.state.control_owner = (
+                    await stack.enter_async_context(control_owner(settings))
+                    if settings.live_enabled or settings.ops_enabled
+                    else None
+                )
+                yield
+        finally:
+            await engine.dispose()
 
     app = FastAPI(title="Career Agent", version="0.1.0a2", lifespan=lifespan)
     app.state.engine = engine
@@ -199,6 +209,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from career_agent.api.agents import router as agent_router
 
     app.include_router(agent_router)
+    from career_agent.api.ops import router as ops_router
+
+    app.include_router(ops_router)
     from career_agent.api.interview import router as interview_router
 
     app.include_router(interview_router)

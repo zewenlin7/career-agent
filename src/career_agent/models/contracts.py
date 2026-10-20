@@ -51,6 +51,7 @@ class ModelRequestContext(Contract):
     complexity: Complexity = Complexity.STANDARD
     required_capabilities: frozenset[Identifier] = frozenset({"structured_output"})
     privacy_class: PrivacyClass = PrivacyClass.SYNTHETIC
+    budget_owner_refs: list[UUID] = Field(default_factory=list)
     budget_remaining: Budget = Field(default_factory=Budget)
     output_schema: type[BaseModel]
     prompt_name: Identifier | None = None

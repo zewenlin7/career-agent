@@ -62,7 +62,11 @@ async def sessions(migrated_url):
     # This URL is created by the fixture above, never the user's application DB.
     async with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(table.delete())
+            if table.name == "control_events":
+                # Append-only facts reject DELETE; this is the isolated random test DB only.
+                await conn.execute(text("TRUNCATE control_events"))
+            else:
+                await conn.execute(table.delete())
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
 

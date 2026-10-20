@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Fixed — v0.4 Phase 2 audit
+
+- Serialize global kill publication with local updates/bootstrap and require global CAS.
+- Revalidate effective limits at dispatch; protect business rollback before another attempt.
+- Bind Eval automatic policy to the candidate manifest and validate frozen policy identity.
+- Deduplicate admission metrics; retain all-time outstanding unknown reservations.
+- Start sampling adjustments from actual configured base/per-task rates.
+
+### Added — v0.4 Phase 2 Recovery / Ops / Automatic Control
+
+- Four metadata-only persistence tables for controller projections, independent attempt journals,
+  ordered control events and recovery incidents. Dispatch intent commits independently of business FKs.
+- UTC restart reconstruction, single-owner PostgreSQL guard and fail-closed bootstrap. Unknown attempts
+  retain financial uncertainty and are not automatically replayed; committed call/artifact evidence can
+  be linked through idempotent reconciliation. Manual acknowledgement does not forgive spend.
+- Revisioned effective controls with deterministic bounded ticks, hysteresis/cooldown, TTL overrides,
+  global/controller kill switches, and unchanged financial/security/routing hard constraints.
+- Protected metadata-only Ops queries with separate attempt/operation/action/workflow populations,
+  unknown reservations and random/targeted Judge coverage. Existing sampling records remain immutable.
+- Isolated Eval UTC restart/operator scenarios and effective control revision/decision provenance;
+  base policy/config identity is frozen independently of dynamic effective state.
+- Offline verification: 532 tests passed after the audit fixes, including PostgreSQL restart/reconciliation, migration/drift,
+  historical upgrades and existing Typst regressions; strict type/lint/build checks passed.
+
+
 ### Added — v0.4 Phase 1 Runtime Control Core
 
 - Task-approved prioritized routes, immutable attempt selections and metadata-only control decisions;

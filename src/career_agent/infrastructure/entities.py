@@ -631,3 +631,4 @@ class DebriefEvent(Row, Base):
 
 # Imported after Row/domain definitions so one metadata graph covers nullable cross-feature FKs.
 from career_agent.evaluation import entities as evaluation_entities  # noqa: E402, F401
+from career_agent.ops import entities as ops_entities  # noqa: E402, F401

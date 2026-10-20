@@ -4,7 +4,12 @@ import json
 import time
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import anyio
+
+if TYPE_CHECKING:
+    from career_agent.models.control.durable import DurableControl
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -127,11 +132,15 @@ class ModelGateway:
         prompts: PromptRegistry | None = None,
         controller: Controller | None = None,
         traffic_class: TrafficClass | None = None,
+        durable: "DurableControl | None" = None,
+        budget_owner_refs: tuple[UUID, ...] = (),
     ) -> None:
         if len({(c.provider, c.model) for c in registry}) != len(registry):
             raise ValueError("duplicate model candidate")
         if any(c.provider not in adapters for c in registry):
             raise ValueError("missing provider adapter")
+        self.durable = durable
+        self.budget_owner_refs = budget_owner_refs
         self.traffic_class = traffic_class
         self.registry = [candidate.model_copy(deep=True) for candidate in registry]
         self.policy = policy.bind(self.registry)
@@ -186,6 +195,8 @@ class ModelGateway:
                 ).model_dump(mode="json", exclude_none=True)
             )
             exc.control_decisions = decisions
+            if self.durable:
+                await self.durable.admission_denied(context, decisions)
             raise
 
     async def _prepare(self, context: ModelRequestContext, task: TaskSpec) -> ModelRequestContext:
@@ -193,6 +204,13 @@ class ModelGateway:
 
         if self.traffic_class is not None:
             context = context.model_copy(update={"traffic_class": self.traffic_class})
+        context = context.model_copy(
+            update={
+                "budget_owner_refs": list(
+                    dict.fromkeys((*self.budget_owner_refs, *context.budget_owner_refs))
+                )
+            }
+        )
         self.prompts.trace_metadata(context, task)
         policy = self.policy.approved(context, self.registry)
         now = self.controller.clock()
@@ -246,6 +264,12 @@ class ModelGateway:
                         op.deadline, self.controller.clock() + adapter.remaining_seconds()
                     )
                     wait_until = min(wait_until, op.deadline)
+                controls = self.controller.effective.values(
+                    entry.route, self.controller.utc_clock()
+                )
+                output = min(
+                    hard, controls.output_reservation or policy.output.reservation_output_tokens
+                )
                 lease, reason, circuit = self.controller.acquire(
                     entry.provider, entry.route, inputs, output, context.traffic_class
                 )
@@ -271,6 +295,19 @@ class ModelGateway:
                     overflow = True
                     continue
                 selection = AttemptSelection(
+                    controller_generation=self.controller.effective.generation,
+                    automatic_policy_version=self.controller.automatic_policy.version,
+                    effective_state_revision=self.controller.effective.revision,
+                    global_control_revision=self.controller.effective.global_revision,
+                    effective_sampling_rate=(
+                        controls.sampling_rate
+                        if entry.route in self.controller.effective.overrides
+                        and self.controller.effective.overrides[entry.route].expires_at
+                        > self.controller.utc_clock()
+                        else self.controller.effective.sampling_rates.get(
+                            f"{entry.route}|{context.task_type}"
+                        )
+                    ),
                     task_type=context.task_type,
                     input_hash=hashlib.sha256(
                         json.dumps(task.inputs, sort_keys=True, ensure_ascii=False).encode()
@@ -304,12 +341,23 @@ class ModelGateway:
                             "schema_version": "attempt-control-snapshot-v1",
                             "task_policy": policy.model_dump(mode="json"),
                             "controller_policy": self.controller.policy.model_dump(mode="json"),
+                            "effective_state": self.controller.effective.model_dump(mode="json"),
+                            "automatic_policy": self.controller.automatic_policy.model_dump(
+                                mode="json"
+                            ),
+                            "control_transitions": list(self.controller.control_transitions),
                             "candidate": candidate.model_dump(mode="json"),
                             "selection": selection.model_dump(mode="json"),
                         },
                     }
                 )
                 self.prepared_contexts[selection.attempt_id] = prepared
+                if self.durable:
+                    try:
+                        await self.durable.prepare(prepared, candidate, task)
+                    except BaseException:
+                        self.cancel_prepared(prepared)
+                        raise
                 return prepared
             if self.controller.clock() >= wait_until:
                 raise ModelGatewayError("model_admission_denied")
@@ -471,8 +519,19 @@ class ModelGateway:
             op.executing = False
             self.cancel_prepared(context)
             raise ModelGatewayError("operation_deadline_exceeded")
+        if self.durable:
+            try:
+                await self.durable.intent(context)
+            except BaseException:
+                op.executing = False
+                self.cancel_prepared(context)
+                raise
         started = time.perf_counter()
-        denial = self.controller.dispatch(selection.lease_id)
+        denial = (
+            "operation_deadline_exceeded"
+            if self.controller.clock() >= op.deadline
+            else self.controller.dispatch(selection.lease_id)
+        )
         if denial:
             op.executing = False
             op.decisions.append(
@@ -484,7 +543,11 @@ class ModelGateway:
                 ).model_dump(mode="json", exclude_none=True)
             )
             self.cancel_prepared(context)
-            error = ModelGatewayError("model_admission_denied")
+            if self.durable:
+                await self.durable.finish(context, None, denial, False, 0)
+            error = ModelGatewayError(
+                denial if denial == "operation_deadline_exceeded" else "model_admission_denied"
+            )
             error.control_decisions = list(op.decisions)
             raise error
         if op.previous is not None and op.previous != selection.route:
@@ -543,8 +606,17 @@ class ModelGateway:
             self.outcomes[selection.attempt_id]["operation_active_seconds"] = max(
                 0.0, policy.operation_seconds - (op.deadline - self.controller.clock())
             )
-            if isinstance(adapter, AttemptAdmission):
-                await adapter.finish_admission(context)
+            with anyio.CancelScope(shield=True):
+                if isinstance(adapter, AttemptAdmission):
+                    await adapter.finish_admission(context)
+                if self.durable:
+                    try:
+                        await self.durable.finish(
+                            context, usage, code, True, int((time.perf_counter() - started) * 1000)
+                        )
+                    except ModelGatewayError as failure:
+                        failure.usage = usage
+                        raise
         try:
             if response.finish_reason in {"length", "max_output_tokens", "incomplete"} or (
                 response.diagnostic and response.diagnostic.response_status == "incomplete"

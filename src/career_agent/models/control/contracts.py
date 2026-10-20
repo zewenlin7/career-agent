@@ -1,5 +1,6 @@
 """Versioned control policies; capacity estimates never replace financial reservations."""
 
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -108,6 +109,11 @@ class ControlDecision(Contract):
 
 
 class AttemptSelection(Contract):
+    controller_generation: UUID | None = None
+    automatic_policy_version: Identifier | None = None
+    effective_state_revision: int = 0
+    global_control_revision: int = 0
+    effective_sampling_rate: Decimal | None = None
     model_config = ConfigDict(extra="forbid", frozen=True)
     task_type: Identifier
     input_hash: str

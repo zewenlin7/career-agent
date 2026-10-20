@@ -76,12 +76,23 @@ def candidate_config(settings: Settings, gateway: ModelGateway | None = None) ->
             **{key: spec.version for key, spec in REGISTRY.items()},
             search.tool_name: search.tool_version,
             "runtime": "agent-runtime-v1",
+            "recovery": settings.automatic_control.recovery_version,
+            "automatic_control": settings.automatic_control.version,
+            "ops_metrics": "ops-metrics-v1",
         },
         execution_settings={
             key: value
             for key, value in settings.model_dump(mode="json").items()
             if key
-            not in {"database_url", "data_dir", "font_dir", "openai_api_key", "tavily_api_key"}
+            not in {
+                "database_url",
+                "data_dir",
+                "font_dir",
+                "openai_api_key",
+                "tavily_api_key",
+                "ops_token",
+                "ops_enabled",
+            }
         },
         model_policy={
             "version": policy.version,
@@ -94,6 +105,9 @@ def candidate_config(settings: Settings, gateway: ModelGateway | None = None) ->
                 ).task_policies.items()
             },
             "controller": gateway.controller.policy.model_dump(mode="json") if gateway else None,
+            "automatic_control": gateway.controller.automatic_policy.model_dump(mode="json")
+            if gateway
+            else settings.automatic_control.model_dump(mode="json"),
             "candidates": [
                 x.model_dump(mode="json")
                 for x in (gateway.registry if gateway else registry(settings, False))

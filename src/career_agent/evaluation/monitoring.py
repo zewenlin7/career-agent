@@ -63,6 +63,17 @@ async def enqueue(
     )
     if old:
         return old
+    call = await require(session, e.ModelCall, subject.accepted_model_call_id)  # type: ignore[arg-type]
+    controls = call.versions.get("control_metadata", {})
+    rate = controls.get("effective_sampling_rate")
+    if rate is not None:
+        adjusted = policy.model_copy(deep=True)
+        from decimal import Decimal
+
+        adjusted.per_task[subject.task_type] = Decimal(str(rate))
+        decision = decide(subject, adjusted, reason)
+        assert decision is not None
+        decision.effective_control_revision = controls.get("effective_state_revision")
     row = q.SamplingRow(
         subject_id=subject.subject_id,
         decision_key=decision.decision_key,

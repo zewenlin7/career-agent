@@ -83,7 +83,7 @@ async def test_per_request_timeout_native_sdk_and_safe_diagnostic(task, seconds,
     assert len(requests) == 1
 
 
-async def test_composition_injects_policy_without_network():
+async def test_composition_injects_policy_without_network(stub_control_owner):
     settings = Settings(
         live_enabled=True,
         openai_api_key="synthetic",

@@ -53,6 +53,10 @@ class EvalRunner:
         self.gateway = gateway or ModelGateway(
             registry(settings, False), POLICY, {"fixture": FixtureTaskProvider()}
         )
+        if gateway is None:
+            self.gateway.controller.automatic_policy = settings.automatic_control.model_copy(
+                deep=True
+            )
         self.allow_paid_models = allow_paid_models
         if any(c.provider != "fixture" for c in self.gateway.registry) and not (
             allow_paid_models
@@ -151,7 +155,9 @@ class EvalRunner:
                         operations = []
                     else:
                         try:
-                            result, operations = await self.run_case(case, request, budget)
+                            result, operations = await self.run_case(
+                                case, request, budget, budget_owner_refs=(id, trial_id)
+                            )
                         except Exception:
                             abort = "eval_infrastructure_error"
                             result = TrialResult(status="failed", reason_code=abort)
@@ -169,6 +175,9 @@ class EvalRunner:
                     for op in operations:
                         from career_agent.evaluation.trace import persist_operation
 
+                        control = op.provenance.get("control_metadata", {})
+                        if self.gateway.durable and control.get("attempt_id"):
+                            self.gateway.durable.watch(session, UUID(control["attempt_id"]))
                         call_id = await persist_operation(session, op)
                         if op.accepted_model_call_id and op.output_ref is None:
                             op.output_ref = op.operation_id
@@ -226,7 +235,12 @@ class EvalRunner:
         return await self.view(id)
 
     async def run_case(
-        self, case: EvalCase, request: EvalRunRequest, budget: SharedEvalBudget
+        self,
+        case: EvalCase,
+        request: EvalRunRequest,
+        budget: SharedEvalBudget,
+        *,
+        budget_owner_refs: tuple[UUID, ...] = (),
     ) -> tuple[TrialResult, list[OperationSnapshot]]:
         operations: list[OperationSnapshot] = []
         faults = FaultController(case.fault_plan)
@@ -243,14 +257,26 @@ class EvalRunner:
         for scope in scopes.values():
             scope.usage = scoped.usage
             scope.ledger = scoped.ledger
+        try:
+            trial_controller = (
+                self.gateway.controller
+                if self.allow_paid_models
+                else isolated_controller(
+                    self.gateway.controller.policy,
+                    case.control_scenario,
+                    self.gateway.controller.automatic_policy,
+                )
+            )
+        except ModelGatewayError as exc:
+            return TrialResult(status="case_incompatible", reason_code=exc.code), operations
         gateway = ModelGateway(
             self.gateway.registry,
             self.gateway.policy,
             {name: scope for name, scope in scopes.items()},
             self.gateway.prompts,
-            controller=self.gateway.controller
-            if self.allow_paid_models
-            else isolated_controller(self.gateway.controller.policy, case.control_scenario),
+            controller=trial_controller,
+            durable=self.gateway.durable if self.allow_paid_models else None,
+            budget_owner_refs=budget_owner_refs,
             traffic_class="evaluation",
         )
         start = time.monotonic()
@@ -308,6 +334,14 @@ class EvalRunner:
                     approved = sorted(
                         origin_policy.candidates, key=lambda item: (item.priority, item.route)
                     )
+                    effective = contract.get("effective_state")
+                    if effective and (
+                        effective.get("automatic")
+                        or effective.get("overrides")
+                        or effective.get("kill")
+                        or effective.get("global_kill")
+                    ):
+                        raise ModelGatewayError("origin_config_unavailable")
                     if (
                         origin_controller.implementation_version
                         != gateway.controller.policy.implementation_version
@@ -348,6 +382,8 @@ class EvalRunner:
                     controller=gateway.controller
                     if self.allow_paid_models
                     else Controller(origin_controller, gateway.controller.clock),
+                    durable=gateway.durable if self.allow_paid_models else None,
+                    budget_owner_refs=budget_owner_refs,
                     traffic_class=origin_selection.traffic_class,
                 )
                 origin_output_limit = parameters["max_output_tokens"]

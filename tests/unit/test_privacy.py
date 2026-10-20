@@ -26,7 +26,9 @@ def test_safe_logging_and_redaction(caplog, synthetic):
 
 
 async def test_api_does_not_reflect_validation_or_provider_errors(caplog, synthetic):
-    app = create_app()
+    from career_agent.config import Settings
+
+    app = create_app(Settings(_env_file=None, live_enabled=False))
     raw = "provider body " + " ".join(synthetic["pii"])
 
     @app.get("/synthetic-error")

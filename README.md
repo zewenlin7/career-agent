@@ -740,7 +740,65 @@ remains reserved; estimated cost is not billed cost. Every real attempt preserve
 control metadata. Current tasks reject incomplete/truncated outputs and retain full grounding/PII
 rules. Offline Eval trials use isolated frozen control scenarios, never the live controller.
 
-Coordination is limited to one controller-owning process. Independent server workers/Judge CLI
-processes do not share exact quotas. Restart reconstruction, automatic tuning, Ops/dashboard and
-production crash recovery are not implemented. This milestone uses offline faults, not paid 429/5xx
+Coordination remains limited to one controller-owning process per quota scope. Phase 2 adds a
+PostgreSQL ownership guard, durable recovery and bounded controls below. Independent server workers
+or Judge CLI processes cannot concurrently own the same scope; this is not distributed quota sharing. This milestone uses offline faults, not paid 429/5xx
 probes; synthetic tests do not establish real traffic capacity or job-search quality.
+
+
+## Recovery, Ops and bounded control (v0.4 Phase 2)
+
+Live API startup and live dependency/CLI lifecycles acquire a PostgreSQL ownership guard, replay
+metadata-only control events, classify unsettled attempts, then enable admission. Each attempt has
+an independently committed journal before dispatch. The journal contains identities, selection,
+financial reservation and usage metadata; it has no FK to uncommitted business rows and no prompt,
+response, resume or transcript body. A failed bootstrap/ownership check keeps admission closed.
+
+A dispatch intent without a confirmed result is **unknown**, not a failed or safe-to-retry request.
+Its financial reservation remains visible and blocks the same budget owner until reconciliation.
+Capacity uncertainty expires according to its quota window; financial uncertainty does not expire
+with it. Known results without a committed business outcome also require reconciliation after restart.
+Reconciliation can link a committed call/artifact or record a manual acknowledgement; it never replays
+an unknown request or forgives unknown spend. Business checkpoint/resume behavior remains separate.
+
+`CAREER_AGENT_AUTOMATIC_CONTROL` is versioned JSON policy for the in-process bounded tick:
+minimum observations, hysteresis thresholds, cooldown, pressure/concurrency bounds, output reservation
+bounds and Judge sampling bounds. The only actuators are admission pressure/concurrency, capacity
+output estimates and rates attached to newly generated subjects. They never change financial hard
+limits, candidate priority/qualification, grounding or authorization. Manual overrides have a TTL.
+Priority is hard safety/kill switch → active manual override → automatic adjustment → base policy.
+The tick is process-local and is not a durable scheduler. No Judge is executed automatically.
+
+Ops routes require an explicitly configured `CAREER_AGENT_OPS_TOKEN` and `X-Ops-Token` header.
+Keep that token in the local environment; an unset token denies access. `CAREER_AGENT_OPS_ENABLED=true`
+can bootstrap the owner without enabling paid providers (useful for local offline operations).
+
+- `GET /api/v1/ops/controller`: readiness, base/effective state, route counters and circuits.
+- `GET /api/v1/ops/metrics?window_seconds=3600`: attempt/operation counts, known estimates,
+  unknown reservations, latency, routing/reservation accuracy, and separate random/targeted quality populations.
+- `GET /api/v1/ops/events?after=0`: ordered metadata-only events; full snapshots are not returned.
+- `GET /api/v1/ops/recovery-incidents`: incident refs and revision/status.
+- `POST /api/v1/ops/controls`: `request_id`, `expected_revision`, `action` (`tick`, `override`,
+  `clear_override`, `kill`, `global_kill`; global writes require `expected_global_revision`), plus applicable `route`, `values`, `ttl_seconds`, `enabled`.
+- `POST /api/v1/ops/attempts/{attempt_id}/reconcile`: idempotency ID, incident expected revision
+  (zero if no incident), and `inspect` or `manual_acknowledge` with a safe reason code.
+
+Metrics distinguish confirmed attempts from unknown dispatch intents. Workflow/step/action populations
+are separate; parent/child usage is never summed. Estimated USD and unknown budget reservations are
+not provider invoices. No actual billed cost is inferred. Ops has no frontend or ordinary access to
+private evaluation snapshots.
+
+Offline Eval freezes control algorithms/bounds and can seed UTC snapshots, restart transitions and
+operator events in an isolated trial controller. Effective revisions/decisions are execution provenance,
+not mutable CandidateConfig. Origin diagnostics that cannot reproduce effective control semantics fail
+with `origin_config_unavailable` rather than silently substituting current controls.
+
+Limits: no exactly-once execution, distributed coordination, remote outcome lookup, automatic replay,
+durable worker, candidate promotion, UI or response cache. Metadata cannot reconstruct a lost provider
+body; ambiguous outcomes require operator review. Incompatible persisted base-policy identities fail
+closed and require an explicit state migration, not automatic reset. Synthetic offline tests validate
+mechanics, not real traffic capacity or job-search quality.
+
+Phase 2 local offline acceptance: **532 tests passed after the audit fixes**, including real PostgreSQL migration/drift and
+historical upgrades. Ruff/format, strict mypy, offline wheel/sdist/import and controlled font checks passed.
+No Phase 2 paid live smoke or production-load validation has been performed.

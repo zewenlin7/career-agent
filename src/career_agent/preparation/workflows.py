@@ -117,6 +117,8 @@ class PreparationWorkflow:
             task = task_spec(task_type, blocks, schema_repair=repairs > 0)
             u, b = self.state.usage, self.state.limits
             context = ModelRequestContext(
+                budget_owner_refs=[self.state.run_id]
+                + ([self.runtime_budget.state.run_id] if self.runtime_budget else []),
                 task_type=task_type.value,
                 logical_operation_id=logical_operation_id,
                 workflow=self.state.workflow,
@@ -152,6 +154,8 @@ class PreparationWorkflow:
                     }
                 )
             context = await self.gateway.prepare(context, task)
+            if self.gateway.durable and context.selection:
+                self.gateway.durable.watch(self.session, context.selection.attempt_id)
             candidate = self.gateway.candidate(context)
             ledger = self.runtime_budget.ledger(b, u) if self.runtime_budget else BudgetLedger(b, u)
             try:

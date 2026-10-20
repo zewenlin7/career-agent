@@ -63,6 +63,8 @@ async def sandbox(
                     "database_url": SecretStr(url),
                     "data_dir": Path(directory),
                     "live_enabled": False,
+                    "ops_enabled": False,
+                    "ops_token": None,
                     "openai_api_key": None,
                     "tavily_api_key": None,
                 }

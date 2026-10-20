@@ -194,6 +194,7 @@ class InterviewCalls:
             context = self.request(task, row.mode, policy).model_copy(
                 update={
                     "logical_operation_id": logical_operation_id,
+                    "budget_owner_refs": [row.run_id],
                     "traffic_class": "interactive_user" if kind == "mock" else "normal_user",
                 }
             )
@@ -238,6 +239,8 @@ class InterviewCalls:
                 }
             )
             context = await self.gateway.prepare(context, spec)
+            if self.gateway.durable and context.selection:
+                self.gateway.durable.watch(session, context.selection.attempt_id)
             candidate = self.gateway.candidate(context)
             if (
                 usage.active_seconds + usage.reserved_seconds + policy.max_seconds
@@ -339,6 +342,8 @@ class InterviewCalls:
                     raise asyncio.CancelledError()
                 raise failure
             async with self.sessions.begin() as session:
+                if self.gateway.durable and context.selection:
+                    self.gateway.durable.watch(session, context.selection.attempt_id)
                 row = await owner(session, kind, id)
                 usage = InterviewUsage.model_validate(row.usage)
                 settled = BudgetLedger(InterviewLimits.model_validate(row.limits), usage).settle(

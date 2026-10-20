@@ -600,3 +600,32 @@ def test_paid_replay_requires_explicit_injection_and_manifest_tracks_gateway():
     assert manifest.config_hash != candidate_config(settings).config_hash
     default = EvalRunner(None, settings)
     assert all(c.provider == "fixture" for c in default.gateway.registry)
+
+
+async def test_trial_automatic_policy_matches_candidate_manifest(monkeypatch):
+    from career_agent.evaluation.identity import candidate_config
+    from career_agent.models.control import scenario
+    from career_agent.models.control.recovery_contracts import AutomaticPolicy
+
+    settings = Settings(_env_file=None, automatic_control=AutomaticPolicy(cooldown_seconds=99))
+    runner = EvalRunner(None, settings)
+    manifest = candidate_config(settings, runner.gateway)
+    actual = []
+    original = scenario.isolated_controller
+
+    def observe(policy, fixture, automatic_policy=None):
+        controller = original(policy, fixture, automatic_policy)
+        actual.append(controller.automatic_policy.model_dump(mode="json"))
+        return controller
+
+    monkeypatch.setattr(scenario, "isolated_controller", observe)
+    case = next(c for c in CASES if c.entrypoint.component_kind == "model_task").model_copy(
+        deep=True
+    )
+    request = EvalRunRequest(suite_id="unit", suite_version=1)
+    result, _ = await runner.run_case(case, request, SharedEvalBudget(request.limits))
+    assert result.status == "completed"
+    assert actual == [manifest.model_policy["automatic_control"]]
+    case.control_scenario.automatic_policy = AutomaticPolicy()
+    result, operations = await runner.run_case(case, request, SharedEvalBudget(request.limits))
+    assert result.status == "case_incompatible" and operations == []

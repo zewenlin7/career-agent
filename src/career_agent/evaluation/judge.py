@@ -134,6 +134,7 @@ class JudgeRunner:
             },
             self.gateway.prompts,
             controller=self.gateway.controller,
+            durable=self.gateway.durable,
         )
         context: ModelRequestContext | None = None
         try:
@@ -176,6 +177,7 @@ class JudgeRunner:
                     }
                 )
                 context = ModelRequestContext(
+                    budget_owner_refs=[run_id],
                     task_type="quality_judgement",
                     workflow="quality_judge",
                     workflow_version="judge-runner-v1",
@@ -188,6 +190,8 @@ class JudgeRunner:
                 )
                 try:
                     context = await gateway.prepare(context, PROMPT.task(inputs))
+                    if gateway.durable and context.selection:
+                        gateway.durable.watch(session, context.selection.attempt_id)
                     await gateway.admit_adapter(context, PROMPT.task(inputs))
                 except ModelGatewayError as exc:
                     row.status = "failed"
@@ -231,6 +235,8 @@ class JudgeRunner:
         finally:
             EVALUATION_ORIGIN.reset(token)
         async with self.sessions.begin() as session:
+            if gateway.durable and context.selection:
+                gateway.durable.watch(session, context.selection.attempt_id)
             row = await require(session, q.JudgeRow, id, lock=True)
             call = await require(session, e.ModelCall, call_id)
             step = await require(session, e.AgentStep, step_id)

@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.4 Phase 1 Runtime Control Core — implementation and offline acceptance complete.**
-v0.3 is completed; Phase 2 automatic policies/Ops remain planned.
+**v0.4 Phase 2 Recovery / Ops / Automatic Control — offline implementation complete; post-implementation audit next.**
+v0.1–v0.3 and v0.4 Phase 1 remain preserved. No paid Phase 2 smoke has been run.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -124,16 +124,22 @@ backfill. Privacy minimization is a baseline, not complete free-text DLP. v0.3 b
 - Historical origins without executable versions/input snapshots remain explicitly incompatible.
 - No worker, crash reconciliation, exactly-once guarantees or automatic control policies.
 
-### v0.4 Production Engineering (Phase 1 implemented and offline-verified)
+### v0.4 Production Engineering (Phase 1 complete; Phase 2 offline acceptance complete)
 
 - [x] Approved task candidate sets, immutable attempt binding and deterministic priority routing.
 - [x] Single-process provider/route capacity, configurable headroom and static traffic protection.
 - [x] Attempt-level rolling circuits, bounded admission/retries/fallback and operation deadlines.
 - [x] Independent capacity/financial accounting; complete-only output diagnostics and isolated Eval scenarios.
 - [x] Final Phase 1 offline acceptance and documentation sign-off (499 tests).
-- [ ] Phase 2: Ops aggregation/API/dashboard, automatic tuning and control policies above the static controller.
+- [x] Phase 2: independent durable journal, UTC state/event replay, ownership guard and manual reconciliation.
+- [x] Phase 2: bounded effective controls, TTL overrides, kill switches, CAS/idempotency and metadata-only Ops API.
+- [x] Phase 2: isolated Eval restart/operator scenarios and immutable sampling decisions.
+- [x] Phase 2 full-suite/static/build acceptance: 532 offline tests after the audit fixes, Ruff/format, strict mypy, migration/drift and offline wheel/sdist/import checks.
+- [ ] Phase 2 independent post-implementation audit.
+- [ ] Phase 3: Ops frontend, broader synthetic load/retention and operational usability after backend audit.
 - [ ] Explicit feature-specific degradation modes and future opt-in partial artifact validators.
-- [ ] Distributed coordination, restart reconciliation and broader synthetic load acceptance remain separate future work.
+- [ ] Distributed coordination and broader load acceptance remain future work; no unknown request auto-replay.
+- [ ] Explicit administrative migration for changed persisted base-policy identities; no reset-to-healthy fallback.
 - [ ] Caching with version/privacy-aware keys and invalidation; no local response cache in Phase 1.
 
 ### v0.5 Real Usage Loop (planned)
@@ -238,7 +244,7 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
 - Process-shared quota controller; static traffic protection, circuit health and bounded retries.
 - Complete-only output diagnostics and isolated Eval control scenarios.
 - Offline regression acceptance complete; no Phase 1 paid/live acceptance claimed.
-- Phase 2: operational aggregation, automatic tuning and control policies; no work started here.
-- Operational limitation: no distributed quota coordination or persisted controller reconstruction.
+- Phase 2 now adds operational aggregation and bounded effective controls; see current milestone.
+- Operational limitation: no distributed quota coordination; Phase 2 reconstructs single-owner state.
 - Origin limitation: historical overflow/probe state without sufficient frozen metadata is unavailable
   for exact re-execution; historical artifacts remain readable.

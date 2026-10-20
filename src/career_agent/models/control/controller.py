@@ -5,7 +5,9 @@ import time
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from threading import Lock
+from typing import Any
 from uuid import UUID, uuid4
 
 from career_agent.models.control.contracts import (
@@ -14,6 +16,7 @@ from career_agent.models.control.contracts import (
     FeedbackBucket,
     TrafficClass,
 )
+from career_agent.models.control.recovery_contracts import AutomaticPolicy, EffectiveState, utcnow
 from career_agent.runtime.contracts import Usage
 
 HEALTH_FAILURES = frozenset(
@@ -39,6 +42,7 @@ class Lease:
     released: bool = False
     dispatch_time: float | None = None
     sequence: int = 0
+    uncertain: bool = False
 
 
 @dataclass
@@ -63,14 +67,23 @@ class FeedbackState:
 
 
 class Controller:
-    def __init__(self, policy: ControlPolicy, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        policy: ControlPolicy,
+        clock: Callable[[], float] = time.monotonic,
+        utc_clock: Callable[[], datetime] = utcnow,
+    ) -> None:
         self.policy = policy.model_copy(deep=True)
         self.clock = clock
+        self.utc_clock = utc_clock
+        self.effective = EffectiveState(ready=True)
+        self.automatic_policy = AutomaticPolicy()
         self._lock = Lock()
         self.leases: dict[UUID, Lease] = {}
         self.circuits: dict[str, Circuit] = defaultdict(Circuit)
         self.feedback: dict[str, FeedbackState] = defaultdict(FeedbackState)
         self.sequence = 0
+        self.control_transitions: list[dict[str, Any]] = []
         self.probe_epochs: dict[UUID, int] = {}
 
     async def wait(self, seconds: float) -> None:
@@ -99,6 +112,13 @@ class Controller:
     ) -> tuple[Lease | None, str, str]:
         with self._lock:
             now = self.clock()
+            if not self.effective.ready or self.effective.kill or self.effective.global_kill:
+                return (
+                    None,
+                    "controller_not_ready" if not self.effective.ready else "control_kill_switch",
+                    "closed",
+                )
+            controls = self.effective.values(route, self.utc_clock())
             circuit = self.circuits[route]
             circuit.observations = [
                 (t, ok)
@@ -131,7 +151,7 @@ class Controller:
                     [item for item in active if item.route == route],
                 ),
             ]:
-                factor = self.policy.headroom_factor
+                factor = self.policy.headroom_factor * controls.pressure
                 if low:
                     factor *= self.policy.background_fraction
                 if len(entries) + 1 > int(limits.rpm * factor):
@@ -141,7 +161,12 @@ class Controller:
                 ):
                     return None, "tpm_capacity", circuit.phase
                 pending = [item for item in entries if not item.settled]
-                if key == route and len(pending) + 1 > max(1, int(limits.concurrency * factor)):
+                if key == route and len(pending) + 1 > max(
+                    1,
+                    int(
+                        min(limits.concurrency, controls.concurrency or limits.concurrency) * factor
+                    ),
+                ):
                     return None, "route_concurrency", circuit.phase
             denial = self._feedback_denial(provider, route, active, inputs + outputs, 1, now)
             if denial:
@@ -197,7 +222,7 @@ class Controller:
                     bucket.scope == "provider_shared"
                     or self.policy.feedback_bucket(item.provider, item.route) == bucket
                 )
-                and (not item.settled or item.sequence > state.sequence)
+                and (not item.settled or item.uncertain or item.sequence > state.sequence)
             ]
             if (
                 state.requests is not None
@@ -229,6 +254,9 @@ class Controller:
             if lease.released or lease.settled or lease.dispatched:
                 raise ValueError("invalid_capacity_lease")
             now = self.clock()
+            if not self.effective.ready or self.effective.kill or self.effective.global_kill:
+                return "controller_not_ready" if not self.effective.ready else "control_kill_switch"
+            controls = self.effective.values(lease.route, self.utc_clock())
             circuit = self.circuits[lease.route]
             if circuit.disabled:
                 return "route_configuration_disabled"
@@ -253,9 +281,29 @@ class Controller:
                     [item for item in active if item.route == lease.route],
                 ),
             ]:
-                factor = self.policy.headroom_factor * (
-                    self.policy.background_fraction if lease.low_priority else 1
+                factor = (
+                    self.policy.headroom_factor
+                    * controls.pressure
+                    * (self.policy.background_fraction if lease.low_priority else 1)
                 )
+                # Existing dispatched calls are never preempted. Earlier pending leases
+                # retain deterministic priority when a limit shrinks before dispatch.
+                preceding = [
+                    item for item in entries if item.dispatched or item.sequence <= lease.sequence
+                ]
+                if len(preceding) > int(limits.rpm * factor):
+                    return "rpm_capacity"
+                if _key == lease.route:
+                    pending = [item for item in preceding if not item.settled]
+                    ceiling = max(
+                        1,
+                        int(
+                            min(limits.concurrency, controls.concurrency or limits.concurrency)
+                            * factor
+                        ),
+                    )
+                    if len(pending) > ceiling:
+                        return "route_concurrency"
                 if sum(item.tokens for item in entries) > int(limits.tpm * factor):
                     return "tpm_capacity"
             denial = self._feedback_denial(lease.provider, lease.route, active, 0, 0, now)
@@ -282,6 +330,9 @@ class Controller:
             reserved = lease.tokens
             if usage and usage.input_tokens is not None and usage.output_tokens is not None:
                 lease.tokens = usage.input_tokens + usage.output_tokens
+            lease.uncertain = (
+                usage is None or usage.input_tokens is None or usage.output_tokens is None
+            )
             lease.settled = True
             circuit = self.circuits[lease.route]
             if lease.probe:
@@ -411,3 +462,38 @@ def shared_controller(policy: ControlPolicy) -> Controller:
         controller = Controller(policy)
         _CONTROLLERS[policy.quota_scope] = controller
         return controller
+
+
+def operational_view(controller: Controller) -> dict[str, Any]:
+    """Current counters only; no attempt inputs or provider diagnostics."""
+    with controller._lock:
+        active = controller._active(controller.clock())
+        routes = (
+            set(controller.policy.routes)
+            | set(controller.circuits)
+            | set(controller.effective.automatic)
+            | set(controller.effective.overrides)
+        )
+        result = {}
+        for route in sorted(routes):
+            base = controller.policy.routes.get(route, controller.policy.default_route)
+            values = controller.effective.values(route, controller.utc_clock())
+            factor = controller.policy.headroom_factor * values.pressure
+            entries = [entry for entry in active if entry.route == route]
+            result[route] = {
+                "effective_rpm": int(base.rpm * factor),
+                "effective_tpm": int(base.tpm * factor),
+                "effective_concurrency": max(
+                    1, int(min(base.concurrency, values.concurrency or base.concurrency) * factor)
+                ),
+                "reserved_or_consumed_requests": len(entries),
+                "reserved_or_consumed_tokens": sum(entry.tokens for entry in entries),
+                "active_concurrency": sum(not entry.settled for entry in entries),
+                "output_reservation_override": values.output_reservation,
+                "sampling_rate_override": values.sampling_rate,
+            }
+        return {
+            "routes": result,
+            "outstanding_capacity_leases": sum(not entry.settled for entry in active),
+            "global_revision": controller.effective.global_revision,
+        }

@@ -114,7 +114,7 @@ def test_shared_prompt_contract_and_independent_profiles():
     assert policy.actual_overall.max_input_tokens > policy.mock_overall.max_input_tokens
 
 
-async def test_interview_provider_needs_no_research_key(monkeypatch):
+async def test_interview_provider_needs_no_research_key(monkeypatch, stub_control_owner):
     from unittest.mock import MagicMock
 
     from pydantic import SecretStr

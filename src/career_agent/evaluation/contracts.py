@@ -205,6 +205,7 @@ class Subject(Contract):
 
 
 class SamplingDecision(Contract):
+    effective_control_revision: int | None = None
     subject: Subject
     policy_version: str
     effective_rate: Decimal
