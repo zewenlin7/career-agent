@@ -19,6 +19,10 @@
 
 ### Fixed — v0.4 Phase 1 audit
 
+- Operation deadline expiry uses `operation_deadline_exceeded` consistently before and during
+  dispatch, including admission/backoff. Deadline tests use injected control time to avoid
+  preparation-speed-dependent CI failures; provider timeout/cancellation health semantics are unchanged.
+
 - Unified attempt outcome classification: provider timeout affects health; operation deadlines and
   external cancellation remain neutral. Interview/Runtime no longer relabel a settled cancellation
   as provider timeout. Interview cancellation cleanup persists ledger/trace/state before propagating.

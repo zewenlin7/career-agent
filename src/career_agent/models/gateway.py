@@ -215,7 +215,7 @@ class ModelGateway:
             if op.pending is not None or op.executing:
                 raise ModelGatewayError("operation_attempt_inflight")
             if self.controller.clock() >= op.deadline:
-                raise ModelGatewayError("operation_deadline_exhausted")
+                raise ModelGatewayError("operation_deadline_exceeded")
             overflow = False
             for entry in sorted(policy.candidates, key=lambda c: (c.priority, c.route)):
                 candidate = routes.get((entry.provider, entry.model))
@@ -332,7 +332,7 @@ class ModelGateway:
         operation = self.operations[context.logical_operation_id]
         remaining = operation.deadline - self.controller.clock()
         if remaining <= 0:
-            raise ModelGatewayError("operation_deadline_exhausted")
+            raise ModelGatewayError("operation_deadline_exceeded")
         await self.controller.wait(min(seconds, remaining))
 
     def was_dispatched(self, context: ModelRequestContext) -> bool:
@@ -459,7 +459,7 @@ class ModelGateway:
             raise ModelGatewayError("attempt_already_dispatched")
         if self.controller.clock() >= op.deadline:
             self.cancel_prepared(context)
-            raise ModelGatewayError("operation_deadline_exhausted")
+            raise ModelGatewayError("operation_deadline_exceeded")
         adapter = self.adapters[candidate.provider]
         op.executing = True
         try:
@@ -470,7 +470,7 @@ class ModelGateway:
         if self.controller.clock() >= op.deadline:
             op.executing = False
             self.cancel_prepared(context)
-            raise ModelGatewayError("operation_deadline_exhausted")
+            raise ModelGatewayError("operation_deadline_exceeded")
         started = time.perf_counter()
         denial = self.controller.dispatch(selection.lease_id)
         if denial:

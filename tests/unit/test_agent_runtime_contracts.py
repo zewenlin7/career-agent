@@ -217,7 +217,9 @@ async def test_active_time_bounds_provider_await():
             await asyncio.sleep(1)
             raise AssertionError("must not finish")
 
-    g = gateway(Controller(ControlPolicy()))
+    # Freeze control time so slow CI preparation cannot consume the 1ms await budget.
+    # asyncio.wait_for still uses its real timer; pre-dispatch expiry has separate tests.
+    g = gateway(Controller(ControlPolicy(), clock=lambda: 0.0))
     g.adapters["synthetic"] = Slow()
     with pytest.raises(ModelGatewayError, match="operation_deadline_exceeded"):
         await budget.generate(g, model_context(), SPEC.task({}))

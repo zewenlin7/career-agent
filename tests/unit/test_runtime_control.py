@@ -288,7 +288,7 @@ async def test_shared_operation_deadline_not_reset_after_failure():
     request = context()
     with pytest.raises(ModelGatewayError, match="provider_timeout"):
         await g.generate(request, SPEC.task({}))
-    with pytest.raises(ModelGatewayError, match="operation_deadline_exhausted"):
+    with pytest.raises(ModelGatewayError, match="operation_deadline_exceeded"):
         await g.generate(request, SPEC.task({}))
     assert sum(g.operations[request.logical_operation_id].attempts.values()) == 1
 
@@ -473,7 +473,7 @@ async def test_committed_explicit_retry_cannot_reset_amplification_or_deadline()
         await g.prepare(request, SPEC.task({}))
     fresh = context()
     g.seed_operation(fresh.logical_operation_id, [("synthetic:a", "provider_timeout")], 1000, fresh)
-    with pytest.raises(ModelGatewayError, match="operation_deadline_exhausted"):
+    with pytest.raises(ModelGatewayError, match="operation_deadline_exceeded"):
         await g.prepare(fresh, SPEC.task({}))
     assert not g.controller.leases
 
@@ -690,7 +690,7 @@ async def test_parent_time_budget_caps_admission_wait_before_dispatch():
     g = gateway(c)
     g.policy.task_policies["parse"].max_wait_seconds = 10
     start = c.clock()
-    with pytest.raises(ModelGatewayError, match="operation_deadline_exhausted"):
+    with pytest.raises(ModelGatewayError, match="operation_deadline_exceeded"):
         await g.generate(context(execution_seconds_remaining=0.02), SPEC.task({}))
     assert c.clock() - start <= 0.021
     assert not c.leases and g.adapters["synthetic"].calls == 0
@@ -800,7 +800,7 @@ def test_untrusted_feedback_bucket_cannot_clear_route_limit():
 
 
 async def test_operation_deadline_is_neutral_and_cannot_enable_fallback():
-    c = Controller(ControlPolicy())
+    c = Controller(ControlPolicy(), clock=lambda: 0.0)
     g = gateway(c)
 
     class Slow:
@@ -816,7 +816,8 @@ async def test_operation_deadline_is_neutral_and_cannot_enable_fallback():
     assert metadata["provider_health"] == "neutral"
     assert c.circuits[request.selection.route].observations == []
     assert g.operations[request.logical_operation_id].failure == "operation_deadline_exceeded"
-    with pytest.raises(ModelGatewayError, match="operation_deadline_exhausted"):
+    g.operations[request.logical_operation_id].deadline = c.clock()
+    with pytest.raises(ModelGatewayError, match="operation_deadline_exceeded"):
         await g.prepare(request.model_copy(update={"selection": None}), SPEC.task({}))
     assert len(g.outcomes) == 1
 
@@ -888,3 +889,41 @@ def test_legacy_frozen_provider_feedback_remains_conservative():
     )
     assert acquire(c, route="p:a")[1] == "feedback_tpm_capacity"
     assert acquire(c, route="p:b")[1] == "feedback_tpm_capacity"
+
+
+@pytest.mark.parametrize("stage", ["prepare", "backoff", "before_dispatch", "after_admit"])
+async def test_deadline_expiry_paths_have_one_reason_without_provider_attempt(stage, monkeypatch):
+    c, clock = controller()
+    g = gateway(c)
+    # Use generous capacity; this test exercises deadlines, not capacity rejection.
+    c.policy.provider.tpm = c.policy.default_route.tpm = 100000
+    request = context(execution_seconds_remaining=0 if stage == "prepare" else 1)
+    if stage == "prepare":
+        with pytest.raises(ModelGatewayError) as caught:
+            await g.prepare(request, SPEC.task({}))
+    else:
+        request = await g.prepare(request, SPEC.task({}))
+        if stage == "backoff":
+            g.cancel_prepared(request)
+            clock.advance(2)
+            with pytest.raises(ModelGatewayError) as caught:
+                await g.wait_retry(request, 0.1)
+        else:
+            if stage == "before_dispatch":
+                clock.advance(2)
+            else:
+                admit = g.admit_adapter
+
+                async def slow_admit(context, task):
+                    await admit(context, task)
+                    clock.advance(2)
+
+                monkeypatch.setattr(g, "admit_adapter", slow_admit)
+            with pytest.raises(ModelGatewayError) as caught:
+                await g.generate(request, SPEC.task({}))
+    assert caught.value.code == "operation_deadline_exceeded"
+    assert not caught.value.retryable
+    assert g.adapters["synthetic"].calls == 0
+    assert not g.outcomes
+    assert all(not circuit.observations for circuit in c.circuits.values())
+    assert all(lease.released and not lease.dispatched for lease in c.leases.values())
