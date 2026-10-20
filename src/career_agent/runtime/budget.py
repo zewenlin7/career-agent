@@ -66,12 +66,9 @@ class RuntimeBudget:
         self, gateway: ModelGateway, context: ModelRequestContext, task: TaskSpec
     ) -> ModelResult:
         self.check_time()
-        try:
-            return await asyncio.wait_for(
-                gateway.generate(context, task), timeout=self.remaining_seconds()
-            )
-        except TimeoutError:
-            raise ModelGatewayError("active_time_exhausted") from None
+        # The attempt selection already binds the remaining root deadline. Do not
+        # cancel and reclassify the attempt after Gateway has settled it.
+        return await gateway.generate(context, task, remaining_seconds=self.remaining_seconds())
 
     async def search(self, adapter: ResearchAdapter, query: SearchInput) -> SearchResult:
         self.check_time()
@@ -98,6 +95,10 @@ class ScopedLedger(BudgetLedger):
         reservation = super().reserve_model(candidate, inputs, outputs)
         self.scope.root.reserve_model(candidate, inputs, outputs)
         return reservation
+
+    def cancel_model(self, reserved: Usage) -> None:
+        self.scope.root.cancel_model(reserved)
+        super().cancel_model(reserved)
 
     def settle(self, reserved: Usage, actual: Usage | None) -> Usage:
         self.scope.root.settle(reserved, actual)

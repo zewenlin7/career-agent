@@ -96,3 +96,40 @@ async def test_composition_injects_policy_without_network():
         assert provider.timeout_policy.for_task("interview_preparation") == 120
         assert provider.timeout_policy.for_task("resume_tailoring") == 50
         assert provider.client.max_retries == 0
+
+
+@pytest.mark.parametrize("scope", ["route", "provider_shared", "shared_group"])
+async def test_native_feedback_identity_comes_from_trusted_configuration(scope):
+    from career_agent.models.control.contracts import ControlPolicy, FeedbackBucket
+
+    ctx = ModelRequestContext(
+        task_type=TaskType.GREETING.value, output_schema=OUTPUTS[TaskType.GREETING]
+    )
+    selected = POLICY.select(ctx, registry(Settings(), True))
+    route = f"{selected.provider}:{selected.model}"
+    bucket = FeedbackBucket(scope=scope, bucket_id=route if scope == "route" else "trusted-group")
+    control = ControlPolicy(quota_scope="synthetic-project", feedback_buckets={route: bucket})
+
+    def limited(request):
+        return httpx.Response(
+            429,
+            headers={
+                "x-ratelimit-remaining-tokens": "0",
+                "x-ratelimit-reset-tokens": "2s",
+                "x-quota-scope": "untrusted-other-project",
+                "x-quota-bucket": "untrusted-bucket",
+            },
+            json={"error": {"message": "synthetic", "type": "rate_limit_error"}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(limited)) as http:
+        async with AsyncOpenAI(api_key="synthetic", http_client=http, max_retries=0) as sdk:
+            with pytest.raises(ModelGatewayError) as caught:
+                await OpenAIProvider(sdk, control_policy=control).generate(
+                    selected, ctx, task_spec(TaskType.GREETING, blocks(TaskType.GREETING))
+                )
+    feedback = caught.value.capacity_feedback
+    assert caught.value.code == "provider_429"
+    assert feedback.quota_scope == "synthetic-project" and feedback.bucket == bucket
+    assert feedback.remaining_tokens == 0 and feedback.reset_tokens_seconds == 2
+    assert "untrusted" not in feedback.model_dump_json()

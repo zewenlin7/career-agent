@@ -48,6 +48,7 @@ async def record_model(
         logical_operation_id=operation_id,
         provenance={
             **versions,
+            "control_contract": context.control_snapshot,
             **await asyncio.to_thread(code_identity),
             "execution_versions": execution_versions("resume_tailoring"),
             "external_observations": {

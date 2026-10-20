@@ -18,6 +18,7 @@ from career_agent.models.contracts import (
     ProviderResponse,
     TaskSpec,
 )
+from career_agent.models.control.controller import shared_controller
 from career_agent.models.gateway import ModelGateway, ModelPolicy
 from career_agent.models.openai_adapter import OpenAIProvider
 from career_agent.models.timeouts import ModelTimeoutPolicy
@@ -30,7 +31,7 @@ from career_agent.preparation.research import (
 from career_agent.runtime.contracts import Usage
 
 POLICY = ModelPolicy(
-    version="career-model-policy-v4",
+    version="career-model-policy-v5",
     task_tiers={
         **{
             t.value: ModelTier.CHEAP if t == TaskType.EXTRACTION else ModelTier.STRONG
@@ -266,7 +267,7 @@ async def dependencies(
         yield (
             ModelGateway(
                 registry(settings, True),
-                POLICY,
+                ModelPolicy(POLICY.version, POLICY.task_tiers, settings.task_model_policies),
                 {
                     "openai": OpenAIProvider(
                         client,
@@ -274,8 +275,10 @@ async def dependencies(
                             default_seconds=settings.model_timeout_seconds,
                             task_seconds=settings.model_task_timeout_seconds,
                         ),
+                        control_policy=settings.runtime_control,
                     )
                 },
+                controller=shared_controller(settings.runtime_control),
             ),
             TavilyResearchAdapter(
                 settings.tavily_api_key.get_secret_value(), http, settings.search_timeout_seconds

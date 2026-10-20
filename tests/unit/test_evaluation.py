@@ -11,6 +11,7 @@ from career_agent.evaluation.comparison import compare_case
 from career_agent.evaluation.contracts import (
     ComparisonPolicy,
     Criterion,
+    EvalCase,
     EvalCheckResult,
     EvalLimits,
     EvalRunRequest,
@@ -264,7 +265,9 @@ def test_suite_file_matches_code_managed_cases():
     fixture = json.loads(
         (Path(__file__).parents[1] / "fixtures/evaluation/foundation.json").read_text()
     )
-    assert fixture["cases"] == [case.model_dump(mode="json") for case in initial_cases()]
+    assert [EvalCase.model_validate(case).model_dump(mode="json") for case in fixture["cases"]] == [
+        case.model_dump(mode="json") for case in initial_cases()
+    ]
 
 
 async def test_root_search_and_trial_share_ledger_without_double_counting():
@@ -422,6 +425,22 @@ async def test_origin_reexecution_pins_available_noncurrent_model():
         "model_policy_version": POLICY.version,
         "generation_parameters": {"max_output_tokens": 1234},
     }
+    from career_agent.models.gateway import ModelGateway, ModelPolicy
+
+    origin_gateway = ModelGateway(
+        [original],
+        ModelPolicy(POLICY.version, {case.entrypoint.name: original.tier}),
+        {original.provider: FixtureTaskProvider()},
+    )
+    origin_context = ModelRequestContext(
+        task_type=case.entrypoint.name,
+        output_schema=spec.output_schema,
+        max_output_tokens=1234,
+        **spec.metadata,
+    )
+    prepared = await origin_gateway.prepare(origin_context, spec.task(case.model_input))
+    case.origin_provenance["control_contract"] = prepared.control_snapshot
+    origin_gateway.cancel_prepared(prepared)
     runner = EvalRunner(None, settings)
     result, operations = await runner.run_case(
         case,

@@ -203,6 +203,13 @@ def test_shared_search_tool_limits_and_unknown_cash_cost():
 async def test_active_time_bounds_provider_await():
     import asyncio
 
+    from test_models import SPEC
+    from test_models import context as model_context
+    from test_runtime_control import gateway
+
+    from career_agent.models.control.contracts import ControlPolicy
+    from career_agent.models.control.controller import Controller
+
     budget = RuntimeBudget(context(), lambda: 0.001)
 
     class Slow:
@@ -210,5 +217,10 @@ async def test_active_time_bounds_provider_await():
             await asyncio.sleep(1)
             raise AssertionError("must not finish")
 
-    with pytest.raises(ModelGatewayError, match="active_time_exhausted"):
-        await budget.generate(Slow(), None, None)
+    g = gateway(Controller(ControlPolicy()))
+    g.adapters["synthetic"] = Slow()
+    with pytest.raises(ModelGatewayError, match="operation_deadline_exceeded"):
+        await budget.generate(g, model_context(), SPEC.task({}))
+    outcome = next(iter(g.outcomes.values()))
+    assert outcome["attempt_outcome"] == "operation_deadline_exceeded"
+    assert outcome["provider_health"] == "neutral"

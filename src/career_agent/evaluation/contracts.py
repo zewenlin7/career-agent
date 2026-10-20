@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 from pydantic import Field, model_validator
 
 from career_agent.domain.schemas import Contract
+from career_agent.models.control.contracts import CapacityFeedback
+from career_agent.models.control.scenario import ControlScenario
 from career_agent.preparation.contracts import RunLimits
 from career_agent.runtime.contracts import Usage
 
@@ -33,6 +35,7 @@ class Expectation(Contract):
 
 
 class Fault(Contract):
+    capacity_feedback: CapacityFeedback | None = None
     operation: str
     attempt: int = Field(ge=1)
     kind: Literal[
@@ -54,6 +57,7 @@ class FaultPlan(Contract):
 
 
 class EvalCase(Contract):
+    control_scenario: ControlScenario = Field(default_factory=ControlScenario)
     schema_version: Literal["eval-case-v1"] = "eval-case-v1"
     case_id: str = Field(pattern=r"^[a-zA-Z0-9_.-]{1,128}$")
     case_version: int = Field(ge=1)

@@ -1,10 +1,17 @@
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from career_agent.domain.schemas import Contract
+from career_agent.models.control.contracts import (
+    AttemptSelection,
+    CapacityFeedback,
+    ServiceDisposition,
+    TrafficClass,
+)
 from career_agent.runtime.contracts import (
     Budget,
     Identifier,
@@ -32,6 +39,11 @@ class Complexity(StrEnum):
 
 
 class ModelRequestContext(Contract):
+    logical_operation_id: UUID = Field(default_factory=uuid4)
+    traffic_class: TrafficClass = "normal_user"
+    execution_seconds_remaining: float | None = Field(default=None, ge=0)
+    selection: AttemptSelection | None = None
+    control_snapshot: dict[str, Any] | None = Field(default=None, exclude=True)
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
     task_type: Identifier
     workflow: Identifier | None = None
@@ -73,6 +85,7 @@ class ModelCandidate(Contract):
 
 
 class ProviderResponse(Contract):
+    capacity_feedback: CapacityFeedback | None = None
     diagnostic: OutputDiagnostic | None = None
     output: dict[str, Any]
     usage: Usage
@@ -80,6 +93,7 @@ class ProviderResponse(Contract):
 
 
 class ModelResult(Contract):
+    service: ServiceDisposition = Field(default_factory=ServiceDisposition)
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
     validated_output: BaseModel
     provider: Identifier
@@ -103,6 +117,25 @@ class ProviderAdapter(Protocol):
     ) -> ProviderResponse: ...
 
 
+@runtime_checkable
+class AttemptAdmission(Protocol):
+    """Optional adapter wrapper admission; runs before a provider attempt is dispatched.
+
+    Implementations must atomically reserve their authoritative financial ledger and
+    return without yielding after reservation. No provider I/O belongs here.
+    """
+
+    async def admit(
+        self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
+    ) -> None: ...
+
+    def remaining_seconds(self) -> float: ...
+
+    def cancel_admission(self, context: ModelRequestContext) -> None: ...
+
+    async def finish_admission(self, context: ModelRequestContext) -> None: ...
+
+
 class ModelGatewayError(Exception):
     """Only stable error codes may cross the provider boundary."""
 
@@ -113,7 +146,10 @@ class ModelGatewayError(Exception):
         retryable: bool = False,
         usage: Usage | None = None,
         diagnostic: OutputDiagnostic | None = None,
+        capacity_feedback: CapacityFeedback | None = None,
     ) -> None:
+        self.control_decisions: list[dict[str, Any]] = []
+        self.capacity_feedback = capacity_feedback
         self.diagnostic = diagnostic
         self.retryable = retryable
         self.usage = usage

@@ -5,6 +5,7 @@ import time
 from contextvars import ContextVar
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
 from career_agent.evaluation.contracts import OperationSnapshot
 from career_agent.evaluation.faults import FaultController
@@ -20,6 +21,7 @@ from career_agent.models.contracts import (
 from career_agent.preparation.budget import BudgetLedger, input_bound
 from career_agent.preparation.contracts import Accounting, RunLimits
 from career_agent.preparation.research import ResearchAdapter, SearchInput, SearchResult
+from career_agent.runtime.contracts import Usage
 
 FROZEN_CLOCK: ContextVar[datetime | None] = ContextVar("evaluation_clock", default=None)
 
@@ -53,12 +55,19 @@ class ScopedProvider:
         self.inner, self.shared, self.operations, self.faults = inner, shared, operations, faults
         self.usage = Accounting()
         self.ledger = BudgetLedger(limits, self.usage)
+        self.reservations: dict[UUID, tuple[Usage, Usage]] = {}
 
-    async def generate(
+    def remaining_seconds(self) -> float:
+        return self.shared.remaining_seconds()
+
+    async def admit(
         self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
-    ) -> ProviderResponse:
+    ) -> None:
         inputs = input_bound(context, task)
+        key = context.selection.attempt_id if context.selection else context.logical_operation_id
         async with self.shared.lock:
+            if key in self.reservations:
+                return
             if (
                 self.shared.exhausted
                 or time.monotonic() - self.shared.started > self.shared.max_seconds
@@ -78,6 +87,37 @@ class ScopedProvider:
                 raise ModelGatewayError("eval_global_budget_exhausted") from None
             root = self.shared.ledger.reserve_model(candidate, inputs, context.max_output_tokens)
             child = self.ledger.reserve_model(candidate, inputs, context.max_output_tokens)
+        self.reservations[key] = (root, child)
+
+    def cancel_admission(self, context: ModelRequestContext) -> None:
+        # All ledger critical sections run without awaits on this event loop. Cancellation
+        # before dispatch is synchronous and cannot interleave with another reservation.
+        key = context.selection.attempt_id if context.selection else context.logical_operation_id
+        reserved = self.reservations.pop(key, None)
+        if reserved is not None:
+            root, child = reserved
+            self.shared.ledger.cancel_model(root)
+            self.ledger.cancel_model(child)
+
+    async def finish_admission(self, context: ModelRequestContext) -> None:
+        key = context.selection.attempt_id if context.selection else context.logical_operation_id
+        async with self.shared.lock:
+            reserved = self.reservations.pop(key, None)
+            if reserved is not None:
+                # Cancellation can arrive after dispatch but before the adapter coroutine starts.
+                # Retain unknown usage conservatively, exactly once.
+                root, child = reserved
+                self.shared.ledger.settle(root, None)
+                self.ledger.settle(child, None)
+
+    async def generate(
+        self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
+    ) -> ProviderResponse:
+        key = context.selection.attempt_id if context.selection else context.logical_operation_id
+        if key not in self.reservations:
+            # Direct adapter tests remain supported; Gateway admits before capacity dispatch.
+            await self.admit(candidate, context, task)
+        root, child = self.reservations.pop(key)
         operation = OperationSnapshot(
             kind="model_task",
             name=context.task_type,
@@ -95,6 +135,10 @@ class ScopedProvider:
                 "output_schema_version": task.output_schema_version,
                 "generation_parameters": {"max_output_tokens": context.max_output_tokens},
                 "origin": "evaluation",
+                "control_contract": context.control_snapshot,
+                "control_selection": context.selection.model_dump(mode="json")
+                if context.selection
+                else None,
             },
         )
         self.operations.append(operation)
@@ -110,7 +154,9 @@ class ScopedProvider:
                 )
             except TimeoutError:
                 self.shared.exhausted = True
-                raise ModelGatewayError("eval_deadline_exceeded") from None
+                raise ModelGatewayError(
+                    "operation_deadline_exceeded" if context.selection else "eval_deadline_exceeded"
+                ) from None
             usage = response.usage
             operation.output = response.output
             return response

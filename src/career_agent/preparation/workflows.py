@@ -118,6 +118,7 @@ class PreparationWorkflow:
             u, b = self.state.usage, self.state.limits
             context = ModelRequestContext(
                 task_type=task_type.value,
+                logical_operation_id=logical_operation_id,
                 workflow=self.state.workflow,
                 workflow_version=self.state.workflow_version,
                 privacy_class=PrivacyClass.SYNTHETIC
@@ -142,11 +143,24 @@ class PreparationWorkflow:
                 ),
             )
             self.gateway.prompts.trace_metadata(context, task)
-            candidate = self.gateway.policy.select(context, self.gateway.registry)
+            if self.runtime_budget:
+                context = context.model_copy(
+                    update={
+                        "execution_seconds_remaining": max(
+                            0.0, self.runtime_budget.remaining_seconds()
+                        )
+                    }
+                )
+            context = await self.gateway.prepare(context, task)
+            candidate = self.gateway.candidate(context)
             ledger = self.runtime_budget.ledger(b, u) if self.runtime_budget else BudgetLedger(b, u)
-            reservation = ledger.reserve_model(
-                candidate, input_bound(context, task), context.max_output_tokens
-            )
+            try:
+                reservation = ledger.reserve_model(
+                    candidate, input_bound(context, task), context.max_output_tokens
+                )
+            except BaseException:
+                self.gateway.cancel_prepared(context)
+                raise
             attempt += 1
             versions = self.gateway.trace_metadata(context, task).model_copy(
                 update={
@@ -165,20 +179,40 @@ class PreparationWorkflow:
                 status=CallStatus.RUNNING,
             )
             self.session.add(row)
-            await self.session.flush()
+            try:
+                await self.session.flush()
+            except BaseException:
+                self.gateway.cancel_prepared(context)
+                ledger.cancel_model(reservation)
+                raise
             started = time.perf_counter()
             error: ModelGatewayError | None = None
             result = None
+            cancelled = False
             try:
                 result = (
                     await self.runtime_budget.generate(self.gateway, context, task)
                     if self.runtime_budget
                     else await self.gateway.generate(context, task)
                 )
+            except asyncio.CancelledError:
+                cancelled = True
+                error = ModelGatewayError("execution_cancelled")
             except ModelGatewayError as exc:
                 error = exc
+            if error and not self.gateway.was_dispatched(context):
+                self.gateway.cancel_prepared(context)
+                ledger.cancel_model(reservation)
+                await self.session.delete(row)
+                if cancelled:
+                    raise asyncio.CancelledError()
+                raise error
             actual = result.usage if result else error.usage if error else None
             usage = ledger.settle(reservation, actual)
+            control = self.gateway.trace_metadata(context, task)
+            versions.control_metadata = control.control_metadata
+            versions.control_decisions = control.control_decisions
+            row.versions = versions.model_dump(mode="json")
             if result and result.versions.output_diagnostic:
                 versions.output_diagnostic = result.versions.output_diagnostic
                 row.versions = versions.model_dump(mode="json")
@@ -263,6 +297,8 @@ class PreparationWorkflow:
                 },
                 reason=row.error_code,
             )
+            if cancelled:
+                raise asyncio.CancelledError()
             if result is not None:
                 self.accepted_call_id = row.id
                 return result.validated_output
@@ -279,7 +315,7 @@ class PreparationWorkflow:
                 continue
             if error.retryable and transport_retries < self.settings.model_retry_limit:
                 transport_retries += 1
-                await asyncio.sleep(min(0.1 * 2**transport_retries, 1))
+                await self.gateway.wait_retry(context, min(0.1 * 2**transport_retries, 1))
                 continue
             raise error
 
@@ -801,6 +837,11 @@ class PreparationWorkflow:
                 else "invalid_output"
             )
             self.step.status, self.step.reason_code = CallStatus.FAILED, code
+            if isinstance(exc, ModelGatewayError) and exc.control_decisions:
+                self.step.versions = {
+                    **self.step.versions,
+                    "control_decisions": exc.control_decisions,
+                }
             if code in {
                 "grounding_failed",
                 "invalid_reference",

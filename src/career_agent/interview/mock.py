@@ -3,6 +3,7 @@
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
+from anyio import CancelScope
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -274,39 +275,40 @@ class MockService:
             failure = exc.code
         except asyncio.CancelledError:
             cancelled, failure = True, "execution_cancelled"
-        async with self.sessions.begin() as session:
-            row = await require(session, e.MockInterviewSession, id, lock=True)
-            row.generation_active = False
-            row.revision += 1
-            row.stop_reason = failure
-            if output is not None:
-                await validate_accepted_call(
-                    session, accepted, row.run_id, row.generation_operation_id
-                )
-                turn = e.MockInterviewTurn(
-                    session_id=id,
-                    sequence=row.interviewer_turn_count + 1,
-                    data=output.model_dump(mode="json"),
-                    logical_operation_id=accepted.logical_operation_id,
-                    accepted_model_call_id=accepted.model_call_id,
-                )
-                session.add(turn)
-                await session.flush()
-                from career_agent.evaluation.recording import bind_artifact
+        with CancelScope(shield=cancelled):
+            async with self.sessions.begin() as session:
+                row = await require(session, e.MockInterviewSession, id, lock=True)
+                row.generation_active = False
+                row.revision += 1
+                row.stop_reason = failure
+                if output is not None:
+                    await validate_accepted_call(
+                        session, accepted, row.run_id, row.generation_operation_id
+                    )
+                    turn = e.MockInterviewTurn(
+                        session_id=id,
+                        sequence=row.interviewer_turn_count + 1,
+                        data=output.model_dump(mode="json"),
+                        logical_operation_id=accepted.logical_operation_id,
+                        accepted_model_call_id=accepted.model_call_id,
+                    )
+                    session.add(turn)
+                    await session.flush()
+                    from career_agent.evaluation.recording import bind_artifact
 
-                await bind_artifact(
-                    session, accepted.model_call_id, turn.id, self.settings.judge_sampling
-                )
-                row.generation_operation_id = None
-                row.pending_question_id = turn.id
-                row.primary_question_count += output.kind == "primary"
-                row.followup_count += output.kind == "follow_up"
-                row.interviewer_turn_count += 1
-                row.status = "waiting_answer"
-            else:
-                row.status = "ready_to_generate"
-            run = await require(session, e.AgentRun, row.run_id)
-            run.status = RunStatus.WAITING_INPUT
-            run.stop_reason = failure
+                    await bind_artifact(
+                        session, accepted.model_call_id, turn.id, self.settings.judge_sampling
+                    )
+                    row.generation_operation_id = None
+                    row.pending_question_id = turn.id
+                    row.primary_question_count += output.kind == "primary"
+                    row.followup_count += output.kind == "follow_up"
+                    row.interviewer_turn_count += 1
+                    row.status = "waiting_answer"
+                else:
+                    row.status = "ready_to_generate"
+                run = await require(session, e.AgentRun, row.run_id)
+                run.status = RunStatus.WAITING_INPUT
+                run.stop_reason = failure
         if cancelled:
             raise asyncio.CancelledError()

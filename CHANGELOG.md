@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Added — v0.4 Phase 1 Runtime Control Core
+
+- Task-approved prioritized routes, immutable attempt selections and metadata-only control decisions;
+  unknown tasks and unqualified extra routes fail closed. No hidden Gateway retry loop.
+- Process-shared provider/route capacity admission, configurable headroom and static traffic protection;
+  independent capacity estimates and conservative financial reservations, idempotent settlement/debt.
+- Rolling attempt-level circuit health, bounded half-open probes, typed conservative rate feedback,
+  shared operation deadlines and bounded retry/fallback amplification including schema repair.
+- Versioned output reservations/hard ceilings and complete-only truncation diagnostics. Partial/degraded
+  metadata extension points do not enable incomplete canonical business results.
+- Isolated frozen offline Eval controllers, frozen policy manifests, provider-specific dispatch and
+  exact-origin routing checks; explicitly live Eval composition shares the injected quota controller.
+- Interview preflight checks feasibility without selecting an attempt route; explicit generation retry
+  preserves accumulated execution time while excluding time waiting for user input.
+
+### Fixed — v0.4 Phase 1 audit
+
+- Unified attempt outcome classification: provider timeout affects health; operation deadlines and
+  external cancellation remain neutral. Interview/Runtime no longer relabel a settled cancellation
+  as provider timeout. Interview cancellation cleanup persists ledger/trace/state before propagating.
+- Typed trusted quota/bucket feedback defaults to route-local; configured provider/shared-group
+  buckets share reservations without cross-bucket counter replenishment. Control identities advance
+  to v2; unavailable older origin implementations fail closed while historical reads remain available.
+- Judge late admission denial retains ordered metadata-only decisions and removes the undispatched
+  ModelCall without charging the financial budget.
+
+### Verified — v0.4 Phase 1 offline acceptance
+
+- 499 tests passed, including real PostgreSQL migration/drift/history upgrades and real Typst paths.
+- Ruff/formatter and strict mypy passed; offline locked install, wheel/sdist build/import and controlled
+  font hash/Typst 0.15.1 preflight verified. Tests ran on Python 3.13.13 (project supports Python 3.12+).
+- No paid provider/Tavily calls. Single-process quota coordination only; no restart reconstruction,
+  distributed limiter, automatic tuning, Ops dashboard or new degraded business features.
+
 ### Added — v0.3 offline evaluation foundation
 
 - Executable shared prompt input block/type/size/trust/privacy contracts, with feature-local definitions.

@@ -515,11 +515,24 @@ class AgentEngine:
         bound = input_bound(request, spec)
         if bound > 8000:
             raise ModelGatewayError("planner_context_too_large")
-        candidate = self.gateway.policy.select(request, self.gateway.registry)
-        reserved = budget.root.reserve_model(candidate, bound, request.max_output_tokens)
+        request = request.model_copy(
+            update={"execution_seconds_remaining": max(0.0, budget.remaining_seconds())}
+        )
+        try:
+            request = await self.gateway.prepare(request, spec)
+        except ModelGatewayError as exc:
+            step.versions = {**step.versions, "control_decisions": exc.control_decisions}
+            raise
+        candidate = self.gateway.candidate(request)
+        try:
+            reserved = budget.root.reserve_model(candidate, bound, request.max_output_tokens)
+        except BaseException:
+            self.gateway.cancel_prepared(request)
+            raise
         call = e.ModelCall(
             step_id=step.id,
             task_type=request.task_type,
+            logical_operation_id=request.logical_operation_id,
             provider=candidate.provider,
             model=candidate.model,
             status=CallStatus.RUNNING,
@@ -527,12 +540,23 @@ class AgentEngine:
             versions=self.gateway.trace_metadata(request, spec).model_dump(mode="json"),
         )
         session.add(call)
-        await session.flush()
+        try:
+            await session.flush()
+        except BaseException:
+            self.gateway.cancel_prepared(request)
+            budget.root.cancel_model(reserved)
+            raise
         start = self.clock()
         error: ModelGatewayError | None = None
         try:
             result = await budget.generate(self.gateway, request, spec)
         except ModelGatewayError as exc:
+            if not self.gateway.was_dispatched(request):
+                self.gateway.cancel_prepared(request)
+                budget.root.cancel_model(reserved)
+                await session.delete(call)
+                step.versions = {**step.versions, "control_decisions": exc.control_decisions}
+                raise
             usage = budget.root.settle(reserved, exc.usage)
             call.status, call.error_code = CallStatus.FAILED, exc.code
             if exc.diagnostic:
@@ -552,6 +576,12 @@ class AgentEngine:
                     "output_diagnostic": result.versions.output_diagnostic.model_dump(mode="json"),
                 }
             error = None
+        control = self.gateway.trace_metadata(request, spec)
+        call.versions = {
+            **call.versions,
+            "control_metadata": control.control_metadata,
+            "control_decisions": control.control_decisions,
+        }
         call.usage = usage.model_dump(mode="json")
         call.estimated_cost = usage.estimated_cost
         call.latency_ms = int((self.clock() - start) * 1000)

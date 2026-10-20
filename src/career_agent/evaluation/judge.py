@@ -3,7 +3,7 @@
 import asyncio
 import time
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -122,59 +122,6 @@ class JudgeRunner:
         return {"run_id": run_id, "results": results, "usage": budget.usage.model_dump(mode="json")}
 
     async def one(self, id: UUID, run_id: UUID, budget: SharedEvalBudget) -> dict[str, Any]:
-        async with self.sessions.begin() as session:
-            row = await require(session, q.JudgeRow, id, lock=True)
-            if row.status != "pending":
-                return {"id": id, "status": row.status}
-            sampling = await require(session, q.SamplingRow, row.sampling_id)
-            decision = SamplingDecision.model_validate(sampling.data)
-            spec = JudgeSpec.model_validate(row.spec)
-            if (
-                spec.prompt_hash != PROMPT.prompt_hash
-                or spec.model_policy_version != POLICY.version
-            ):
-                row.status = "failed"
-                row.reason_code = "judge_config_incompatible"
-                return {"id": id, "status": row.status}
-            invocation = await resolve_subject(session, decision.subject)
-            data = invocation.data
-            row.status = "running"
-            row.started_at = e.utcnow()
-            step = e.AgentStep(run_id=run_id, sequence=1, node="quality_judgement")
-            # Step sequence is allocated under the authoritative run lock.
-            await require(session, e.AgentRun, run_id, lock=True)
-            from sqlalchemy import func
-
-            step.sequence = 1 + (
-                await session.scalar(
-                    select(func.max(e.AgentStep.sequence)).where(e.AgentStep.run_id == run_id)
-                )
-                or 0
-            )
-            session.add(step)
-            await session.flush()
-            candidate = self.gateway.policy.select(
-                ModelRequestContext(
-                    task_type="quality_judgement",
-                    workflow="quality_judge",
-                    output_schema=JudgeOutput,
-                    max_output_tokens=3000,
-                ),
-                self.gateway.registry,
-            )
-            call = e.ModelCall(
-                step_id=step.id,
-                task_type="quality_judgement",
-                provider=candidate.provider,
-                model=candidate.model,
-                logical_operation_id=uuid4(),
-                status=CallStatus.RUNNING,
-            )
-            session.add(call)
-            await session.flush()
-            call_id = call.id
-            step_id = step.id
-            row.model_call_id = call_id
         operations: list[OperationSnapshot] = []
         gateway = ModelGateway(
             self.gateway.registry,
@@ -186,24 +133,88 @@ class JudgeRunner:
                 for name, adapter in self.gateway.adapters.items()
             },
             self.gateway.prompts,
+            controller=self.gateway.controller,
         )
-        inputs = model_view(
-            {
-                "subject": {"input": data["input_snapshot"], "output": data["output"]},
-                "rubric": {"version": spec.rubric_version, "criteria": spec.criteria},
-                "evidence": ["input", "output"],
-            }
-        )
-        context = ModelRequestContext(
-            task_type="quality_judgement",
-            workflow="quality_judge",
-            workflow_version="judge-runner-v1",
-            output_schema=JudgeOutput,
-            privacy_class=PrivacyClass.SYNTHETIC,
-            budget_remaining=Budget(cost_limit=ceilings_cost(budget)),
-            max_output_tokens=3000,
-            **PROMPT.metadata,
-        )
+        context: ModelRequestContext | None = None
+        try:
+            async with self.sessions.begin() as session:
+                row = await require(session, q.JudgeRow, id, lock=True)
+                if row.status != "pending":
+                    return {"id": id, "status": row.status}
+                sampling = await require(session, q.SamplingRow, row.sampling_id)
+                decision = SamplingDecision.model_validate(sampling.data)
+                spec = JudgeSpec.model_validate(row.spec)
+                if (
+                    spec.prompt_hash != PROMPT.prompt_hash
+                    or spec.model_policy_version != POLICY.version
+                ):
+                    row.status = "failed"
+                    row.reason_code = "judge_config_incompatible"
+                    return {"id": id, "status": row.status}
+                invocation = await resolve_subject(session, decision.subject)
+                data = invocation.data
+                row.status = "running"
+                row.started_at = e.utcnow()
+                step = e.AgentStep(run_id=run_id, sequence=1, node="quality_judgement")
+                # Step sequence is allocated under the authoritative run lock.
+                await require(session, e.AgentRun, run_id, lock=True)
+                from sqlalchemy import func
+
+                step.sequence = 1 + (
+                    await session.scalar(
+                        select(func.max(e.AgentStep.sequence)).where(e.AgentStep.run_id == run_id)
+                    )
+                    or 0
+                )
+                session.add(step)
+                await session.flush()
+                inputs = model_view(
+                    {
+                        "subject": {"input": data["input_snapshot"], "output": data["output"]},
+                        "rubric": {"version": spec.rubric_version, "criteria": spec.criteria},
+                        "evidence": ["input", "output"],
+                    }
+                )
+                context = ModelRequestContext(
+                    task_type="quality_judgement",
+                    workflow="quality_judge",
+                    workflow_version="judge-runner-v1",
+                    output_schema=JudgeOutput,
+                    privacy_class=PrivacyClass.SYNTHETIC,
+                    traffic_class="evaluation",
+                    budget_remaining=Budget(cost_limit=ceilings_cost(budget)),
+                    max_output_tokens=3000,
+                    **PROMPT.metadata,
+                )
+                try:
+                    context = await gateway.prepare(context, PROMPT.task(inputs))
+                    await gateway.admit_adapter(context, PROMPT.task(inputs))
+                except ModelGatewayError as exc:
+                    row.status = "failed"
+                    row.reason_code = exc.code
+                    row.finished_at = e.utcnow()
+                    step.status, step.reason_code = CallStatus.FAILED, exc.code
+                    step.versions = {"control_decisions": exc.control_decisions}
+                    return {"id": id, "status": "failed", "reason_code": exc.code}
+                candidate = gateway.candidate(context)
+                call = e.ModelCall(
+                    step_id=step.id,
+                    task_type="quality_judgement",
+                    provider=candidate.provider,
+                    model=candidate.model,
+                    logical_operation_id=context.logical_operation_id,
+                    status=CallStatus.RUNNING,
+                )
+                session.add(call)
+                await session.flush()
+                call_id = call.id
+                step_id = step.id
+                row.model_call_id = call_id
+        except BaseException:
+            if context is not None:
+                gateway.cancel_prepared(context)
+            raise
+        assert context is not None
         started = time.monotonic()
         error = None
         output = None
@@ -223,6 +234,18 @@ class JudgeRunner:
             row = await require(session, q.JudgeRow, id, lock=True)
             call = await require(session, e.ModelCall, call_id)
             step = await require(session, e.AgentStep, step_id)
+            if error and not gateway.was_dispatched(context):
+                gateway.cancel_prepared(context)
+                row.model_call_id = None
+                await session.flush()
+                await session.delete(call)
+                step.status, step.reason_code = CallStatus.FAILED, error
+                step.versions = gateway.trace_metadata(context, PROMPT.task(inputs)).model_dump(
+                    mode="json"
+                )
+                row.status, row.reason_code = "failed", error
+                row.finished_at = e.utcnow()
+                return {"id": id, "status": "failed", "reason_code": error}
             call.status = step.status = CallStatus.FAILED if error else CallStatus.SUCCEEDED
             call.error_code = error
             call.latency_ms = int((time.monotonic() - started) * 1000)

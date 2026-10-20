@@ -69,6 +69,7 @@ class FaultProvider:
             raise ModelGatewayError(
                 codes.get(fault.kind, "tool_failed"),
                 retryable=fault.kind in {"timeout", "429", "5xx"},
+                capacity_feedback=fault.capacity_feedback,
             )
         return await self.inner.generate(candidate, context, task)
 

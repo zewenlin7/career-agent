@@ -14,6 +14,8 @@ from career_agent.models.contracts import (
     ProviderResponse,
     TaskSpec,
 )
+from career_agent.models.control.contracts import ControlPolicy
+from career_agent.models.control.feedback import normalized_feedback
 from career_agent.models.diagnostics import response_diagnostic, validation_issues
 from career_agent.models.timeouts import ModelTimeoutPolicy
 from career_agent.runtime.contracts import OutputDiagnostic, Usage
@@ -29,15 +31,22 @@ class _UsageEnvelope(BaseModel):
 
 class OpenAIProvider:
     def __init__(
-        self, client: AsyncOpenAI, timeout_policy: ModelTimeoutPolicy | None = None
+        self,
+        client: AsyncOpenAI,
+        timeout_policy: ModelTimeoutPolicy | None = None,
+        control_policy: ControlPolicy | None = None,
     ) -> None:
         self.client = client
+        self.control_policy = control_policy or ControlPolicy()
         self.timeout_policy = timeout_policy or ModelTimeoutPolicy()
 
     async def generate(
         self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
     ) -> ProviderResponse:
         timeout = self.timeout_policy.for_task(context.task_type)
+        bucket = self.control_policy.feedback_bucket(
+            candidate.provider, f"{candidate.provider}:{candidate.model}"
+        )
         try:
             raw_response = await self.client.responses.with_raw_response.parse(
                 timeout=timeout,
@@ -90,7 +99,11 @@ class OpenAIProvider:
                 else "provider_rejected"
             )
             raise ModelGatewayError(
-                code, retryable=exc.status_code == 429 or exc.status_code >= 500
+                code,
+                retryable=exc.status_code == 429 or exc.status_code >= 500,
+                capacity_feedback=normalized_feedback(
+                    exc.response.headers, quota_scope=self.control_policy.quota_scope, bucket=bucket
+                ),
             ) from None
         # Read metadata before canonical parsing invokes custom validators. No body persistence.
         try:
@@ -99,6 +112,11 @@ class OpenAIProvider:
             raise ModelGatewayError("structured_output_invalid") from None
         if not isinstance(data, dict):
             raise ModelGatewayError("structured_output_invalid")
+        feedback = normalized_feedback(
+            raw_response.http_response.headers,
+            quota_scope=self.control_policy.quota_scope,
+            bucket=bucket,
+        )
         diagnostic = response_diagnostic(data)
         diagnostic.request_timeout_seconds = timeout
         diagnostic.timeout_policy_version = self.timeout_policy.version
@@ -133,11 +151,21 @@ class OpenAIProvider:
             )
         if diagnostic.response_status == "incomplete":
             diagnostic.failure_kind = "provider_incomplete"
-            raise ModelGatewayError("provider_incomplete", usage=usage, diagnostic=diagnostic)
+            raise ModelGatewayError(
+                "provider_incomplete",
+                usage=usage,
+                diagnostic=diagnostic,
+                capacity_feedback=feedback,
+            )
         output = data.get("output")
         if not isinstance(output, list):
             diagnostic.failure_kind = "structured_output_invalid"
-            raise ModelGatewayError("structured_output_invalid", usage=usage, diagnostic=diagnostic)
+            raise ModelGatewayError(
+                "structured_output_invalid",
+                usage=usage,
+                diagnostic=diagnostic,
+                capacity_feedback=feedback,
+            )
         if any(
             isinstance(message, dict)
             and message.get("type") == "message"
@@ -149,9 +177,16 @@ class OpenAIProvider:
             for message in output
         ):
             diagnostic.failure_kind = "provider_refusal"
-            raise ModelGatewayError("provider_refusal", usage=usage, diagnostic=diagnostic)
+            raise ModelGatewayError(
+                "provider_refusal", usage=usage, diagnostic=diagnostic, capacity_feedback=feedback
+            )
         if diagnostic.response_status != "completed":
-            raise ModelGatewayError("structured_output_invalid", usage=usage, diagnostic=diagnostic)
+            raise ModelGatewayError(
+                "structured_output_invalid",
+                usage=usage,
+                diagnostic=diagnostic,
+                capacity_feedback=feedback,
+            )
         try:
             response = raw_response.parse()
         except ValidationError as exc:
@@ -162,12 +197,20 @@ class OpenAIProvider:
                 else "output_validation_failed"
             )
             diagnostic.failure_kind = validation_code
-            raise ModelGatewayError(validation_code, usage=usage, diagnostic=diagnostic) from None
+            raise ModelGatewayError(
+                validation_code, usage=usage, diagnostic=diagnostic, capacity_feedback=feedback
+            ) from None
         if response.output_parsed is None:
-            raise ModelGatewayError("structured_output_invalid", usage=usage, diagnostic=diagnostic)
+            raise ModelGatewayError(
+                "structured_output_invalid",
+                usage=usage,
+                diagnostic=diagnostic,
+                capacity_feedback=feedback,
+            )
         return ProviderResponse(
             output=response.output_parsed.model_dump(mode="json"),
             usage=usage,
             finish_reason="completed",
             diagnostic=diagnostic,
+            capacity_feedback=feedback,
         )

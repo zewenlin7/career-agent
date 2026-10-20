@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current milestone is **v0.3 Evaluation Foundation (offline acceptance passed)**, built on the completed v0.1 Domain MVP.
+The current milestone is **v0.4 Phase 1 Runtime Control Core**, built on v0.1–v0.3.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -14,7 +14,7 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 - Knowledge-note CRUD basics; generated knowledge candidates never auto-promote to facts.
 - PostgreSQL persistence for source documents, STAR structures and runtime metadata.
 - Run/step/call metadata APIs and two explicitly invoked fixed preparation workflows.
-- Model-independent contracts, static policy/capability filtering and an injected fake provider.
+- Model-independent contracts, approved per-task candidate policies and an injected fake provider.
 - Safe error responses, allowlisted operational logging and private-data configuration.
 - Synthetic tests using a real temporary PostgreSQL database, Ruff and strict mypy.
 - Hand-authored, versioned ResumeVariants, fact grounding, deterministic content compression,
@@ -711,3 +711,36 @@ visible, with unconditional Tier 0 blocking. Origin re-execution binds the exact
 model/config instead of using candidate routing. Private versioned capture conversion supports
 isolated replay without consulting changed production inputs; insufficient historical captures fail
 explicitly. Calibration preserves pair details while selecting one latest pair per subject/stratum.
+
+## Runtime Control Core (v0.4 Phase 1)
+
+Offline acceptance: 499 tests passed, including PostgreSQL and Typst integration; Ruff, formatter,
+strict mypy and offline packaging checks passed. This phase has not run paid/live capacity probes.
+
+Model calls use deterministic approved-route priority, shared in-process provider/route capacity,
+rolling circuit breakers and bounded attempt/route-switch limits. Request gateways share one
+controller per non-secret quota scope. Existing workflows continue to own retries; the gateway does
+not introduce hidden provider retries. Defaults retain one approved route per tier/task, with no
+automatic premium escalation.
+
+`CAREER_AGENT_RUNTIME_CONTROL` configures the versioned JSON control policy (quota scope, provider and
+route limits, `headroom_factor`, `background_fraction`, breaker, `feedback_buckets`). `CAREER_AGENT_TASK_MODEL_POLICIES`
+configures approved task candidates, qualifications/roles, output estimates/hard limits and operation
+bounds. Configuration is trusted operator input, never model output. The initial default headroom is
+10%; background/evaluation traffic has a static protected-capacity ceiling. Set advertised limits to
+your actual quota; defaults are development safety ceilings, not discovered account entitlements.
+
+Rate feedback defaults to a route-local bucket. Configure `feedback_buckets` by exact
+`provider:model` route with `scope` (`provider_shared` or `shared_group`) and a stable `bucket_id`
+only when that sharing is known. Bucket identity comes from configuration, not response headers.
+Provider request timeout affects breaker health; operation deadline and user cancellation do not.
+
+Capacity token estimates do not reduce conservative financial budget reservations. Unknown usage
+remains reserved; estimated cost is not billed cost. Every real attempt preserves its bound route and
+control metadata. Current tasks reject incomplete/truncated outputs and retain full grounding/PII
+rules. Offline Eval trials use isolated frozen control scenarios, never the live controller.
+
+Coordination is limited to one controller-owning process. Independent server workers/Judge CLI
+processes do not share exact quotas. Restart reconstruction, automatic tuning, Ops/dashboard and
+production crash recovery are not implemented. This milestone uses offline faults, not paid 429/5xx
+probes; synthetic tests do not establish real traffic capacity or job-search quality.

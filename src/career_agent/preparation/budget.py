@@ -55,6 +55,13 @@ class BudgetLedger:
             pricing_version=candidate.pricing_version,
         )
 
+    def cancel_model(self, reserved: Usage) -> None:
+        """Undo a tentative reservation only when no provider attempt was dispatched."""
+        self.usage.model_calls -= 1
+        self.usage.reserved_input_tokens -= reserved.reserved_input_tokens
+        self.usage.reserved_output_tokens -= reserved.reserved_output_tokens
+        self.usage.budget_reserved_usd -= reserved.budget_reserved_usd
+
     def settle(self, reserved: Usage, actual: Usage | None) -> Usage:
         result = actual.model_copy(deep=True) if actual else Usage()
         u = self.usage

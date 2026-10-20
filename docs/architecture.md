@@ -199,7 +199,7 @@ system is present in Foundation.
 | v0.2a Runtime Core | Bounded planner/validator/executor/evaluator, shared budgets, explicit checkpoint resume |
 | v0.2b Interview Loop | Actual intake, text Mock, standalone snapshot Debrief; offline acceptance |
 | v0.3 Evaluation Foundation | Current: frozen cases/trials/operations, offline replay, sampling/Judge, calibration/capture and priority comparison |
-| v0.4 Production Engineering | Planned: Ops dashboard, metrics, dynamic routing/budgets, concurrency/rate limits, circuits/fallback/control/cache |
+| v0.4 Production Engineering | Phase 1: approved routing, in-process admission/circuits, attempt bounds and output control. Later: Ops, automatic policies, distributed coordination/cache |
 | v0.5 Real Usage Loop | Planned: actual outcomes, feedback, real bad cases, continuous regression |
 
 Resume compilation now separates verified fact references, hand-authored structured variants,
@@ -789,3 +789,107 @@ The workflow sandbox receives the same explicit permission but retains disposabl
 temporary artifacts, frozen search and cleared local credentials. JudgeRunner uses its existing
 injected Gateway boundary. Minimal synthetic live acceptance verified six calls; one blind synthetic
 annotation only validates linkage and selection, not empirical Judge calibration.
+
+## v0.4 Phase 1 — Runtime Control Core
+
+The existing feature executors still own transport retry and schema repair. Gateway performs one
+provider attempt; SDK retries remain disabled. Mock explicit retry and resume semantic compression
+keep their existing boundaries. Each registered task now has an approved, versioned candidate set
+in the existing ModelPolicy. Unknown tasks fail closed. Priorities are ordered integers (lower first),
+not scores. Additional routes require explicit role/qualification configuration; defaults do not
+silently add premium/fallback routes.
+
+The shared attempt boundary is:
+
+`Prompt/input validation → candidate eligibility → tentative capacity lease → authoritative financial
+reservation → bound attempt trace → adapter dispatch → capacity and financial settlement → canonical
+output validation`.
+
+`AttemptSelection` binds the operation/attempt, route, qualification, traffic class, lease, policy
+versions, output limits and deadline. Pricing, trace and dispatch consume that selection; trace does
+not route again. Candidate pricing is copied at selection. Dispatch rechecks circuit and newly observed capacity debt/feedback
+after asynchronous financial reservation; a revoked tentative lease is refunded without a provider attempt.
+Admission rejection is a control decision,
+not a provider failure. Ordered decisions are retained on step/call or private invocation metadata.
+Existing JSON metadata contracts are extended additively; no controller tables or migration are needed.
+
+### Process ownership and capacity
+
+Live composition injects a process-owned Controller per non-secret `quota_scope`; gateways remain
+request scoped. Configure the scope to reflect a shared provider project/account. Multiple server
+processes and independent CLI processes do **not** coordinate exact quotas. Controller state is
+in-memory and is not restored after restart.
+
+A short threading lock checks provider RPM/TPM and route RPM/TPM/concurrency together, then creates a
+tentative lease. The lock never spans network I/O, sleeping or a database operation. The default
+headroom factor is 0.90. Background/evaluation admission has a static 0.50 fraction ceiling, protecting
+capacity for interactive/normal traffic; dispatched work is never preempted. This is not a scheduler.
+
+Capacity and money remain different ledgers. Capacity reserves input upper bound plus the governed
+output estimate (default 512), whereas financial budgets reserve the allowed hard output ceiling.
+Dispatch consumes RPM once; settlement replaces the token estimate with reported actual usage.
+Under-reservation creates capacity debt and an observation, not a task failure. Unknown usage retains
+conservative capacity until the rolling window expires and conservative financial reservation under
+the existing accounting rules. Provider usage is observed, price-based cost is estimated, invoices
+remain unknown. Tentative cancellation releases capacity; post-dispatch cancellation keeps unknown
+usage. Settlement is idempotent.
+
+### Health, retries and completion
+
+Availability health observes each real timeout/connection/5xx attempt, with rolling thresholds,
+open cooldown and bounded half-open probes. Business/schema/grounding rejection, budget denial and
+admission denial do not poison provider health. 401/403/configuration errors disable the route within
+this process instead of transient recovery. Typed allowlisted 429 feedback constrains capacity without
+retaining raw headers or erasing outstanding reservations; missing quota data is not inferred.
+
+Timeout classification is settled at the attempt boundary. Native provider request timeouts retain
+stable error code `provider_timeout` and normalized `attempt_outcome=provider_request_timeout`;
+these affect breaker health. In-flight operation/run deadline expiry uses
+`operation_deadline_exceeded`, and external cancellation uses `execution_cancelled`; both are neutral.
+Interview/Runtime pass their remaining time into the boundary rather than wrapping and relabeling
+an already-settled attempt. Cancellation cleanup shields only the final Interview ledger/trace/state
+transactions, then propagates cancellation; it does not shield continued model execution.
+
+Normalized feedback carries a trusted quota scope and bucket (`route`, `provider_shared`, or
+`shared_group`). Unknown sharing defaults to route-local. Operator `feedback_buckets` maps exact
+routes to explicitly shared buckets; headers cannot set this identity. Bucket feedback includes its
+own in-flight reservations and subsequent consumption. Provider-wide buckets constrain all provider
+routes; a shared group constrains its configured members. One bucket cannot replenish another.
+Mismatched quota/bucket identity is ignored; missing raw quota information is never invented.
+The control policy/implementation identities are `runtime-control-v2` / `attempt-controller-v2`.
+
+Each retry re-enters admission. Per-route attempts, total operation attempts and route switches are
+bounded; schema repair consumes that same total. Admission waits, retry waits and provider execution
+share the original operation deadline, capped by the caller’s remaining runtime/Eval/Judge execution budget. Committed Interview retry attempts seed new request gateways,
+so explicit retry cannot regain a fresh attempt quota. Restored operation time uses persisted active
+execution duration, excluding time waiting for the user. This is not controller crash reconstruction.
+
+Output estimate is independent of the hard generation limit. All current tasks remain complete-only:
+hard-limit/incomplete output fails closed, even if some JSON can be parsed. No partial JSON salvage
+or new degraded feature is implemented. Service-disposition/output-policy contracts keep future
+versioned opt-in partial artifacts and degradation separate; correctness/privacy/grounding are never
+negotiable. Routing/health changes do not invalidate historical business artifacts; reuse continues
+to use the independent compatibility policy.
+
+### Evaluation isolation
+
+CandidateConfig freezes approved candidates, qualifications, priorities, output limits, headroom,
+retry/amplification and breaker/controller identities. Each offline trial receives its own controller,
+a controllable frozen clock and a versioned synthetic ControlScenario. Explicit real-model Eval
+and Judge composition instead shares the injected live quota controller with evaluation traffic
+protection. Real-model Eval rejects synthetic fault/control scenarios so they cannot poison live
+health state. Adapter dispatch remains
+provider-specific. Observed selections/decisions/outcomes belong to operation provenance, not mutable
+candidate configuration. Private invocation snapshots retain the control configuration for origin
+analysis; operational metadata contains versions/refs and decisions, never bodies.
+
+Exact origin re-execution is supported for reconstructible first-attempt primary routes. Missing
+historical control contracts, unavailable implementations and origins requiring unrecorded prior
+fallback/probe state fail with `origin_config_unavailable`; they never silently use current routing.
+Original output and trace remain readable. Live controller state is never imported into offline replay.
+Paid origin diagnostics additionally require the existing shared control policy and evaluation traffic
+classification; they cannot elevate diagnostic traffic priority to reproduce an old user request.
+
+Phase 2 retains automatic tuning/control policies and Ops aggregation/API/dashboard. Distributed
+coordination, durable queues, crash reconciliation, response caching and generalized partial salvage
+are outside Phase 1. No paid provider fault probes are part of offline acceptance.

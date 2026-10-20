@@ -136,7 +136,13 @@ class EvalRunner:
                         case_row = await require(session, q.EvalCaseRow, stored.case_id)
                         case = EvalCase.model_validate(case_row.data)
                         if (
-                            digest(case.model_dump(mode="json", exclude={"content_hash"}))
+                            digest(
+                                {
+                                    key: value
+                                    for key, value in case_row.data.items()
+                                    if key != "content_hash"
+                                }
+                            )
                             != case_row.content_hash
                         ):
                             abort = "corrupt_case_hash"
@@ -224,18 +230,28 @@ class EvalRunner:
     ) -> tuple[TrialResult, list[OperationSnapshot]]:
         operations: list[OperationSnapshot] = []
         faults = FaultController(case.fault_plan)
-        scoped = ScopedProvider(
-            FaultProvider(next(iter(self.gateway.adapters.values())), faults),
-            budget,
-            request.per_trial_limits,
-            operations,
-            faults,
-        )
+        from career_agent.models.control.scenario import ControlScenario, isolated_controller
+
+        scopes = {
+            name: ScopedProvider(
+                FaultProvider(adapter, faults), budget, request.per_trial_limits, operations, faults
+            )
+            for name, adapter in self.gateway.adapters.items()
+        }
+        scoped = next(iter(scopes.values()))
+        # Every provider projects into the same trial ledger, never independent full budgets.
+        for scope in scopes.values():
+            scope.usage = scoped.usage
+            scope.ledger = scoped.ledger
         gateway = ModelGateway(
             self.gateway.registry,
             self.gateway.policy,
-            {name: scoped for name in self.gateway.adapters},
+            {name: scope for name, scope in scopes.items()},
             self.gateway.prompts,
+            controller=self.gateway.controller
+            if self.allow_paid_models
+            else isolated_controller(self.gateway.controller.policy, case.control_scenario),
+            traffic_class="evaluation",
         )
         start = time.monotonic()
         token = FROZEN_CLOCK.set(case.evaluation_clock)
@@ -245,6 +261,12 @@ class EvalRunner:
         incompatible = False
         origin_output_limit = 6000
         try:
+            if self.allow_paid_models and (
+                case.fault_plan.faults or case.control_scenario != ControlScenario()
+            ):
+                # Artificial feedback/failures may exercise isolated offline controllers,
+                # never poison a real quota controller shared with user traffic.
+                raise ModelGatewayError("eval_live_control_scenario_forbidden")
             if request.mode == "origin_reexecution":
                 original = case.origin_provenance
                 if (original.get("provider"), original.get("model")) not in {
@@ -263,19 +285,70 @@ class EvalRunner:
                     or not 1 <= parameters["max_output_tokens"] <= 32768
                 ):
                     raise ModelGatewayError("origin_config_unavailable")
+                from career_agent.models.contracts import ModelCandidate
+                from career_agent.models.control.contracts import (
+                    AttemptSelection,
+                    ControlPolicy,
+                    TaskControlPolicy,
+                )
+                from career_agent.models.control.controller import Controller
                 from career_agent.models.gateway import ModelPolicy
 
-                selected = next(
-                    c
-                    for c in gateway.registry
-                    if c.provider == original["provider"] and c.model == original["model"]
-                )
-                # Restrict both routing and registry: current policy cannot substitute a model.
+                contract = original.get("control_contract")
+                if (
+                    not isinstance(contract, dict)
+                    or contract.get("schema_version") != "attempt-control-snapshot-v1"
+                ):
+                    raise ModelGatewayError("origin_config_unavailable")
+                try:
+                    origin_policy = TaskControlPolicy.model_validate(contract["task_policy"])
+                    origin_controller = ControlPolicy.model_validate(contract["controller_policy"])
+                    selected = ModelCandidate.model_validate(contract["candidate"])
+                    origin_selection = AttemptSelection.model_validate(contract["selection"])
+                    approved = sorted(
+                        origin_policy.candidates, key=lambda item: (item.priority, item.route)
+                    )
+                    if (
+                        origin_controller.implementation_version
+                        != gateway.controller.policy.implementation_version
+                        or origin_selection.routing_role != "primary"
+                        or origin_selection.attempt_index != 1
+                        or origin_selection.circuit_disposition != "closed"
+                        or origin_selection.task_type != case.entrypoint.name
+                        or origin_selection.provider != selected.provider
+                        or origin_selection.model != selected.model
+                        or origin_selection.route != f"{selected.provider}:{selected.model}"
+                        or origin_selection.model_policy_version != original["model_policy_version"]
+                        or origin_selection.control_policy_version != origin_controller.version
+                        or origin_selection.output_policy_version != origin_policy.output.version
+                        or origin_selection.qualification_ref != approved[0].qualification_ref
+                        or selected.provider != original["provider"]
+                        or selected.model != original["model"]
+                        or approved[0].route != f"{selected.provider}:{selected.model}"
+                        or origin_selection.task_policy_version != origin_policy.version
+                        or parameters["max_output_tokens"] != origin_selection.hard_output_tokens
+                    ):
+                        raise ModelGatewayError("origin_config_unavailable")
+                except (KeyError, TypeError, ValidationError):
+                    raise ModelGatewayError("origin_config_unavailable") from None
+                # Reconstruct the exact original route/config. Historical overflow/probe state
+                # cannot be inferred: those origins fail closed above, never use current routing.
+                if self.allow_paid_models and (
+                    origin_controller != gateway.controller.policy
+                    or origin_selection.traffic_class != "evaluation"
+                ):
+                    raise ModelGatewayError("origin_config_unavailable")
                 gateway = ModelGateway(
                     [selected],
-                    ModelPolicy(POLICY.version, {case.entrypoint.name: selected.tier}),
+                    ModelPolicy(
+                        original["model_policy_version"], {}, {case.entrypoint.name: origin_policy}
+                    ),
                     gateway.adapters,
                     gateway.prompts,
+                    controller=gateway.controller
+                    if self.allow_paid_models
+                    else Controller(origin_controller, gateway.controller.clock),
+                    traffic_class=origin_selection.traffic_class,
                 )
                 origin_output_limit = parameters["max_output_tokens"]
             entry = case.entrypoint
@@ -565,7 +638,35 @@ class EvalRunner:
             result = {"status": "failed", "reason_code": reason}
         finally:
             for operation in operations:
+                selection = operation.provenance.get("control_selection")
+                if selection:
+                    attempt_id = UUID(selection["attempt_id"])
+                    operation.provenance["control_outcome"] = gateway.outcomes.get(attempt_id, {})
+                    logical_id = UUID(selection["logical_operation_id"])
+                    control_operation = gateway.operations.get(logical_id)
+                    if control_operation:
+                        operation.provenance["control_decisions"] = list(
+                            control_operation.decisions
+                        )
                 operation.provenance.setdefault("model_policy_version", gateway.policy.version)
+            represented = {
+                op.provenance.get("control_selection", {}).get("logical_operation_id")
+                for op in operations
+            }
+            for identity, control_operation in gateway.operations.items():
+                if str(identity) not in represented and control_operation.decisions:
+                    operations.append(
+                        OperationSnapshot(
+                            kind="deterministic_operation",
+                            name="model_admission",
+                            version=gateway.controller.policy.implementation_version,
+                            input_snapshot={},
+                            input_hash=digest({}),
+                            logical_operation_id=identity,
+                            provenance={"control_decisions": list(control_operation.decisions)},
+                            reason_codes=["model_admission_denied"],
+                        )
+                    )
             FROZEN_CLOCK.reset(token)
             EVALUATION_ORIGIN.reset(origin)
         checks = evaluate(case.expectations, result)

@@ -85,7 +85,15 @@ def candidate_config(settings: Settings, gateway: ModelGateway | None = None) ->
         },
         model_policy={
             "version": policy.version,
+            "traffic_class": gateway.traffic_class if gateway else None,
             "task_tiers": {k: v.value for k, v in policy.task_tiers.items()},
+            "task_controls": {
+                k: v.model_dump(mode="json")
+                for k, v in policy.bind(
+                    gateway.registry if gateway else registry(settings, False)
+                ).task_policies.items()
+            },
+            "controller": gateway.controller.policy.model_dump(mode="json") if gateway else None,
             "candidates": [
                 x.model_dump(mode="json")
                 for x in (gateway.registry if gateway else registry(settings, False))

@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.3 Evaluation Foundation — completed locally; offline acceptance passed.**
-Next planned milestone: v0.4 Production Engineering; no v0.4 controls are implemented here.
+**v0.4 Phase 1 Runtime Control Core — implementation and offline acceptance complete.**
+v0.3 is completed; Phase 2 automatic policies/Ops remain planned.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -124,14 +124,17 @@ backfill. Privacy minimization is a baseline, not complete free-text DLP. v0.3 b
 - Historical origins without executable versions/input snapshots remain explicitly incompatible.
 - No worker, crash reconciliation, exactly-once guarantees or automatic control policies.
 
-### v0.4 Production Engineering (planned)
+### v0.4 Production Engineering (Phase 1 implemented and offline-verified)
 
-- [ ] Agent Ops Dashboard and metrics aggregation: runs/steps/tools/retries/errors/latency/tokens/cost.
-- [ ] Dynamic model routing and complete token/cost reservation, reconciliation and budget policy.
-- [ ] Rate/concurrency limits, scoped circuit breakers, fallback and graceful degradation.
-- [ ] Windowed automatic control with cooldowns, recovery probes and control-action audit.
-- [ ] Caching with version/privacy-aware keys and invalidation.
-- [ ] Synthetic load/failure tests and full E2E acceptance, not invented multi-user traffic.
+- [x] Approved task candidate sets, immutable attempt binding and deterministic priority routing.
+- [x] Single-process provider/route capacity, configurable headroom and static traffic protection.
+- [x] Attempt-level rolling circuits, bounded admission/retries/fallback and operation deadlines.
+- [x] Independent capacity/financial accounting; complete-only output diagnostics and isolated Eval scenarios.
+- [x] Final Phase 1 offline acceptance and documentation sign-off (499 tests).
+- [ ] Phase 2: Ops aggregation/API/dashboard, automatic tuning and control policies above the static controller.
+- [ ] Explicit feature-specific degradation modes and future opt-in partial artifact validators.
+- [ ] Distributed coordination, restart reconciliation and broader synthetic load acceptance remain separate future work.
+- [ ] Caching with version/privacy-aware keys and invalidation; no local response cache in Phase 1.
 
 ### v0.5 Real Usage Loop (planned)
 
@@ -228,3 +231,14 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
   regression cases alongside the initial suite.
 - Preserve capture provenance identity and the concurrent capture/promotion/replay integration checks.
 - Keep deadline cancellation/unknown reservation and calibration repeated-pair weighting tests.
+
+### v0.4 Phase 1 implementation boundary
+
+- Task-approved routing, immutable attempt selection and independent capacity/financial ledgers.
+- Process-shared quota controller; static traffic protection, circuit health and bounded retries.
+- Complete-only output diagnostics and isolated Eval control scenarios.
+- Offline regression acceptance complete; no Phase 1 paid/live acceptance claimed.
+- Phase 2: operational aggregation, automatic tuning and control policies; no work started here.
+- Operational limitation: no distributed quota coordination or persisted controller reconstruction.
+- Origin limitation: historical overflow/probe state without sufficient frozen metadata is unavailable
+  for exact re-execution; historical artifacts remain readable.

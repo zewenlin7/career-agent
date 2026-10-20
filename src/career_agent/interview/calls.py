@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
+from anyio import CancelScope
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -90,16 +91,81 @@ class InterviewCalls:
                 if task != "mock_interview_turn_generation"
                 else "mock_input_too_large"
             )
-        candidate = self.gateway.policy.select(context, self.gateway.registry)
-        cost = (
-            bound * candidate.input_cost_per_million
-            + policy.max_output_tokens * candidate.output_cost_per_million
-        ) / 1000000
-        if cost > policy.max_estimated_cost:
+        approved = self.gateway.policy.approved(context, self.gateway.registry)
+        context = context.model_copy(
+            update={
+                "max_output_tokens": min(
+                    context.max_output_tokens, approved.output.hard_max_output_tokens
+                )
+            }
+        )
+        primary_routes = {
+            (entry.provider, entry.model)
+            for entry in approved.candidates
+            if "primary" in entry.roles
+        }
+        if not any(
+            (candidate.provider, candidate.model) in primary_routes
+            and self.gateway.policy.eligible(context, candidate, bound)
+            for candidate in self.gateway.registry
+        ):
             raise ModelGatewayError("call_budget_exhausted")
         return bound
 
     async def generate(
+        self,
+        kind: OwnerKind,
+        id: UUID,
+        task: str,
+        inputs: dict[str, Any],
+        policy: CallPolicy,
+        validate: Callable[[BaseModel], None],
+        *,
+        logical_operation_id: UUID,
+        retry_reason: str | None = None,
+        repair_reason: str | None = None,
+    ) -> AcceptedCall:
+        try:
+            return await self._generate(
+                kind,
+                id,
+                task,
+                inputs,
+                policy,
+                validate,
+                logical_operation_id=logical_operation_id,
+                retry_reason=retry_reason,
+                repair_reason=repair_reason,
+            )
+        except ModelGatewayError as exc:
+            if exc.control_decisions:
+                # Admission is not a provider attempt. Retain the decision as a step,
+                # without inventing a ModelCall or consuming a model-call quota.
+                async with self.sessions.begin() as session:
+                    row = await owner(session, kind, id)
+                    sequence = 1 + (
+                        await session.scalar(
+                            select(func.max(e.AgentStep.sequence)).where(
+                                e.AgentStep.run_id == row.run_id
+                            )
+                        )
+                        or 0
+                    )
+                    session.add(
+                        e.AgentStep(
+                            run_id=row.run_id,
+                            sequence=sequence,
+                            node=task,
+                            status=CallStatus.FAILED,
+                            reason_code=exc.code,
+                            versions={"control_decisions": exc.control_decisions},
+                        )
+                    )
+            raise
+        finally:
+            self.gateway.cancel_pending(logical_operation_id)
+
+    async def _generate(
         self,
         kind: OwnerKind,
         id: UUID,
@@ -125,19 +191,67 @@ class InterviewCalls:
             if attempt > 1 and not retry_reason and not repair_reason:
                 retry_reason = "explicit_generation_retry"
             bound = self.preflight(task, row.mode, inputs, policy)
-            context = self.request(task, row.mode, policy)
+            context = self.request(task, row.mode, policy).model_copy(
+                update={
+                    "logical_operation_id": logical_operation_id,
+                    "traffic_class": "interactive_user" if kind == "mock" else "normal_user",
+                }
+            )
             spec = self.gateway.prompts.resolve(task).task(inputs)
-            candidate = self.gateway.policy.select(context, self.gateway.registry)
+            prior_calls = list(
+                await session.scalars(
+                    select(e.ModelCall)
+                    .where(e.ModelCall.logical_operation_id == logical_operation_id)
+                    .order_by(e.ModelCall.attempts)
+                )
+            )
+            if prior_calls:
+                self.gateway.seed_operation(
+                    logical_operation_id,
+                    [(f"{call.provider}:{call.model}", call.error_code) for call in prior_calls],
+                    max(
+                        sum((call.latency_ms or 0) / 1000 for call in prior_calls),
+                        max(
+                            float(
+                                call.versions.get("control_metadata", {}).get(
+                                    "operation_active_seconds", 0
+                                )
+                            )
+                            for call in prior_calls
+                        ),
+                    ),
+                    context,
+                )
             usage = InterviewUsage.model_validate(row.usage)
             limits = InterviewLimits.model_validate(row.limits)
+            context = context.model_copy(
+                update={
+                    "execution_seconds_remaining": max(
+                        0.0,
+                        min(
+                            policy.max_seconds,
+                            limits.max_active_seconds
+                            - usage.active_seconds
+                            - usage.reserved_seconds,
+                        ),
+                    )
+                }
+            )
+            context = await self.gateway.prepare(context, spec)
+            candidate = self.gateway.candidate(context)
             if (
                 usage.active_seconds + usage.reserved_seconds + policy.max_seconds
                 > limits.max_active_seconds
             ):
+                self.gateway.cancel_prepared(context)
                 raise ModelGatewayError("active_time_exhausted")
-            reservation = BudgetLedger(limits, usage).reserve_model(
-                candidate, bound, policy.max_output_tokens
-            )
+            try:
+                reservation = BudgetLedger(limits, usage).reserve_model(
+                    candidate, bound, context.max_output_tokens
+                )
+            except BaseException:
+                self.gateway.cancel_prepared(context)
+                raise
             usage.reserved_seconds += policy.max_seconds
             row.usage = usage.model_dump(mode="json")
             versions = self.gateway.trace_metadata(context, spec).model_copy(
@@ -145,7 +259,15 @@ class InterviewCalls:
             )
             step = e.AgentStep(
                 run_id=row.run_id,
-                sequence=usage.model_calls,
+                sequence=1
+                + (
+                    await session.scalar(
+                        select(func.max(e.AgentStep.sequence)).where(
+                            e.AgentStep.run_id == row.run_id
+                        )
+                    )
+                    or 0
+                ),
                 node=task,
                 attempt=attempt,
                 status=CallStatus.RUNNING,
@@ -177,24 +299,12 @@ class InterviewCalls:
         result = None
         cancelled = False
         try:
-            result = await asyncio.wait_for(
-                self.gateway.generate(context, spec), timeout=policy.max_seconds
-            )
+            result = await self.gateway.generate(context, spec)
             actual = result.usage
             validate(result.validated_output)
         except asyncio.CancelledError:
             cancelled = True
             failure = ModelGatewayError("execution_cancelled")
-        except TimeoutError:
-            failure = ModelGatewayError(
-                "provider_timeout",
-                retryable=True,
-                diagnostic=OutputDiagnostic(
-                    failure_kind="provider_timeout",
-                    request_timeout_seconds=policy.max_seconds,
-                    timeout_policy_version="interview-budget-v1",
-                ),
-            )
         except ModelGatewayError as exc:
             failure = exc
             actual = actual or exc.usage
@@ -203,74 +313,106 @@ class InterviewCalls:
         except Exception:
             failure = ModelGatewayError("interview_provider_error")
         elapsed = time.monotonic() - start
-        async with self.sessions.begin() as session:
-            row = await owner(session, kind, id)
-            usage = InterviewUsage.model_validate(row.usage)
-            settled = BudgetLedger(InterviewLimits.model_validate(row.limits), usage).settle(
-                reservation, actual
-            )
-            usage.reserved_seconds = max(0, usage.reserved_seconds - policy.max_seconds)
-            usage.active_seconds += elapsed
-            for field, unknown in [
-                ("cached_tokens", "cached_unknown_calls"),
-                ("cache_write_tokens", "cache_write_unknown_calls"),
-                ("reasoning_tokens", "reasoning_unknown_calls"),
-            ]:
-                value = getattr(settled, field)
-                if value is None:
-                    setattr(usage, unknown, getattr(usage, unknown) + 1)
-                else:
-                    setattr(usage, field, getattr(usage, field) + value)
-            row.usage = usage.model_dump(mode="json")
-            call = await require(session, e.ModelCall, call_id)
-            step = await require(session, e.AgentStep, step_id)
-            call.usage = settled.model_dump(mode="json")
-            call.estimated_cost = settled.estimated_cost
-            call.latency_ms = step.latency_ms = int(elapsed * 1000)
-            call.finish_reason = result.finish_reason if result else None
-            diagnostic = (
-                failure.diagnostic
-                if failure
-                else result.versions.output_diagnostic
-                if result
-                else None
-            )
-            if diagnostic:
+        with CancelScope(shield=cancelled):
+            if failure and not self.gateway.was_dispatched(context):
+                self.gateway.cancel_prepared(context)
+                async with self.sessions.begin() as session:
+                    row = await owner(session, kind, id)
+                    usage = InterviewUsage.model_validate(row.usage)
+                    BudgetLedger(InterviewLimits.model_validate(row.limits), usage).cancel_model(
+                        reservation
+                    )
+                    usage.reserved_seconds = max(0, usage.reserved_seconds - policy.max_seconds)
+                    usage.active_seconds += elapsed
+                    row.usage = usage.model_dump(mode="json")
+                    call = await require(session, e.ModelCall, call_id)
+                    await session.delete(call)
+                    step = await require(session, e.AgentStep, step_id)
+                    step.status, step.reason_code = CallStatus.FAILED, failure.code
+                    step.versions = {
+                        **step.versions,
+                        "control_decisions": failure.control_decisions,
+                    }
+                    run = await require(session, e.AgentRun, row.run_id)
+                    run.consumed_usage = usage_projection(usage)
+                if cancelled:
+                    raise asyncio.CancelledError()
+                raise failure
+            async with self.sessions.begin() as session:
+                row = await owner(session, kind, id)
+                usage = InterviewUsage.model_validate(row.usage)
+                settled = BudgetLedger(InterviewLimits.model_validate(row.limits), usage).settle(
+                    reservation, actual
+                )
+                usage.reserved_seconds = max(0, usage.reserved_seconds - policy.max_seconds)
+                usage.active_seconds += elapsed
+                for field, unknown in [
+                    ("cached_tokens", "cached_unknown_calls"),
+                    ("cache_write_tokens", "cache_write_unknown_calls"),
+                    ("reasoning_tokens", "reasoning_unknown_calls"),
+                ]:
+                    value = getattr(settled, field)
+                    if value is None:
+                        setattr(usage, unknown, getattr(usage, unknown) + 1)
+                    else:
+                        setattr(usage, field, getattr(usage, field) + value)
+                row.usage = usage.model_dump(mode="json")
+                call = await require(session, e.ModelCall, call_id)
+                step = await require(session, e.AgentStep, step_id)
                 call.versions = {
                     **call.versions,
-                    "output_diagnostic": diagnostic.model_dump(mode="json"),
+                    "control_metadata": self.gateway.trace_metadata(context, spec).control_metadata,
+                    "control_decisions": self.gateway.trace_metadata(
+                        context, spec
+                    ).control_decisions,
                 }
-            call.status = step.status = CallStatus.FAILED if failure else CallStatus.SUCCEEDED
-            call.error_code = step.reason_code = failure.code if failure else None
-            from career_agent.evaluation.recording import record_model
-
-            await record_model(
-                session,
-                call_id=call.id,
-                run_id=row.run_id,
-                step_id=step.id,
-                context=context,
-                task=spec,
-                output=result.validated_output.model_dump(mode="json")
-                if result and not failure
-                else None,
-                versions=call.versions,
-                operation_id=logical_operation_id,
-                source=row.snapshot if isinstance(row, e.DebriefRun) else row.context,
-                reason=failure.code if failure else None,
-            )
-            call.retryable = failure.retryable if failure else False
-            call.schema_validation_state = "valid" if result else "not_validated"
-            run = await require(session, e.AgentRun, row.run_id)
-            run.consumed_usage = usage_projection(usage)
-            session.add(
-                e.Observation(
-                    model_call_id=call.id,
-                    status=ObservationStatus.ERROR if failure else ObservationStatus.OK,
-                    error_code=call.error_code,
-                    retryable=call.retryable,
+                call.usage = settled.model_dump(mode="json")
+                call.estimated_cost = settled.estimated_cost
+                call.latency_ms = step.latency_ms = int(elapsed * 1000)
+                call.finish_reason = result.finish_reason if result else None
+                diagnostic = (
+                    failure.diagnostic
+                    if failure
+                    else result.versions.output_diagnostic
+                    if result
+                    else None
                 )
-            )
+                if diagnostic:
+                    call.versions = {
+                        **call.versions,
+                        "output_diagnostic": diagnostic.model_dump(mode="json"),
+                    }
+                call.status = step.status = CallStatus.FAILED if failure else CallStatus.SUCCEEDED
+                call.error_code = step.reason_code = failure.code if failure else None
+                from career_agent.evaluation.recording import record_model
+
+                await record_model(
+                    session,
+                    call_id=call.id,
+                    run_id=row.run_id,
+                    step_id=step.id,
+                    context=context,
+                    task=spec,
+                    output=result.validated_output.model_dump(mode="json")
+                    if result and not failure
+                    else None,
+                    versions=call.versions,
+                    operation_id=logical_operation_id,
+                    source=row.snapshot if isinstance(row, e.DebriefRun) else row.context,
+                    reason=failure.code if failure else None,
+                )
+                call.retryable = failure.retryable if failure else False
+                call.schema_validation_state = "valid" if result else "not_validated"
+                run = await require(session, e.AgentRun, row.run_id)
+                run.consumed_usage = usage_projection(usage)
+                session.add(
+                    e.Observation(
+                        model_call_id=call.id,
+                        status=ObservationStatus.ERROR if failure else ObservationStatus.OK,
+                        error_code=call.error_code,
+                        retryable=call.retryable,
+                    )
+                )
         if cancelled:
             raise asyncio.CancelledError()
         if failure:

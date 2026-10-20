@@ -77,8 +77,9 @@ async def test_fake_contract(policy):
 def test_routing_and_complexity(policy):
     registry = [candidate(), candidate(ModelTier.STRONG), candidate(ModelTier.PREMIUM)]
     assert policy.select(context(), registry).tier == ModelTier.CHEAP
-    assert policy.select(context(complexity=Complexity.HIGH), registry).tier == ModelTier.STRONG
-    assert policy.select(context(task_type="plan"), registry).tier == ModelTier.STRONG
+    assert policy.select(context(complexity=Complexity.HIGH), registry).tier == ModelTier.CHEAP
+    with pytest.raises(ModelGatewayError, match="unregistered_model_task"):
+        policy.select(context(task_type="plan"), registry)
 
 
 @pytest.mark.parametrize(
