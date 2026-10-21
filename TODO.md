@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.4 Phase 2 Recovery / Ops / Automatic Control — offline implementation complete; post-implementation audit next.**
-v0.1–v0.3 and v0.4 Phase 1 remain preserved. No paid Phase 2 smoke has been run.
+**v0.4 Phase 3 Reuse Optimization + Production Acceptance — offline implementation verified; awaiting independent audit/live smoke.**
+v0.1–v0.4 Phase 2 remain preserved; Phase 2 is user-confirmed complete and CI accepted. No paid calls in this phase.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -124,7 +124,7 @@ backfill. Privacy minimization is a baseline, not complete free-text DLP. v0.3 b
 - Historical origins without executable versions/input snapshots remain explicitly incompatible.
 - No worker, crash reconciliation, exactly-once guarantees or automatic control policies.
 
-### v0.4 Production Engineering (Phase 1 complete; Phase 2 offline acceptance complete)
+### v0.4 Production Engineering (Phases 1/2 complete; Phase 3 offline verified)
 
 - [x] Approved task candidate sets, immutable attempt binding and deterministic priority routing.
 - [x] Single-process provider/route capacity, configurable headroom and static traffic protection.
@@ -135,12 +135,18 @@ backfill. Privacy minimization is a baseline, not complete free-text DLP. v0.3 b
 - [x] Phase 2: bounded effective controls, TTL overrides, kill switches, CAS/idempotency and metadata-only Ops API.
 - [x] Phase 2: isolated Eval restart/operator scenarios and immutable sampling decisions.
 - [x] Phase 2 full-suite/static/build acceptance: 532 offline tests after the audit fixes, Ruff/format, strict mypy, migration/drift and offline wheel/sdist/import checks.
-- [ ] Phase 2 independent post-implementation audit.
-- [ ] Phase 3: Ops frontend, broader synthetic load/retention and operational usability after backend audit.
+- [x] Phase 2 post-implementation audit/fixes and user-confirmed CI completion.
+- [x] Phase 3: versioned prompt composition; exact persisted read-only search observation reuse.
+- [x] Phase 3: bounded transaction claims, target reuse and ordinary Debrief create idempotency; explicit regenerate stays separate.
+- [x] Phase 3: separate cache-token and reuse decision Ops populations, with unknown/billed semantics preserved.
+- [x] Phase 3 audit-fix verification: 557 tests; Ruff/format/strict mypy; migration/drift/history upgrade; offline build/package. Locked install and Typst/font checks also passed during initial acceptance.
+- [ ] Phase 3 independent post-implementation audit and explicitly authorized minimal live smoke.
+- [ ] Future: Ops frontend, broader operational load/retention and usability (outside Phase 3).
 - [ ] Explicit feature-specific degradation modes and future opt-in partial artifact validators.
 - [ ] Distributed coordination and broader load acceptance remain future work; no unknown request auto-replay.
 - [ ] Explicit administrative migration for changed persisted base-policy identities; no reset-to-healthy fallback.
-- [ ] Caching with version/privacy-aware keys and invalidation; no local response cache in Phase 1.
+- [x] Version/privacy/scope-aware external search observation reuse; no generic or semantic LLM-response cache.
+- [ ] Observation retention/cleanup policy and broader contention/load characterization; no crash replay of lost model output.
 
 ### v0.5 Real Usage Loop (planned)
 
@@ -207,8 +213,8 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
   recovery or worker is claimed. v0.2a adds only committed action-boundary checkpoints and explicit resume.
 - Database/filesystem writes are not globally atomic. Existing best-effort cleanup cannot replace
   orphan artifact reconciliation after crashes.
-- Concurrent identical requests may duplicate model work; artifact reuse is sequential, not a
-  distributed idempotency guarantee. Optimistic resume revision checks remain in place.
+- Phase 3 serializes identical artifact/request identities before spend with bounded transaction
+  claims. This is not an exactly-once/crash-replay guarantee; optimistic resume checks remain in place.
 - Context fingerprints use exact IDs, verified fact status, task prompt hash and mode. They are
   private provenance keys, not cross-version semantic-equivalence judgments or quality scores.
 - Pre-v0.1d outputs remain readable. Legacy Fit reuse requires provable package/prompt/fact
@@ -229,7 +235,8 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
 - Active-time limits stop new work and bound model/compiler calls; synchronous validation/DB finalization
   can overrun a wall-clock deadline. They are not process-isolation or hard real-time guarantees.
 - Planner validation proves authorization/structure, not that a model correctly understood the goal.
-  No new live planner quality acceptance, judge, harness, dynamic routing or operational control plane.
+  Synthetic/offline acceptance is not proof of real planner quality. Judge/harness and operational
+  control are now implemented in v0.3/v0.4, with their documented limits.
 
 ### v0.3 audit regression checks
 
@@ -243,7 +250,7 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
 - Task-approved routing, immutable attempt selection and independent capacity/financial ledgers.
 - Process-shared quota controller; static traffic protection, circuit health and bounded retries.
 - Complete-only output diagnostics and isolated Eval control scenarios.
-- Offline regression acceptance complete; no Phase 1 paid/live acceptance claimed.
+- Phase 1/2 completion and remote CI are user-confirmed; Phase 3 has no new paid/live acceptance.
 - Phase 2 now adds operational aggregation and bounded effective controls; see current milestone.
 - Operational limitation: no distributed quota coordination; Phase 2 reconstructs single-owner state.
 - Origin limitation: historical overflow/probe state without sufficient frozen metadata is unavailable

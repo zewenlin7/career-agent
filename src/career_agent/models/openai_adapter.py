@@ -1,12 +1,12 @@
 """Responses API native Pydantic output; no tools, storage or hidden SDK retries."""
 
-import json
 from decimal import Decimal
 from typing import Literal
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
+from career_agent.models.composition import serialize
 from career_agent.models.contracts import (
     ModelCandidate,
     ModelGatewayError,
@@ -53,7 +53,7 @@ class OpenAIProvider:
                 model=candidate.model,
                 input=[
                     {"role": "system", "content": task.instruction},
-                    {"role": "user", "content": json.dumps(task.inputs, ensure_ascii=False)},
+                    {"role": "user", "content": serialize(task.inputs)},
                 ],
                 text_format=context.output_schema,
                 max_output_tokens=context.max_output_tokens,

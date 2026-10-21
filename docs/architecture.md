@@ -616,7 +616,8 @@ Absent is null, not zero; cached read, total input/output and reasoning counters
 No independent write surcharge is inferred: current estimation is non-cached input × input rate +
 cached input × cached rate + output × output rate. A write-specific tariff/inclusion relationship
 would require a reliable provider pricing contract before changing arithmetic. This update does not
-claim invoice accuracy, add pricing snapshots, aggregate cache metrics, or automate cache policy.
+claim invoice accuracy, add pricing snapshots, or automate cache policy. Phase 3 adds separate
+reported-token cache and reuse-decision metric populations (see below).
 The existing unknown-usage reservation and actual-billed-cost-null boundaries remain unchanged.
 
 Acceptance uses fake providers, HTTP mocks and real local PostgreSQL/Typst only. It verifies metadata
@@ -974,3 +975,76 @@ Eval uses the candidate automatic policy; legacy explicit scenario policies must
 initial state must match the base/automatic policy hash. Ops separates deduplicated admission decisions,
 automatic adjustments and lifecycle events, and reports window versus all-time outstanding uncertainty.
 Sampling begins at configured base/per-task rates; prior SamplingDecision records remain unchanged.
+
+
+## v0.4 Phase 3: exact reuse and offline production acceptance
+
+`PromptSpec.composition` is a small serialization contract, not another prompt registry. Each feature
+owns its block order; otherwise object keys are lexical and arrays retain their semantic order.
+The composition/version participates in the prompt hash and CandidateConfig. The Gateway rejects an
+uncomposed task that claims the composed contract. OpenAI receives that same compact JSON view;
+private invocation snapshots preserve inputs and prompt identity. No provider cache policy is inferred.
+Grounding refs remain present; only irrelevant research retrieval/provider bookkeeping is excluded
+from synthesis inputs. Historical original evidence stays unchanged.
+
+`SearchObservation` stores a Pydantic-validated provider-independent result, exact normalized identity,
+source refs, result hash, retrieval time and expiry. Provider identity/parameters come from trusted
+adapter configuration, not model output. Query normalization only trims/collapses whitespace. Mode
+and Company identity isolate scopes. Lookup requires both freshness and exact contract/hash integrity;
+future-dated observations fail closed. Unknown adapter contracts bypass reuse. Search success is
+committed through an independent DB transaction with no FK to an uncommitted business run; subsequent
+synthesis failure/rollback cannot erase the observation. This is the only added observation store,
+not ToolCall JSON and not a universal caching framework.
+An explicitly authorized `force_research_refresh` bypasses both the synthesized report and
+observation lookup, obtaining a new observation. Ordinary targets still cannot authorize search.
+
+An exact search identity is transaction-claimed before lookup/fetch. Existing requirement/target
+execution likewise claims before checking/generating, releasing only at transaction commit/rollback.
+Short try-lock polling is bounded by configured wait (and the parent runtime's remaining time), and
+never occurs under a capacity-controller lock. Contention timeout costs no provider call. Waiters
+reuse only a committed compatible result; a peer's failed result does not trigger automatic re-spend.
+A later explicit retry is distinct. Requirement claims serialize the initial exact-JD prerequisite;
+Before target generation, a metadata-only `business_claim/started` intent commits independently.
+It survives business rollback and prevents a contending waiter from re-spending when no authoritative
+artifact exists. This conservative intent is not proof of dispatch or usage; the attempt journal
+remains authoritative for those facts. Intents are excluded from reuse/attempt metric populations.
+target claims retain existing exact Profile/JD/fact/Resume/notes fingerprints and validators.
+Different contexts may still encounter ordinary domain CAS conflicts; there is no exactly-once promise
+or automatic recovery of lost provider outputs. Independent observation writes require available DB
+connections alongside the business transaction; no worker/scheduler was added.
+
+Ordinary Debrief create fingerprints frozen source, exact requested targets/mode, execution policy,
+prompt identity and validator version. A nullable unique fingerprint plus pre-generation claim
+prevents duplicate runs. A duplicate returns its exact original run, not a later selected run with
+possibly different targets. Explicit regenerate bypasses create idempotency, appends new run/artifacts
+and keeps the original immutable source. Old runs with no fingerprint remain readable; migration
+never invents identity or retroactively claims compatibility.
+Create/regenerate responses read their exact new generation, even if a concurrent regenerate has
+changed the selected result. Default GET/view continues to follow that selected result.
+
+`ReuseDecision` is metadata-only, with no FK to an uncommitted run. Search hit creates no ToolCall and
+no usage/cost reservation. Business creation/reuse decisions are not provider attempts; Debrief creation
+alone is not model execution. Ops exposes global reuse populations separately from quota-scoped
+provider-token metrics, preserving unknown-field counts and rate denominators. No saved cost is
+claimed: counterfactual estimates and actual billed savings are null. Parent/child usage remains a
+projection, never added twice. Search payload/query contents are never exposed by these Ops queries.
+
+Offline Eval continues to use a fresh temporary DB and isolated controller per workflow trial.
+Frozen research adapters carry an exact frozen-observation identity; misses cannot reach the web.
+Injected clocks govern freshness. CandidateConfig includes composition and reuse implementation
+versions; observed reuse decisions are deterministic-operation provenance, not mutable configuration.
+Origins missing the matching new prompt contract remain explicitly unavailable, not silently upgraded.
+
+Acceptance mapping (synthetic, not production traffic/quality evidence):
+
+| Invariant | Executable coverage |
+| --- | --- |
+| Saturation/overflow, retry/breaker/fallback, 429 readmission, output-limit rejection through artifact/Ops | `tests/integration/test_production_acceptance.py` |
+| Unknown/rollback → restart → incident/protection → idempotent reconcile, no replay | `test_production_acceptance.py`, `test_recovery_ops.py` |
+| Bucket isolation/reservations, pending dispatch vs kill/override/tick, TTL/CAS | `test_runtime_control.py`, `test_recovery_control.py`, `test_recovery_ops.py`, `test_control_traces.py` |
+| Fresh/miss/expiry/contract, synthesis rollback, concurrent target generation, Debrief regenerate | `tests/integration/test_reuse_phase3.py`, `test_preparation.py` |
+| Stable prefixes/arrays/refs, cache null coverage and safe metrics | `test_composition.py`, `test_reuse_metrics.py`, `test_production_acceptance.py` |
+| Frozen Eval/candidate, real PostgreSQL/Typst, historical migration, privacy | existing evaluation/database/interview suites plus Phase 3 reuse tests |
+
+Deferred: paid Phase 3 smoke, independent audit, broader contention/retention measurements and UI.
+No generic model-response/semantic cache, distributed limiter, multi-user quotas or auto-promotion.

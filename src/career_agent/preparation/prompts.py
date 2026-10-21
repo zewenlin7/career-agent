@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from career_agent.domain.schemas import Contract
+from career_agent.models.composition import Composition
 from career_agent.models.contracts import TaskSpec
 from career_agent.models.inputs import InputContract, JSONKind
 from career_agent.models.prompts import PromptSpec
@@ -168,8 +169,31 @@ INSTRUCTIONS = {
 
 PROMPTS = {
     task: PromptSpec(
+        composition=Composition(
+            orders={
+                "": ["locale", "trust_boundary", "context", "repair_reason"],
+                "context": [
+                    "layout_budget",
+                    "profile_refs",
+                    "facts",
+                    "company",
+                    "requirements",
+                    "job",
+                    "base_resume",
+                    "variant",
+                    "research",
+                    "fit",
+                    "stories",
+                    "notes",
+                    "evidence",
+                    "identity",
+                    "protected_fields",
+                    "layout_observation",
+                ],
+            }
+        ),
         prompt_name=task.value,
-        prompt_version=f"{task.value}_v5",
+        prompt_version=f"{task.value}_v6",
         task_type=task.value,
         input_schema_version="task-input-v3",
         output_schema_version=f"{task.value}-output-v1",

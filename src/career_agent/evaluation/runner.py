@@ -36,6 +36,7 @@ from career_agent.evaluation.sandbox import bootstrap, replace_refs, sandbox
 from career_agent.infrastructure import entities as e
 from career_agent.models.contracts import ModelGatewayError, ModelRequestContext, PrivacyClass
 from career_agent.models.gateway import ModelGateway
+from career_agent.preparation.observation_store import IDENTITY_VERSION, ReuseDecision
 from career_agent.preparation.providers import POLICY, FixtureTaskProvider, registry
 from career_agent.runtime.contracts import Budget, Usage
 
@@ -524,6 +525,27 @@ class EvalRunner:
                                 "valid": True,
                             }
                     async with sessions() as session:
+                        for decision in await session.scalars(
+                            select(ReuseDecision).order_by(ReuseDecision.created_at)
+                        ):
+                            metadata = {
+                                "category": decision.category,
+                                "operation": decision.operation,
+                                "disposition": decision.disposition,
+                                "identity_hash": decision.identity_hash,
+                            }
+                            operations.append(
+                                OperationSnapshot(
+                                    kind="deterministic_operation",
+                                    name="reuse_decision",
+                                    version=IDENTITY_VERSION,
+                                    input_snapshot=metadata,
+                                    input_hash=digest(metadata),
+                                    output={"disposition": decision.disposition},
+                                    output_ref=decision.observation_id,
+                                    parent_run_id=decision.run_id,
+                                )
+                            )
                         private = list(await session.scalars(select(q.InvocationRow)))
                         # Prefer committed exact ModelCall provenance over adapter observations.
                         if private:

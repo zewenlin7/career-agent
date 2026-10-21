@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current milestone is **v0.4 Phase 1 Runtime Control Core**, built on v0.1–v0.3.
+The current milestone is **v0.4 Phase 3 Reuse Optimization + Production Acceptance**, built on v0.1–v0.4 Phase 2.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -398,13 +398,13 @@ only safe status and a relative report reference. The report captures model/sear
 
 Default routing is extraction → cheap (`gpt-6-luna`), other tasks → strong (`gpt-6.1-sol`).
 Premium configuration is reserved and never added to the active registry. Model names and prices
-are operator configuration, not domain logic. All twelve LLM tasks use the shared code-managed `models/prompts.py` contract/registry;
-feature definitions remain in `preparation/prompts.py` and `runtime/prompts.py`. Planning and
+are operator configuration, not domain logic. All thirteen LLM tasks use the shared code-managed `models/prompts.py` contract/registry;
+feature definitions remain in preparation, runtime, interview and evaluation prompt modules. Planning and
 replanning share one prompt identity. Canonical SHA-256 covers name/version, instructions,
 input contract/schema version and output schema/version, never request data. Gateway rejects
 unregistered tasks or mismatched request/task metadata before provider dispatch. Every ModelCall
 records prompt name/version/hash, schema versions, model policy/provider/model and workflow version.
-Preparation specs now use `_v3`; the planning spec is `goal-planner-v2` / `agent-plan-v2`.
+Preparation specs use `_v6`, planning `goal-planner-v4`, interview `_v4`, and Judge `quality-judge-v2`. Composition ordering is versioned and included in the prompt hash; output schemas remain unchanged.
 Changed hashes conservatively invalidate reuse fingerprints; existing artifacts remain readable.
 
 Default run limits: 12 model attempts, 2 basic search calls, 200,000 reserved/consumed input tokens,
@@ -595,7 +595,9 @@ Only the current answer is included in each next-turn request, alongside questio
 `expected_source_revision`, `question_analysis=none|single|all` and independent `overall_analysis`.
 Single requires a primary `primary_entry_id`; arbitrary subsets and empty targets are rejected.
 Mock sources must be completed (including early-ended). Optional actual context uses explicit
-exact bindings. Creation freezes a source hash/snapshot and preflights all requested input sizes;
+exact bindings. Identical ordinary create requests reuse the same run (including failed results).
+Use `POST /{id}/regenerate` for a new execution over that frozen source; this never switches to
+a later edited interview. Creation freezes a source hash/snapshot and preflights all requested input sizes;
 it does not call a model. `POST /{id}/execute` drives bounded concurrent work as SSE in the current
 request. GET `/{id}` returns status, artifacts and deterministic presentation; GET `/{id}/events?after=N`
 replays persisted business events. This is artifact delivery, not token streaming or a worker.
@@ -801,4 +803,45 @@ mechanics, not real traffic capacity or job-search quality.
 
 Phase 2 local offline acceptance: **532 tests passed after the audit fixes**, including real PostgreSQL migration/drift and
 historical upgrades. Ruff/format, strict mypy, offline wheel/sdist/import and controlled font checks passed.
-No Phase 2 paid live smoke or production-load validation has been performed.
+Phase 2 is the completed/CI-accepted baseline. This Phase 3 change is verified offline; synthetic
+acceptance does not establish real traffic capacity, cache hit rate, or job-search quality.
+
+
+## Reuse optimization (v0.4 Phase 3)
+
+Provider-facing prompt composition has feature-owned, versioned block order and deterministic
+object-key serialization. Semantic array order and fact/evidence/ownership refs remain intact.
+Stable context precedes volatile planner/Mock fields. Research synthesis omits retrieval timestamps
+and provider bookkeeping from the model view; the original private evidence keeps that provenance.
+This is prompt stability, not a local response cache or a guarantee of provider cache hits.
+
+Authorized read-only search first checks PostgreSQL `search_observations`. Its exact identity includes
+provider/adapter and tool/schema contracts, whitespace-normalized query, actual search parameters,
+company scope and fixture/live mode. Fresh, hash-valid compatible results retain their source refs;
+expired/incompatible/missing records require the already-authorized search. Unknown adapter contracts
+are not reusable. Successful observations commit independently so later synthesis/business rollback
+does not discard them. Preparation targets still never add research on a cache miss. Company report
+lookup considers older fresh compatible reports when the newest report is incompatible.
+Explicit authorized force refresh bypasses both report and observation reuse.
+
+Transaction-scoped PostgreSQL claims serialize identical prerequisite/target generation before model
+spend, holding the claim through commit. `CAREER_AGENT_REUSE_CLAIM_WAIT_SECONDS` defaults to 5 (0–30).
+A contender gets `reuse_in_progress` if that wait expires; no model is called. A waiter with no usable
+result after a peer fails gets `reuse_result_unavailable`, not an automatic duplicate attempt. This
+is request-lifecycle coordination, not a worker or an exactly-once/crash-replay guarantee. Existing
+exact fingerprints, grounding, compatibility and artifact integrity validation still decide reuse.
+Metadata-only generation intent survives business rollback, so a contending waiter cannot silently
+re-spend without an authoritative result. Intent does not imply provider dispatch or actual charges.
+
+Ops metrics expose **separate populations**: `provider_token_cache` (quota-scoped journal attempts,
+provider-reported fields only) and `reuse_global_population` (external-observation/business decisions).
+Cache-hit rates include their known-data denominators; unreported cache-write/cache-read usage remains
+unknown. Reuse is a decision count, not measured financial savings; estimated/billed savings are null.
+The new observation JSON is private data, never returned by metadata-only Ops endpoints.
+
+Offline acceptance uses real temporary PostgreSQL, pinned Typst/fonts and synthetic/HTTP-mock
+providers. Combined tests check selection→budget→journal→ModelCall→artifact/Ops, overflow without
+skipped-route calls, retry/fallback, 429, output-limit rejection, recovery and concurrent reuse.
+Existing kill/override/CAS, Eval isolation, frozen clock, PII and historical upgrade checks remain
+required. Phase 3 live smoke and independent post-implementation audit are separate later gates.
+No Redis, generic/semantic model cache, UI, distributed quota coordination or candidate promotion.

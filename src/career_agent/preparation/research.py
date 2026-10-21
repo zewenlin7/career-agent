@@ -35,11 +35,32 @@ class SearchToolMetadata(Contract):
     estimated_cost_class: str = "basic_payg_equivalent_not_billed"
 
 
+SEARCH_PARAMETERS = {
+    "search_depth": "basic",
+    "max_results": 5,
+    "include_answer": False,
+    "include_raw_content": False,
+    "auto_parameters": False,
+}
+
+
+class SearchReuseContract(Contract):
+    """Trusted adapter configuration, not a model- or caller-supplied cache key."""
+
+    provider: str
+    version: str
+    parameters: dict[str, str | int | bool]
+
+
 class ResearchAdapter(Protocol):
     async def search(self, query: SearchInput) -> SearchResult: ...
 
 
 class FixtureResearchAdapter:
+    reuse_contract = SearchReuseContract(
+        provider="fixture", version="fixture-search-v1", parameters=SEARCH_PARAMETERS
+    )
+
     async def search(self, query: SearchInput) -> SearchResult:
         return SearchResult(
             evidence=[
@@ -59,6 +80,10 @@ class FixtureResearchAdapter:
 
 
 class TavilyResearchAdapter:
+    reuse_contract = SearchReuseContract(
+        provider="tavily", version="tavily-search-v1", parameters=SEARCH_PARAMETERS
+    )
+
     def __init__(self, key: str, client: httpx.AsyncClient, timeout: float = 15) -> None:
         self.key, self.client, self.timeout = key, client, timeout
 
@@ -70,11 +95,7 @@ class TavilyResearchAdapter:
                 headers={"Authorization": f"Bearer {self.key}"},
                 json={
                     "query": query.query,
-                    "search_depth": "basic",
-                    "max_results": 5,
-                    "include_answer": False,
-                    "include_raw_content": False,
-                    "auto_parameters": False,
+                    **self.reuse_contract.parameters,
                 },
                 timeout=self.timeout,
             ) as response:

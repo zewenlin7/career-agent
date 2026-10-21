@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from career_agent.models.composition import Composition, serialize
 from career_agent.models.contracts import ModelGatewayError, ModelRequestContext, TaskSpec
 from career_agent.models.inputs import InputContract
 from career_agent.runtime.contracts import VersionMetadata
@@ -23,6 +24,7 @@ class PromptSpec:
     input_contract: dict[str, Any]
     output_schema: type[BaseModel]
     executable_input: InputContract | None = None
+    composition: Composition | None = None
 
     @property
     def prompt_hash(self) -> str:
@@ -41,6 +43,8 @@ class PromptSpec:
             "output_schema_version": self.output_schema_version,
             "output_schema": self.output_schema.model_json_schema(),
         }
+        if self.composition is not None:
+            payload["composition"] = self.composition.model_dump(mode="json")
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
         ).hexdigest()
@@ -62,7 +66,11 @@ class PromptSpec:
 
     def task(self, inputs: dict[str, Any]) -> TaskSpec:
         self.validate_input(inputs)
-        return TaskSpec(instruction=self.instruction, inputs=inputs, **self.metadata)
+        return TaskSpec(
+            instruction=self.instruction,
+            inputs=self.composition.compose(inputs) if self.composition else inputs,
+            **self.metadata,
+        )
 
 
 class PromptRegistry:
@@ -100,6 +108,10 @@ class PromptRegistry:
         ):
             raise ModelGatewayError("prompt_contract_mismatch")
         spec.validate_input(task.inputs)
+        if spec.composition and serialize(task.inputs) != serialize(
+            spec.composition.compose(task.inputs)
+        ):
+            raise ModelGatewayError("prompt_composition_mismatch")
         return VersionMetadata(workflow_version=context.workflow_version, **spec.metadata)
 
 

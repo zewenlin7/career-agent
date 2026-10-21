@@ -9,8 +9,12 @@ from typing import Any
 from career_agent.application.compatibility import execution_versions
 from career_agent.config import Settings
 from career_agent.evaluation.contracts import CandidateConfig
+from career_agent.infrastructure.claims import CLAIM_VERSION
+from career_agent.interview.debrief import CREATE_IDENTITY_VERSION
+from career_agent.interview.validation import VALIDATION_VERSION
 from career_agent.models.gateway import ModelGateway
 from career_agent.models.prompts import application_prompts
+from career_agent.preparation.observation_store import IDENTITY_VERSION
 from career_agent.preparation.providers import POLICY, registry
 from career_agent.preparation.research import SearchToolMetadata
 from career_agent.runtime.registry import REGISTRY
@@ -60,6 +64,9 @@ def candidate_config(settings: Settings, gateway: ModelGateway | None = None) ->
                 if spec.executable_input
                 else None,
                 "output_schema": spec.output_schema.model_json_schema(),
+                "composition": spec.composition.model_dump(mode="json")
+                if spec.composition
+                else None,
             }
             for task, spec in prompts.specs.items()
         },
@@ -78,7 +85,11 @@ def candidate_config(settings: Settings, gateway: ModelGateway | None = None) ->
             "runtime": "agent-runtime-v1",
             "recovery": settings.automatic_control.recovery_version,
             "automatic_control": settings.automatic_control.version,
-            "ops_metrics": "ops-metrics-v1",
+            "ops_metrics": "ops-metrics-v2",
+            "search_observation": IDENTITY_VERSION,
+            "business_reuse_claim": CLAIM_VERSION,
+            "debrief_create_identity": CREATE_IDENTITY_VERSION,
+            "interview_validator": VALIDATION_VERSION,
         },
         execution_settings={
             key: value

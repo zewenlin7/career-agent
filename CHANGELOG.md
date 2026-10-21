@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Fixed — v0.4 Phase 3 audit
+
+- Preserve metadata-only target generation intent across business rollback, blocking automatic
+  re-spend by a contending waiter while retaining explicit retries and committed artifact reuse.
+- Return the exact created Debrief generation under concurrent regeneration; default retrieval
+  continues to follow the selected result.
+- Explicit authorized research refresh bypasses both report and observation reuse.
+- Audit-fix offline verification: 557 tests passed, including rollback-waiter and concurrent
+  regenerate interleavings; Ruff/format, strict mypy, migration/drift/history and offline build passed.
+
+### Added — v0.4 Phase 3 Reuse Optimization / Production Acceptance
+
+- Feature-local versioned prompt composition, deterministic object serialization and preserved
+  semantic array/ref order; provider cache telemetry remains reported usage, not inferred savings.
+- Private PostgreSQL search observations with exact provider/tool/query/parameter/scope identity,
+  freshness, source refs and content hashes. Successful observations survive synthesis rollback;
+  reuse never implicitly authorizes research or creates fake ToolCalls.
+- Bounded transaction claims before identical prerequisite/target generation, compatible company-report
+  lookup across fresh candidates, and idempotent ordinary Debrief creation. Explicit regeneration
+  remains a new generation over the frozen source; legacy rows remain readable without invented identity.
+- Separate metadata-only provider-cache/external-observation/business-reuse Ops populations and
+  deterministic Eval reuse provenance. Unknown usage and financial savings remain unknown.
+- Migration `ac04c0302601` adds observation/decision tables and nullable Debrief request identity.
+- Offline acceptance: 555 tests passed, including combined control/budget/journal/provenance,
+  concurrent reuse, rollback/restart, migration/drift/history upgrades and real Typst regressions.
+  Ruff/format, strict mypy, locked offline install, wheel/sdist and pinned font checks passed.
+  Phase 3 live smoke and independent post-implementation audit remain separate gates.
+
 ### Fixed — v0.4 Phase 2 audit
 
 - Serialize global kill publication with local updates/bootstrap and require global CAS.

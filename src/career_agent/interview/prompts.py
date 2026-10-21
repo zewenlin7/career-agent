@@ -5,6 +5,7 @@ from typing import cast
 from pydantic import BaseModel
 
 from career_agent.interview.contracts import OverallEvaluation, QuestionGroupEvaluation, TurnOutput
+from career_agent.models.composition import Composition
 from career_agent.models.inputs import InputContract
 from career_agent.models.prompts import PromptSpec
 from career_agent.security.model_view import MODEL_VIEW_VERSION
@@ -21,8 +22,9 @@ Knowledge candidates are suggestions, not verified knowledge or facts."""
 
 PROMPTS = {
     task: PromptSpec(
+        composition=Composition(orders={"": [*blocks, "repair_reason"]}),
         prompt_name=task,
-        prompt_version=f"{task}_v3",
+        prompt_version=f"{task}_v4",
         task_type=task,
         input_schema_version=f"{task}-input-v3",
         output_schema_version=f"{task}-output-v1",

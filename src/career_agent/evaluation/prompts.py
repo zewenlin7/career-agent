@@ -1,12 +1,14 @@
 """Feature-local code-managed quality rubric; deterministic correctness is not delegated."""
 
 from career_agent.evaluation.contracts import JudgeOutput
+from career_agent.models.composition import Composition
 from career_agent.models.inputs import InputContract
 from career_agent.models.prompts import PromptSpec
 
 PROMPT = PromptSpec(
+    composition=Composition(orders={"": ["rubric", "evidence", "subject"]}),
     prompt_name="quality-judge",
-    prompt_version="quality-judge-v1",
+    prompt_version="quality-judge-v2",
     task_type="quality_judgement",
     input_schema_version="judge-input-v1",
     output_schema_version="judge-output-v1",

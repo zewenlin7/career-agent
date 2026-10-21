@@ -325,7 +325,13 @@ async def test_debrief_retry_partial_and_shared_quota(client, sessions):
     )
     payload.update(question_analysis="all", overall_analysis=True)
     payload.pop("primary_entry_id")
-    capped = (await client.post("/api/v1/interview-debriefs", json=payload)).json()
+    # Ordinary duplicate create is idempotent; another execution is explicit regeneration.
+    capped = (
+        await client.post(
+            f"/api/v1/interview-debriefs/{run['id']}/regenerate",
+            json={"question_analysis": "all", "overall_analysis": True},
+        )
+    ).json()
     async with sessions.begin() as session:
         stored = await session.get(e.DebriefRun, UUID(capped["id"]))
         stored.limits = {**stored.limits, "max_model_calls": 1}

@@ -17,6 +17,8 @@ from career_agent.interview.contracts import (
 from career_agent.models.contracts import ModelGatewayError
 from career_agent.preparation.guardrails import chinese, minimize, refs
 
+VALIDATION_VERSION = "interview-validation-v1"
+
 
 def groups(snapshot: SourceSnapshot) -> list[dict[str, Any]]:
     validate_entries(snapshot.entries)

@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     model_retry_limit: int = Field(default=1, ge=0, le=2)
     schema_repair_limit: int = Field(default=1, ge=0, le=1)
     company_research_ttl_hours: int = Field(default=168, ge=1, le=720)
+    reuse_claim_wait_seconds: float = Field(default=5, ge=0, le=30)
     search_timeout_seconds: float = Field(default=15, gt=0, le=30)
     search_cost_per_call: Decimal = Field(default=Decimal("0.008"), ge=0)
     cheap_input_price: Decimal = Field(default=Decimal("0.10"), ge=0)

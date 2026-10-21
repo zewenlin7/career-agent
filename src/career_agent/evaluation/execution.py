@@ -20,7 +20,12 @@ from career_agent.models.contracts import (
 )
 from career_agent.preparation.budget import BudgetLedger, input_bound
 from career_agent.preparation.contracts import Accounting, RunLimits
-from career_agent.preparation.research import ResearchAdapter, SearchInput, SearchResult
+from career_agent.preparation.research import (
+    ResearchAdapter,
+    SearchInput,
+    SearchResult,
+    SearchReuseContract,
+)
 from career_agent.runtime.contracts import Usage
 
 FROZEN_CLOCK: ContextVar[datetime | None] = ContextVar("evaluation_clock", default=None)
@@ -180,6 +185,11 @@ class ScopedResearch:
 
     def __init__(self, inner: ResearchAdapter, scope: ScopedProvider, cost: Decimal) -> None:
         self.inner, self.scope, self.cost = inner, scope, cost
+
+    @property
+    def reuse_contract(self) -> SearchReuseContract | None:
+        contract = getattr(self.inner, "reuse_contract", None)
+        return contract if isinstance(contract, SearchReuseContract) else None
 
     async def search(self, query: SearchInput) -> SearchResult:
         scope = self.scope

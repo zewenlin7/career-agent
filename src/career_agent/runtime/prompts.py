@@ -1,5 +1,6 @@
 """Feature-local planning prompts, registered through the shared contract."""
 
+from career_agent.models.composition import Composition
 from career_agent.models.inputs import InputContract
 from career_agent.models.prompts import PromptSpec
 from career_agent.runtime.agent_contracts import PlanProposal
@@ -23,8 +24,22 @@ Return missing_inputs when clarification is required."""
 
 PROMPTS = {
     task: PromptSpec(
+        composition=Composition(
+            orders={
+                "": [
+                    "allowed_actions",
+                    "authorized_scope",
+                    "bindings",
+                    "goal",
+                    "artifacts",
+                    "progress",
+                    "previous_observation",
+                    "remaining_budget",
+                ]
+            }
+        ),
         prompt_name="goal-planner",
-        prompt_version="goal-planner-v3",
+        prompt_version="goal-planner-v4",
         task_type=task,
         input_schema_version="planner-context-v3",
         output_schema_version="agent-plan-v2",

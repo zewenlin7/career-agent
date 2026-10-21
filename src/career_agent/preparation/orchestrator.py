@@ -7,12 +7,14 @@ from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from career_agent.application import resumes
 from career_agent.application.compatibility import compatible, execution_versions
 from career_agent.application.services import require
 from career_agent.domain.rules import DomainError, RunStatus
 from career_agent.infrastructure import entities as e
+from career_agent.infrastructure.claims import claim
 from career_agent.models.contracts import ModelGatewayError
 from career_agent.preparation.context import ContextLoader
 from career_agent.preparation.contracts import (
@@ -27,6 +29,7 @@ from career_agent.preparation.contracts import (
     WorkflowOutcome,
     WorkflowState,
 )
+from career_agent.preparation.observation_store import ReuseDecision
 from career_agent.preparation.prompts import PROMPTS
 from career_agent.resume.renderer import CompileError
 from career_agent.resume.schemas import RenderReport, ResumeDocument
@@ -65,6 +68,7 @@ class Orchestrator:
         self.reason: str | None = None
         self.bindings: dict[str, ResumeBinding] = {}
         self.gate_used = False
+        self.claim_contended = False
 
     def record(
         self,
@@ -73,6 +77,23 @@ class Orchestrator:
         reason: str | None = None,
     ) -> None:
         self.nodes.append(PlanNode(name=name, status=status, reason=reason))
+        if status in {"executed", "reused"} and name in {
+            "fit_analysis",
+            "resume_tailoring",
+            "greeting_generation",
+            "interview_preparation",
+            "requirements",
+            "extract_requirements",
+            "research_company",
+        }:
+            self.r.session.add(
+                ReuseDecision(
+                    run_id=self.r.run.id,
+                    category="business_artifact",
+                    operation=name,
+                    disposition=status,
+                )
+            )
 
     async def node(self, name: str) -> None:
         self.r.state.stop_reason = None
@@ -84,15 +105,26 @@ class Orchestrator:
 
     async def prerequisites(self) -> None:
         r = self.r
+        self.claim_contended = await claim(
+            r.session,
+            "requirements:" + str(r.job.id),
+            wait_seconds=min(
+                r.settings.reuse_claim_wait_seconds, r.runtime_budget.remaining_seconds()
+            )
+            if r.runtime_budget
+            else r.settings.reuse_claim_wait_seconds,
+        )
         r.requirements = await self.loader.requirements()
         if r.requirements:
             r.state.requirement_refs = [x.id for x in r.requirements]
             self.record("requirements", "reused")
         else:
+            if self.claim_contended:
+                raise ModelGatewayError("reuse_result_unavailable")
             await self.node("extract_requirements")
             r.requirements = await self.loader.requirements(r.state.requirement_refs)
         # Research is opportunistic existing context only, never a hidden paid prerequisite.
-        cached = await r.session.scalar(
+        candidates = await r.session.scalars(
             select(e.CompanyResearch)
             .where(
                 e.CompanyResearch.company_id == r.company.id,
@@ -101,19 +133,18 @@ class Orchestrator:
             )
             .order_by(e.CompanyResearch.research_version.desc())
         )
-        if (
-            cached
-            and compatible(
+        for cached in candidates:
+            if not compatible(
                 cached.data.get("compatibility_versions"), execution_versions("company_research")
-            ).reusable_for_current_execution
-        ):
+            ).reusable_for_current_execution:
+                continue
             data = await self.loader.research(cached.id)
             r.research_output = data.report
             r.state.research_report_id = cached.id
             r.state.evidence_refs = [x.id for x in data.evidence]
             self.record("research_company", "reused")
-        else:
-            self.record("research_company", "skipped", "no_compatible_research")
+            return
+        self.record("research_company", "skipped", "no_compatible_research")
 
     def fingerprint(self, target: Target, source: UUID | None) -> str:
         r = self.r
@@ -196,6 +227,15 @@ class Orchestrator:
                     + json.dumps(selected_context, sort_keys=True)
                 ).encode()
             ).hexdigest()
+        contended = await claim(
+            r.session,
+            "artifact:" + key,
+            wait_seconds=min(
+                r.settings.reuse_claim_wait_seconds, r.runtime_budget.remaining_seconds()
+            )
+            if r.runtime_budget
+            else r.settings.reuse_claim_wait_seconds,
+        )
         candidates = await r.session.scalars(
             select(e.PreparationArtifact)
             .where(
@@ -217,66 +257,106 @@ class Orchestrator:
             await self.restore(stored)
             self.record(target, "reused")
             return row.id
-        reused_legacy = False
-        if target == "fit_analysis":
-            # Old outputs remain readable; missing validator/source provenance is not reusable.
-            await self.node("analyze_fit")
-            output = TargetArtifact(
-                target=target, fingerprint=key, result_id=r.state.fit_analysis_id
+        # A waiter may consume committed compatible output, but may not automatically retry
+        # the same failed/rolled-back generation. A later explicit request can retry normally.
+        started_peer = (
+            await r.session.scalar(
+                select(ReuseDecision.id).where(
+                    ReuseDecision.identity_hash == key,
+                    ReuseDecision.category == "business_claim",
+                    ReuseDecision.disposition == "started",
+                )
             )
-        elif target == "resume_tailoring":
-            assert source is not None
-            selected = await self.loader.resume(source)
-            r.base_document = ResumeDocument.model_validate(selected.document)
-            # The chosen immutable base is explicit; append at current head without replacing it.
-            r.variant = await resumes.get_revision(r.session, selected.resume_variant_id)
-            saved_fit = r.fit
-            r.fit = None  # Optional Fit never creates an implicit dependency/cache input.
-            try:
-                await self.node("tailor_resume")
-            finally:
-                r.fit = saved_fit
-            await self.node("compile_resume")
-            assert r.report is not None
-            if (
-                r.report.error_code == "layout_failed"
-                and r.state.limits.max_semantic_resume_compressions
-            ):
-                await self.node("compress_resume")
-                await self.node("recompile_resume")
-            if r.report.render_status != "accepted":
-                raise ModelGatewayError(r.report.error_code or "layout_failed")
-            assert r.variant is not None
-            output = TargetArtifact(
-                target=target,
-                fingerprint=key,
-                resume_revision_id=r.variant.id,
-                render_artifact_id=r.state.render_report_id,
-                source_resume_revision_id=source,
+            if self.claim_contended
+            else None
+        )
+        if contended or started_peer:
+            raise ModelGatewayError("reuse_result_unavailable")
+        # Independent metadata-only intent survives business rollback. It is not proof of
+        # dispatch/usage (the attempt journal owns that). A contending request with no
+        # authoritative result must fail conservatively; a later explicit request may retry.
+        sessions = async_sessionmaker(r.session.bind, expire_on_commit=False)
+        async with sessions.begin() as intent_session:
+            intent_session.add(
+                ReuseDecision(
+                    run_id=r.run.id,
+                    category="business_claim",
+                    operation=target,
+                    disposition="started",
+                    identity_hash=key,
+                )
             )
-        elif target == "greeting_generation":
-            assert source is not None
-            selected = await self.loader.resume(source)
-            saved_variant, saved_fit = r.variant, r.fit
-            r.variant, r.fit = selected, None
-            try:
-                await self.node("generate_greeting")
-            finally:
-                r.variant, r.fit = saved_variant, saved_fit
-            output = TargetArtifact(
-                target=target,
-                fingerprint=key,
-                result_id=r.state.greeting_id,
-                source_resume_revision_id=source,
+        try:
+            if target == "fit_analysis":
+                # Old outputs remain readable; missing validator/source provenance is not reusable.
+                await self.node("analyze_fit")
+                output = TargetArtifact(
+                    target=target, fingerprint=key, result_id=r.state.fit_analysis_id
+                )
+            elif target == "resume_tailoring":
+                assert source is not None
+                selected = await self.loader.resume(source)
+                r.base_document = ResumeDocument.model_validate(selected.document)
+                # Keep the explicit immutable base; append at the current head without replacing it.
+                r.variant = await resumes.get_revision(r.session, selected.resume_variant_id)
+                saved_fit = r.fit
+                r.fit = None  # Optional Fit never creates an implicit dependency/cache input.
+                try:
+                    await self.node("tailor_resume")
+                finally:
+                    r.fit = saved_fit
+                await self.node("compile_resume")
+                assert r.report is not None
+                if (
+                    r.report.error_code == "layout_failed"
+                    and r.state.limits.max_semantic_resume_compressions
+                ):
+                    await self.node("compress_resume")
+                    await self.node("recompile_resume")
+                if r.report.render_status != "accepted":
+                    raise ModelGatewayError(r.report.error_code or "layout_failed")
+                assert r.variant is not None
+                output = TargetArtifact(
+                    target=target,
+                    fingerprint=key,
+                    resume_revision_id=r.variant.id,
+                    render_artifact_id=r.state.render_report_id,
+                    source_resume_revision_id=source,
+                )
+            elif target == "greeting_generation":
+                assert source is not None
+                selected = await self.loader.resume(source)
+                saved_variant, saved_fit = r.variant, r.fit
+                r.variant, r.fit = selected, None
+                try:
+                    await self.node("generate_greeting")
+                finally:
+                    r.variant, r.fit = saved_variant, saved_fit
+                output = TargetArtifact(
+                    target=target,
+                    fingerprint=key,
+                    result_id=r.state.greeting_id,
+                    source_resume_revision_id=source,
+                )
+            else:
+                await self.node("generate_interview_prep")
+                output = TargetArtifact(
+                    target=target,
+                    fingerprint=key,
+                    result_id=r.state.interview_prep_id,
+                    source_resume_revision_id=source,
+                )
+        except ERRORS:
+            r.session.add(
+                ReuseDecision(
+                    run_id=r.run.id,
+                    category="business_artifact",
+                    operation=target,
+                    disposition="failed",
+                    identity_hash=key,
+                )
             )
-        else:
-            await self.node("generate_interview_prep")
-            output = TargetArtifact(
-                target=target,
-                fingerprint=key,
-                result_id=r.state.interview_prep_id,
-                source_resume_revision_id=source,
-            )
+            raise
         output.compatibility_versions = execution_versions(target)
         row = e.PreparationArtifact(
             run_id=r.run.id,
@@ -286,7 +366,7 @@ class Orchestrator:
         )
         r.session.add(row)
         await r.session.flush()
-        self.record(target, "reused" if reused_legacy else "executed")
+        self.record(target, "executed")
         return row.id
 
     async def application(self) -> None:

@@ -145,6 +145,11 @@ async def test_responses_native_schema_and_usage(cached_price, cache_write_token
                 task_spec(TaskType.EXTRACTION, {"job": {"jd_text": "Python"}}),
             )
     assert result.output == output
+    from career_agent.models.composition import serialize
+
+    assert requests[0]["input"][1]["content"] == serialize(
+        task_spec(TaskType.EXTRACTION, {"job": {"jd_text": "Python"}}).inputs
+    )
     assert result.usage.input_tokens == 100 and result.usage.cached_tokens == 10
     assert result.usage.cache_write_tokens == cache_write_tokens
     assert result.usage.reasoning_tokens == 0

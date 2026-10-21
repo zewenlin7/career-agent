@@ -12,7 +12,7 @@ from career_agent.models.contracts import (
     ProviderResponse,
     TaskSpec,
 )
-from career_agent.preparation.research import SearchInput, SearchResult
+from career_agent.preparation.research import SearchInput, SearchResult, SearchReuseContract
 from career_agent.runtime.contracts import Usage
 
 
@@ -79,6 +79,13 @@ class FrozenResearch:
 
     def __init__(self, observations: dict[str, Any], controller: FaultController) -> None:
         self.observations, self.controller = observations, controller
+        from career_agent.evaluation.identity import digest
+
+        self.reuse_contract = SearchReuseContract(
+            provider="frozen",
+            version="frozen-search-v1",
+            parameters={"observations_hash": digest(observations)},
+        )
 
     async def search(self, query: SearchInput) -> SearchResult:
         if self.controller.next("research_search"):

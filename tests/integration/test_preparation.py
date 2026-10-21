@@ -347,8 +347,20 @@ async def test_repair_and_retry_exhaustion(client, prep_input, code, retryable):
 async def test_interview_rechecks_superseded_facts(client, prep_input, sessions):
     result = await run(client, prep_input)
     async with sessions() as session:
-        fact = await session.scalar(select(e.PersonalFact))
-        fact_id = str(fact.id)
+        # Invalidate an actual rendered claim, not an arbitrary unordered fact row.
+        variant = await session.scalar(
+            select(e.ResumeVariantRevision).where(
+                e.ResumeVariantRevision.resume_variant_id
+                == UUID(result["state"]["resume_variant_id"]),
+                e.ResumeVariantRevision.revision == result["state"]["resume_variant_revision"],
+            )
+        )
+        fact_id = next(
+            ref
+            for section in variant.document["sections"]
+            for item in section["items"]
+            for ref in item["fact_refs"]
+        )
     response = await client.post(
         f"/api/v1/facts/{fact_id}/supersede",
         json={"expected_revision": 1, "statement": "新的合成事实。", "category": "project"},
@@ -738,6 +750,18 @@ async def test_existing_research_reuse_or_expiry_never_searches(
         session.add(report)
         await session.flush()
         report_id = str(report.id)
+
+        # A newer report is not necessarily eligible. Search all fresh candidates rather
+        # than letting this incompatible head hide the older compatible report above.
+        session.add(
+            e.CompanyResearch(
+                company_id=job.company_id,
+                research_version=2,
+                fetched_at=e.utcnow(),
+                expires_at=e.utcnow() + timedelta(hours=1),
+                data={**report.data, "compatibility_versions": None},
+            )
+        )
 
     class NoSearch(FixtureResearchAdapter):
         async def search(self, query):

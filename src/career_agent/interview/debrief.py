@@ -13,6 +13,7 @@ from career_agent.config import Settings
 from career_agent.domain.rules import DomainError, RunStatus
 from career_agent.domain.schemas import InterviewEntry, InterviewNoteData
 from career_agent.infrastructure import entities as e
+from career_agent.infrastructure.claims import claim
 from career_agent.interview.calls import AcceptedCall, InterviewCalls, validate_accepted_call
 from career_agent.interview.context import clean, digest, freeze
 from career_agent.interview.contracts import (
@@ -27,9 +28,13 @@ from career_agent.interview.contracts import (
 )
 from career_agent.interview.mock import frozen_policy, turns
 from career_agent.interview.policy import CallPolicy, InterviewPolicy
-from career_agent.interview.validation import groups, validate_evaluation
+from career_agent.interview.prompts import PROMPTS
+from career_agent.interview.validation import VALIDATION_VERSION, groups, validate_evaluation
 from career_agent.models.contracts import ModelGatewayError
 from career_agent.models.gateway import ModelGateway
+from career_agent.preparation.observation_store import ReuseDecision
+
+CREATE_IDENTITY_VERSION = "debrief-create-v1"
 
 
 def inputs_for(snapshot: SourceSnapshot, group_ref: UUID | None) -> dict[str, Any]:
@@ -205,6 +210,39 @@ class DebriefService:
             ]
             if request.overall_analysis:
                 plan.append(("overall", None, None, len(grouped) + 1))
+            fingerprint = None
+            if frozen_from is None:
+                fingerprint = digest(
+                    {
+                        "version": CREATE_IDENTITY_VERSION,
+                        "validator_version": VALIDATION_VERSION,
+                        "snapshot": snapshot.model_dump(mode="json"),
+                        "request": request.model_dump(mode="json"),
+                        "policy": policy.model_dump(mode="json"),
+                        "prompts": {
+                            task_type(k): PROMPTS[task_type(k)].prompt_hash for k, _, _, _ in plan
+                        },
+                    }
+                )
+                await claim(
+                    session,
+                    "debrief:" + fingerprint,
+                    wait_seconds=self.settings.reuse_claim_wait_seconds,
+                )
+                existing = await session.scalar(
+                    select(e.DebriefRun).where(e.DebriefRun.request_fingerprint == fingerprint)
+                )
+                if existing:
+                    session.add(
+                        ReuseDecision(
+                            run_id=existing.run_id,
+                            category="business_artifact",
+                            operation="interview_debrief",
+                            disposition="reused",
+                            identity_hash=fingerprint,
+                        )
+                    )
+                    return await self.view(existing.id, historical=True)
             for kind, ref, _, _ in plan:
                 self.calls.preflight(
                     task_type(kind),
@@ -234,6 +272,7 @@ class DebriefService:
             await session.flush()
             data = snapshot.model_dump(mode="json")
             row = e.DebriefRun(
+                request_fingerprint=fingerprint,
                 run_id=run.id,
                 mode=request.mode,
                 snapshot=data,
@@ -243,6 +282,15 @@ class DebriefService:
             )
             session.add(row)
             await session.flush()
+            session.add(
+                ReuseDecision(
+                    run_id=run.id,
+                    category="business_artifact",
+                    operation="interview_debrief",
+                    disposition="created" if frozen_from is None else "regenerated",
+                    identity_hash=fingerprint,
+                )
+            )
             for kind, ref, index, order in plan:
                 session.add(
                     e.DebriefArtifact(
@@ -259,7 +307,7 @@ class DebriefService:
                 row.root_run_id = root.id
                 row.supersedes_run_id = previous.id
                 root.selected_run_id = row.id
-        return await self.view(id)
+        return await self.view(id, historical=True)
 
     async def view(self, id: UUID, *, historical: bool = False) -> dict[str, Any]:
         async with self.sessions() as session:

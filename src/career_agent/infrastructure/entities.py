@@ -576,6 +576,7 @@ class MockRequestReceipt(Row, Base):
 
 
 class DebriefRun(Row, Base):
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), unique=True)
     __tablename__ = "debrief_runs"
     run_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True
@@ -632,3 +633,4 @@ class DebriefEvent(Row, Base):
 # Imported after Row/domain definitions so one metadata graph covers nullable cross-feature FKs.
 from career_agent.evaluation import entities as evaluation_entities  # noqa: E402, F401
 from career_agent.ops import entities as ops_entities  # noqa: E402, F401
+from career_agent.preparation import observation_store as observation_entities  # noqa: E402, F401

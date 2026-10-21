@@ -13,6 +13,54 @@ from career_agent.infrastructure.entities import AgentRun, AgentStep
 from career_agent.models.control.controller import HEALTH_FAILURES
 from career_agent.models.control.recovery_contracts import JournalData, utcnow
 from career_agent.ops.entities import AttemptJournal, ControlEvent, RecoveryIncident
+from career_agent.preparation.observation_store import ReuseDecision
+
+
+def cache_telemetry(facts: list[JournalData]) -> dict[str, Any]:
+    """Provider-reported attempt usage only. Missing fields are never inferred as zero."""
+    output: dict[str, Any] = {"attempts": len(facts), "actual_billed_savings_usd": None}
+    for field in ("input_tokens", "cached_tokens", "cache_write_tokens"):
+        known = [
+            getattr(d.usage, field)
+            for d in facts
+            if d.usage and d.usage.measurement == "reported" and getattr(d.usage, field) is not None
+        ]
+        output[field] = {
+            "known_sum": sum(known) if known else None,
+            "reported_attempts": len(known),
+            "unknown_attempts": len(facts) - len(known),
+        }
+    pairs = [
+        d
+        for d in facts
+        if d.usage
+        and d.usage.measurement == "reported"
+        and d.usage.input_tokens is not None
+        and d.usage.cached_tokens is not None
+    ]
+    inputs = sum(d.usage.input_tokens or 0 for d in pairs if d.usage)
+    output["token_cache_hit_rate"] = (
+        sum(d.usage.cached_tokens or 0 for d in pairs if d.usage) / inputs if inputs else None
+    )
+    output["token_cache_rate_attempts"] = len(pairs)
+    for label, hit in (("hit", True), ("miss", False)):
+        members = [
+            d
+            for d in facts
+            if d.usage
+            and d.usage.measurement == "reported"
+            and d.usage.cached_tokens is not None
+            and (d.usage.cached_tokens > 0) == hit
+        ]
+        latencies = sorted(d.latency_ms for d in members if d.latency_ms is not None)
+        output[label] = {
+            "attempts": len(members),
+            "latency_observations": len(latencies),
+            "latency_p50_ms": latencies[len(latencies) // 2] if latencies else None,
+        }
+    denominator = output["hit"]["attempts"] + output["miss"]["attempts"]
+    output["cache_hit_call_rate"] = output["hit"]["attempts"] / denominator if denominator else None
+    return output
 
 
 async def metrics(
@@ -109,7 +157,24 @@ async def metrics(
             else d.financial_reservation.budget_reserved_usd
         )
 
+    reuse = list(
+        await session.scalars(select(ReuseDecision).where(ReuseDecision.created_at >= since))
+    )
     return {
+        "provider_token_cache": cache_telemetry(confirmed),
+        # Global business decisions, not provider/quota-scoped usage or measured savings.
+        "reuse_global_population": {
+            category: {
+                "decisions": sum(r.category == category for r in reuse),
+                "dispositions": dict(
+                    Counter(r.disposition for r in reuse if r.category == category)
+                ),
+                "operations": dict(Counter(r.operation for r in reuse if r.category == category)),
+                "estimated_savings_usd": None,
+                "actual_billed_savings_usd": None,
+            }
+            for category in ("external_observation", "business_artifact")
+        },
         "admission_decisions": dict(Counter(admission.values())),
         "automatic_adjustments": dict(adjustments),
         "operator_and_lifecycle_events": dict(operators),

@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from career_agent.application import resumes
 from career_agent.application.compatibility import compatible, execution_versions
@@ -49,8 +49,14 @@ from career_agent.preparation.guardrails import (
     validate_interview,
     validate_research,
 )
+from career_agent.preparation.observation_store import search_reuse
 from career_agent.preparation.prompts import OUTPUTS, task_spec
-from career_agent.preparation.research import ResearchAdapter, SearchInput, SearchToolMetadata
+from career_agent.preparation.research import (
+    ResearchAdapter,
+    SearchInput,
+    SearchResult,
+    SearchToolMetadata,
+)
 from career_agent.resume.grounding import FactEvidence, validate_grounding
 from career_agent.resume.renderer import CompileError
 from career_agent.resume.schemas import RenderReport, ResumeDocument
@@ -461,7 +467,7 @@ class PreparationWorkflow:
         now = e.utcnow()
         # Company lock serializes cache version allocation; no cross-company bottleneck.
         await require(self.session, e.Company, self.company.id, lock=True)
-        cached = await self.session.scalar(
+        candidates = await self.session.scalars(
             select(e.CompanyResearch)
             .where(
                 e.CompanyResearch.company_id == self.company.id,
@@ -470,7 +476,9 @@ class PreparationWorkflow:
             )
             .order_by(e.CompanyResearch.research_version.desc())
         )
-        if cached and not self.request.force_research_refresh:
+        for cached in candidates:
+            if self.request.force_research_refresh:
+                break
             data = ResearchData.model_validate(cached.data)
             if compatible(
                 data.compatibility_versions, execution_versions("company_research")
@@ -479,8 +487,8 @@ class PreparationWorkflow:
                 self.state.research_report_id = cached.id
                 self.state.evidence_refs = [x.id for x in data.evidence]
                 return
-        evidence = []
-        for suffix in ["主营业务 产品 技术方向", "工程团队 AI Agent 技术方向"]:
+
+        async def fetch(query: SearchInput) -> SearchResult:
             cost = self.settings.search_cost_per_call if self.request.mode == "live" else Decimal(0)
             ledger = (
                 self.runtime_budget.ledger(self.state.limits, self.state.usage)
@@ -503,13 +511,11 @@ class PreparationWorkflow:
             await self.session.flush()
             start = time.perf_counter()
             try:
-                query = SearchInput(query=f"{minimize(self.company.name)} {suffix}")
                 result = (
                     await self.runtime_budget.search(self.research, query)
                     if self.runtime_budget
                     else await self.research.search(query)
                 )
-                evidence.extend(result.evidence)
                 row.status = CallStatus.SUCCEEDED
                 self.session.add(
                     e.Observation(
@@ -532,8 +538,37 @@ class PreparationWorkflow:
                 reservation, succeeded=row.status == CallStatus.SUCCEEDED
             ).model_dump(mode="json")
             await self.session.flush()
-            if row.status == CallStatus.FAILED and self.settings.research_fail_fast:
+            if row.status == CallStatus.FAILED:
                 raise ModelGatewayError("research_failed")
+            return result
+
+        evidence = []
+        sessions = async_sessionmaker(self.session.bind, expire_on_commit=False)
+        for suffix in ["主营业务 产品 技术方向", "工程团队 AI Agent 技术方向"]:
+            query = SearchInput(query=f"{minimize(self.company.name)} {suffix}")
+            try:
+                result, _ = await search_reuse(
+                    sessions,
+                    self.research,
+                    query,
+                    scope=str(self.company.id),
+                    mode=self.request.mode,
+                    clock=e.utcnow,
+                    ttl_hours=self.settings.company_research_ttl_hours,
+                    run_id=self.run.id,
+                    fetch=fetch,
+                    force_refresh=self.request.force_research_refresh,
+                    wait_seconds=min(
+                        self.settings.reuse_claim_wait_seconds,
+                        self.runtime_budget.remaining_seconds(),
+                    )
+                    if self.runtime_budget
+                    else self.settings.reuse_claim_wait_seconds,
+                )
+                evidence.extend(result.evidence)
+            except ModelGatewayError:
+                if self.settings.research_fail_fast:
+                    raise
             # Deterministic sufficiency baseline, not a model deciding to research indefinitely.
             if sum(len(x.content) for x in evidence) >= 60:
                 break
@@ -546,7 +581,10 @@ class PreparationWorkflow:
                 {
                     "company": {"name": self.company.name, "trust_level": "untrusted_external"},
                     "evidence": [
-                        x.model_dump(mode="json") | {"content": minimize(x.content)}
+                        x.model_dump(
+                            mode="json", exclude={"retrieved_at", "provider", "evidence_version"}
+                        )
+                        | {"content": minimize(x.content)}
                         for x in evidence
                     ],
                 },
