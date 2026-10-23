@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added — Web preflight discovery
+
+- Optional Application ownership for Knowledge Notes, with legacy interview-linked discovery
+  and unchanged global-list behavior (migration `ae05c0102601`).
+- Token-protected metadata-only evaluation suite/run/trial/comparison/Judge/sampling/capture/
+  case/feedback discovery; stable annotation queue filtering and pagination.
+- Read-only Ops attention index that distinguishes execution failure, user decision, unknown
+  outcome, unconfirmed business commit and RecoveryIncident; scoped attempt metadata detail.
+- Documented server-only Next.js/BFF Ops-token and private-evaluation boundaries.
+
 ### Fixed — v0.4 Phase 3 audit
 
 - Preserve metadata-only target generation intent across business rollback, blocking automatic

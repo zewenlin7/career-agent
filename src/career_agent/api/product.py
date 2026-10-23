@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from career_agent.api.dependencies import DB
-from career_agent.api.schemas import ApplicationOut, ProfileOut
+from career_agent.api.schemas import ApplicationOut, KnowledgeOut, ProfileOut
 from career_agent.application.compatibility import compatible, execution_versions
 from career_agent.application.services import application_events, require
 from career_agent.domain.rules import ApplicationStatus, DomainError, RunStatus
@@ -454,6 +454,33 @@ async def runs(
             }
             for r in found
         ],
+        limit=limit,
+        offset=offset,
+        has_more=more,
+    )
+
+
+@router.get("/applications/{id}/knowledge-notes", response_model=Page[KnowledgeOut])
+async def application_knowledge(
+    id: UUID, session: DB, limit: Limit = 50, offset: Offset = 0
+) -> Any:
+    await require(session, e.Application, id)
+    # Include legacy notes through their authoritative actual-interview association.
+    stmt = (
+        select(e.KnowledgeNote)
+        .where(
+            or_(
+                e.KnowledgeNote.application_id == id,
+                e.KnowledgeNote.interview_id.in_(
+                    select(e.InterviewSession.id).where(e.InterviewSession.application_id == id)
+                ),
+            )
+        )
+        .order_by(e.KnowledgeNote.created_at.desc(), e.KnowledgeNote.id)
+    )
+    found, more = await rows(session, stmt, limit, offset)
+    return Page(
+        items=[KnowledgeOut.model_validate(r) for r in found],
         limit=limit,
         offset=offset,
         has_more=more,

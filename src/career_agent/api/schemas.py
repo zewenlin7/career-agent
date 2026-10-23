@@ -77,6 +77,7 @@ class InterviewOut(RowOut):
 
 
 class KnowledgeOut(RowOut):
+    application_id: UUID | None
     title: str
     content: str
     interview_id: UUID | None

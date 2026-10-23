@@ -202,6 +202,9 @@ class InterviewSession(Row, Base):
 
 class KnowledgeNote(Row, Base):
     __tablename__ = "knowledge_notes"
+    application_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("applications.id", ondelete="RESTRICT"), index=True
+    )
     title: Mapped[str] = mapped_column(String(200))
     content: Mapped[str] = mapped_column(Text)
     interview_id: Mapped[UUID | None] = mapped_column(

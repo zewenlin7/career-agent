@@ -11,11 +11,16 @@ from career_agent.models.control.controller import operational_view
 from career_agent.models.control.durable import DurableControl
 from career_agent.models.control.recovery_contracts import OperatorRequest, ReconcileRequest
 from career_agent.ops import query
+from career_agent.ops.discovery import AttentionSource
+from career_agent.ops.discovery import attention as attention_query
+from career_agent.product.contracts import Page
 
 router = APIRouter(prefix="/api/v1/ops", tags=["ops"])
 
 
-def owner(request: Request, x_ops_token: Annotated[str | None, Header()] = None) -> DurableControl:
+def authorize_operator(
+    request: Request, x_ops_token: Annotated[str | None, Header()] = None
+) -> None:
     token = request.app.state.settings.ops_token
     if (
         token is None
@@ -23,6 +28,9 @@ def owner(request: Request, x_ops_token: Annotated[str | None, Header()] = None)
         or not secrets.compare_digest(token.get_secret_value(), x_ops_token)
     ):
         raise DomainError("operator_authorization_required", 403)
+
+
+def owner(request: Request, _: Annotated[None, Depends(authorize_operator)]) -> DurableControl:
     value: DurableControl | None = getattr(request.app.state, "control_owner", None)
     if value is None:
         raise DomainError("controller_not_ready", 503)
@@ -80,3 +88,53 @@ async def controls(payload: OperatorRequest, control: Owner) -> dict[str, Any]:
 @router.post("/attempts/{attempt_id}/reconcile")
 async def reconcile(attempt_id: UUID, payload: ReconcileRequest, control: Owner) -> dict[str, Any]:
     return await control.reconcile(attempt_id, payload)
+
+
+@router.get("/attention")
+async def attention(
+    control: Owner,
+    source: AttentionSource | None = None,
+    status: str | None = None,
+    include_resolved: bool = False,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> Page[dict[str, Any]]:
+    async with control.sessions() as session:
+        return await attention_query(
+            session, control.scope, source, status, limit, offset, include_resolved
+        )
+
+
+@router.get("/attempts/{attempt_id}")
+async def attempt(attempt_id: UUID, control: Owner) -> dict[str, Any]:
+    from sqlalchemy import select
+
+    from career_agent.models.control.recovery_contracts import JournalData
+    from career_agent.ops.entities import AttemptJournal
+
+    async with control.sessions() as session:
+        row = await session.scalar(
+            select(AttemptJournal).where(
+                AttemptJournal.scope == control.scope, AttemptJournal.attempt_id == attempt_id
+            )
+        )
+        if row is None:
+            raise DomainError("not_found", 404)
+        data = JournalData.model_validate(row.data)
+        return {
+            "id": row.id,
+            "attempt_id": row.attempt_id,
+            "operation_id": row.operation_id,
+            "status": row.status,
+            "created_at": row.created_at,
+            "model_call_id": data.model_call_id,
+            "artifact_ref": data.artifact_ref,
+            "budget_owner_refs": data.budget_owner_refs,
+            "provider_outcome": data.provider_outcome,
+            "dispatch_confirmed": data.dispatch_confirmed,
+            "dispatched_at": data.dispatched_at,
+            "settled_at": data.settled_at,
+            "financial_reservation": data.financial_reservation.model_dump(mode="json"),
+            "usage": data.usage.model_dump(mode="json") if data.usage else None,
+            "latency_ms": data.latency_ms,
+        }

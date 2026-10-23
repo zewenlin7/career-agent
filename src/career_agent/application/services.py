@@ -250,8 +250,12 @@ async def interview_note(
 
 
 async def create_knowledge(session: AsyncSession, payload: s.KnowledgeCreate) -> e.KnowledgeNote:
+    if payload.application_id:
+        await require(session, e.Application, payload.application_id)
     if payload.interview_id:
-        await require(session, e.InterviewSession, payload.interview_id)
+        interview = await require(session, e.InterviewSession, payload.interview_id)
+        if payload.application_id and interview.application_id != payload.application_id:
+            raise DomainError("knowledge_application_mismatch", 409)
     if payload.source_document_id:
         await require(session, e.SourceDocument, payload.source_document_id)
     note = e.KnowledgeNote(**payload.model_dump())

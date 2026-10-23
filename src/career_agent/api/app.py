@@ -219,7 +219,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(interview_router)
     from career_agent.api.evaluation import router as evaluation_router
+    from career_agent.api.evaluation_discovery import router as discovery_router
 
+    app.include_router(discovery_router)
     app.include_router(evaluation_router)
     app.include_router(router)
     from career_agent.api.resumes import router as resume_router

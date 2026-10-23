@@ -11,7 +11,7 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 - Application tracker with optimistic revision checks, status/correction/note events.
 - Actual interview rounds with CAS-protected ordered primary/follow-up Q&A and legacy notes.
 - Separate text Mock Interview sessions and snapshot-based standalone Interview Debrief.
-- Knowledge-note CRUD basics; generated knowledge candidates never auto-promote to facts.
+- Knowledge-note creation/global discovery and Application-scoped discovery; generated knowledge candidates never auto-promote to facts.
 - PostgreSQL persistence for source documents, STAR structures and runtime metadata.
 - Run/step/call metadata APIs and two explicitly invoked fixed preparation workflows.
 - Model-independent contracts, approved per-task candidate policies and an injected fake provider.
@@ -891,3 +891,9 @@ Debrief discovery returns each `generation_id`, resolved `selected_run_id`, `is_
 Greeting/InterviewPrep product results include `source_resume_revision_id`; this is distinct from
 `resume_revision_id`, which identifies a generated Resume output. Research recovery protection is
 reported as `recovery_required`, consistently with Preparation operations.
+
+## Web preflight discovery
+
+Application Knowledge Notes and metadata-only Internal evaluation/attention discovery are documented
+in [Web backend contracts](docs/web-backend-discovery.md), including the server-only Next.js/BFF
+Ops-token boundary. No frontend or new control-plane actions are added.

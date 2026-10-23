@@ -135,6 +135,7 @@ class InterviewNoteCreate(InterviewMutation):
 
 
 class KnowledgeCreate(Contract):
+    application_id: UUID | None = None
     title: Label
     content: Text
     interview_id: UUID | None = None

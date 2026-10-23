@@ -1084,3 +1084,13 @@ Recovery-required mapping is shared across operation kinds. Debrief discovery is
 `generation_id`/`status` describe that historical row, `selected_run_id` is resolved from its root,
 `is_selected` compares the two, `detail_url` follows current selection, and `historical_detail_url`
 fixes the exact generation. Product results expose source Resume identity independently of output Resume identity.
+
+### Web preflight discovery boundary
+
+See [Web discovery contracts](web-backend-discovery.md). KnowledgeNote now has an optional
+Application FK, with matching Actual Interview ownership validated at creation; legacy links
+remain queryable without backfill. Internal discovery uses explicit metadata projections rather
+than serializing private evaluation rows. The attention index preserves source identity and
+lifecycle, performs no recovery writes, and does not equate failures with RecoveryIncidents.
+New Internal discovery shares Ops token validation without requiring controller readiness;
+controller-specific Ops queries retain the existing readiness guard.

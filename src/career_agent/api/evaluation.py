@@ -8,6 +8,7 @@ from pydantic import Field
 from sqlalchemy import select
 
 from career_agent.api.dependencies import DB
+from career_agent.api.product import Limit, Offset
 from career_agent.application.services import require
 from career_agent.domain.rules import DomainError
 from career_agent.domain.schemas import Contract
@@ -216,10 +217,23 @@ async def queue_annotation(payload: QueueRequest, session: DB) -> dict[str, Any]
 
 
 @router.get("/annotations/queue")
-async def list_queue(session: DB) -> list[dict[str, Any]]:
+async def list_queue(
+    session: DB,
+    status: str | None = None,
+    population: Literal["random", "targeted"] | None = None,
+    limit: Limit = 100,
+    offset: Offset = 0,
+) -> list[dict[str, Any]]:
+    stmt = select(q.AnnotationQueueRow).order_by(
+        q.AnnotationQueueRow.created_at.desc(), q.AnnotationQueueRow.id
+    )
+    if status is not None:
+        stmt = stmt.where(q.AnnotationQueueRow.status == status)
+    if population is not None:
+        stmt = stmt.where(q.AnnotationQueueRow.population == population)
     return [
         {"id": r.id, "subject_id": r.subject_id, "population": r.population, "status": r.status}
-        for r in await session.scalars(select(q.AnnotationQueueRow).limit(100))
+        for r in await session.scalars(stmt.limit(limit).offset(offset))
     ]
 
 
