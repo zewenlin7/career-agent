@@ -3,7 +3,7 @@
 import hashlib
 import json
 from typing import TYPE_CHECKING, Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -507,6 +507,7 @@ async def execute(
         list(r.request.targets) if workflow == "prepare_application" else ["interview_preparation"]
     )
     r.run = e.AgentRun(
+        id=r.execution_run_id or uuid4(),
         workflow=workflow,
         workflow_version="preparation-v2",
         status=RunStatus.RUNNING,

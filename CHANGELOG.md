@@ -450,3 +450,31 @@
 The user confirmed v0.1a was committed/pushed and its remote CI passed.
 The v0.1b changes have not been committed/pushed; their updated remote CI has not run.
 No final v0.1.0 release has been made.
+
+### Added — Web product backend contracts
+
+- Company and research discovery, explicit refresh operations reusing existing report/observation policy.
+- Durable idempotent preparation handles with explicit synchronous execution, status/result retrieval,
+  and conservative interruption/recovery semantics; no worker or implicit paid research.
+- Paginated Application, Mock/Debrief, run/operation and exact Profile/JD history discovery.
+- Typed preparation product projection resolving internal wrappers, exact context, PDF and feedback refs.
+- Immutable user-confirmed material submission records linked transactionally to Application events,
+  with exact Resume/PDF and optional Greeting/package validation, CAS and request idempotency.
+- Additive migration `ad04c0402601`; historical business rows are not backfilled or reinterpreted.
+- Offline verification: 567 tests passed (10 new product tests), including PostgreSQL migration/drift/history,
+  cancellation/concurrent operation execution and real Typst regressions; Ruff/format, strict mypy,
+  offline locked install, wheel/sdist build/import and font preflight passed. No paid live calls.
+
+### Fixed — Web product contract audit
+
+- ProductOperation reuses rollback PDF cleanup only after a confirmed rollback; committed or
+  uncertain-commit files are retained, including failures after business commit.
+- Explicit Company Research uses one workflow/version identity across run, state, steps, model
+  context/call and invocation. Unsupported workflow capture conversion rejects `case_incompatible`.
+- Research and Preparation share the operation recovery/terminal mapping.
+- Debrief discovery resolves selected generation identity, marks `is_selected`, and supplies
+  distinct default-selected and exact-historical detail URLs.
+- Preparation result views expose `source_resume_revision_id` separately from generated Resume identity.
+- Audit-fix offline acceptance: 577 tests passed, including 20 product contract cases, real
+  PostgreSQL migration/drift/history upgrades and Typst regression coverage. Ruff/format,
+  strict mypy and offline wheel/sdist build passed; no paid API calls.

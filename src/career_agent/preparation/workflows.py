@@ -84,6 +84,7 @@ class PreparationWorkflow:
             request,
         )
         self.runtime_budget = runtime_budget
+        self.execution_run_id: UUID | None = None
         self.state: WorkflowState
         self.run: e.AgentRun
         self.step: e.AgentStep
@@ -269,6 +270,8 @@ class PreparationWorkflow:
                 operation_id=logical_operation_id,
                 source={
                     "captured_source_version": "captured-source-v1",
+                    "workflow": self.state.workflow,
+                    "workflow_version": self.state.workflow_version,
                     "replay": replay,
                     "request": self.request.model_dump(mode="json"),
                     "base_resume": self.base_document.model_dump(mode="json")
@@ -861,7 +864,10 @@ class PreparationWorkflow:
             sequence=self.state.step_count,
             node=name,
             status=CallStatus.RUNNING,
-            versions={"workflow_version": self.state.workflow_version},
+            versions={
+                "workflow": self.state.workflow,
+                "workflow_version": self.state.workflow_version,
+            },
         )
         self.session.add(self.step)
         await self.session.flush()
@@ -900,7 +906,9 @@ class PreparationWorkflow:
                     failure_kind="output_guardrail_failed", guardrail_code=code
                 )
                 self.step.versions = VersionMetadata(
-                    workflow_version=self.state.workflow_version, output_diagnostic=diagnostic
+                    workflow=self.state.workflow,
+                    workflow_version=self.state.workflow_version,
+                    output_diagnostic=diagnostic,
                 ).model_dump(mode="json")
             if (
                 name == "research_company"

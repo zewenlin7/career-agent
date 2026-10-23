@@ -259,6 +259,9 @@ async def restore_inputs(
 
 
 def replay_source(source: dict[str, Any]) -> dict[str, Any]:
+    # Task-level replay remains supported; this converter only supports existing business workflows.
+    if source.get("workflow") == "company_research":
+        raise ModelGatewayError("case_incompatible")
     frozen = source.get("replay")
     if (
         source.get("captured_source_version") != "captured-source-v1"

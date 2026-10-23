@@ -2,8 +2,8 @@
 
 ## Current milestone
 
-**v0.4 Phase 3 Reuse Optimization + Production Acceptance — offline implementation verified; awaiting independent audit/live smoke.**
-v0.1–v0.4 Phase 2 remain preserved; Phase 2 is user-confirmed complete and CI accepted. No paid calls in this phase.
+**Web product backend contract closure — offline acceptance complete; awaiting independent audit.**
+v0.1–v0.4 behavior remains preserved. No paid calls in this backend/API work.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -255,3 +255,17 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
 - Operational limitation: no distributed quota coordination; Phase 2 reconstructs single-owner state.
 - Origin limitation: historical overflow/probe state without sufficient frozen metadata is unavailable
   for exact re-execution; historical artifacts remain readable.
+
+## Web backend contract closure (current work)
+
+- [x] Company/research discovery and explicit research/refresh operation over existing services.
+- [x] Paginated Application/Mock/Debrief/run/operation and Profile/JD history discovery.
+- [x] Durable browser operation handle, explicit synchronous execute, queryable recovery-required state.
+- [x] Exact material submission/event records and CAS/idempotency.
+- [x] Product-facing preparation results with historical context and feedback/download references.
+- [ ] Independent post-implementation audit; Web frontend remains a separate milestone.
+- [ ] Public deployment authentication/security boundary before exposing this private single-user service.
+- Limits retained: no durable worker, unknown execution never automatically replayed, DB/filesystem
+  not globally atomic, offset pages may shift on concurrent inserts, orphan artifact cleanup remains deferred.
+- [x] Product audit fixes: confirmed-rollback PDF cleanup, research workflow/recovery identity,
+  selected/history Debrief discovery and source Resume projection. No new migration required.

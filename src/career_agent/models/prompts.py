@@ -112,7 +112,9 @@ class PromptRegistry:
             spec.composition.compose(task.inputs)
         ):
             raise ModelGatewayError("prompt_composition_mismatch")
-        return VersionMetadata(workflow_version=context.workflow_version, **spec.metadata)
+        return VersionMetadata(
+            workflow=context.workflow, workflow_version=context.workflow_version, **spec.metadata
+        )
 
 
 def application_prompts() -> PromptRegistry:

@@ -255,9 +255,11 @@ class WorkflowRequest(Contract):
 
 class WorkflowState(Contract):
     run_id: UUID
-    workflow: Literal["prepare_application", "prepare_interview"]
+    workflow: Literal["prepare_application", "prepare_interview", "company_research"]
     mode: Literal["fixture", "live"] = "fixture"
-    workflow_version: Literal["preparation-v1", "preparation-v2"] = "preparation-v2"
+    workflow_version: Literal["preparation-v1", "preparation-v2", "company-research-product-v1"] = (
+        "preparation-v2"
+    )
     job_revision_id: UUID
     profile_id: UUID
     profile_revision: int | None = Field(default=None, ge=1)

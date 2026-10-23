@@ -634,3 +634,4 @@ class DebriefEvent(Row, Base):
 from career_agent.evaluation import entities as evaluation_entities  # noqa: E402, F401
 from career_agent.ops import entities as ops_entities  # noqa: E402, F401
 from career_agent.preparation import observation_store as observation_entities  # noqa: E402, F401
+from career_agent.product import entities as product_entities  # noqa: E402, F401

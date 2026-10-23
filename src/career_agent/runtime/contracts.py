@@ -56,6 +56,7 @@ class VersionMetadata(Contract):
     injected_fault: Identifier | None = None
     execution_origin: Literal["evaluation", "business"] | None = None
     workflow_version: Identifier | None = None
+    workflow: Identifier | None = None
     prompt_name: Identifier | None = None
     prompt_version: Identifier | None = None
     prompt_hash: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")] | None = None

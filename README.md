@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current milestone is **v0.4 Phase 3 Reuse Optimization + Production Acceptance**, built on v0.1–v0.4 Phase 2.
+The current work is **Web product backend contract closure**, built on v0.1–v0.4.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -845,3 +845,49 @@ skipped-route calls, retry/fallback, 429, output-limit rejection, recovery and c
 Existing kill/override/CAS, Eval isolation, frozen clock, PII and historical upgrade checks remain
 required. Phase 3 live smoke and independent post-implementation audit are separate later gates.
 No Redis, generic/semantic model cache, UI, distributed quota coordination or candidate promotion.
+
+## Web product backend contracts
+
+The backend now exposes browser discovery and exact material-use records; no frontend or
+background worker is included. Existing preparation endpoints remain available.
+
+- `GET /api/v1/companies`, `GET /companies/{id}`; company research history and fresh compatible
+  current report under `/companies/{id}/research` and `/research/current?mode=live|fixture`.
+- `POST /api/v1/companies/{id}/research` creates an explicit research operation. Its body is
+  `{request_id, kind: "company_research", request: WorkflowRequest}`. An exact Profile and JD
+  context is required by the existing research contract. Set `request.force_research_refresh=true`
+  to bypass both report and observation reuse. Missing research is never implicitly authorized.
+- `POST /api/v1/operations` durably creates an idempotent handle for `prepare_application`,
+  `prepare_interview` or `company_research`. Save its ID before calling `POST /operations/{id}/execute`.
+  Execution is synchronous; poll `GET /operations/{id}` and read `/result` after completion.
+  Request interruption does not promise background continuation. An abandoned running operation
+  becomes `recovery_required`; execute never automatically replays it. Inspect the existing run/recovery
+  APIs before explicitly starting new work. The preallocated run ID may have no business row after rollback.
+- Operation statuses distinguish `pending`, `running`, `success`, `partial`, `failure`, `needs_input`,
+  `decision_required`, and `recovery_required`. Input/decision continuation uses a new explicit request
+  and existing compatible artifacts. `201` means handle creation, not model success.
+- `GET /preparation-artifacts/{package_id}/product-view` resolves requested targets to exact result,
+  Resume revision/PDF, content, context, versions, reuse state, feedback subject and allowed actions.
+  Package status preserves the canonical workflow outcome; completed target items use `success`.
+  Historical reads never regenerate or silently rebind to latest revisions.
+- Paginated collections: `/applications` (Job/Company/status), `/mock-interviews` (Job/Application),
+  `/interview-debriefs` (source/Job/Application), `/runs` (kind/workflow/status), `/operations`,
+  `/profile/revisions`, `/jobs/{id}/revisions`. Exact history: `/profile/revisions/{id}` and
+  `/job-revisions/{id}`. Lists return `items`, `limit`, `offset`, `has_more`, with stable tie-breaks;
+  offset pagination is not a frozen snapshot under concurrent insertion.
+- `POST /applications/{id}/submissions` records an explicit real submission with `request_id`,
+  `expected_revision`, exact `resume_revision_id`, `render_artifact_id`, optional `greeting_id`,
+  `package_id`, and `note`. It validates context and PDF integrity and links an Application event
+  in the same transaction. First submission explicitly transitions to applied through existing rules;
+  another submission while applied appends a note event. Generation/selection alone never does this.
+  `GET /applications/{id}/submissions` lists immutable material-use records.
+
+Errors retain sanitized stable codes and HTTP 404/409/422 semantics. An accepted historical render
+may later be unavailable on disk; download still verifies the private file/hash. These APIs retain
+the single-user/private-service deployment assumption and are not an Internet authentication layer.
+
+Debrief discovery returns each `generation_id`, resolved `selected_run_id`, `is_selected`,
+`detail_url` (selected result), and `historical_detail_url` (exact listed generation).
+Greeting/InterviewPrep product results include `source_resume_revision_id`; this is distinct from
+`resume_revision_id`, which identifies a generated Resume output. Research recovery protection is
+reported as `recovery_required`, consistently with Preparation operations.

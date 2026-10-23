@@ -1048,3 +1048,39 @@ Acceptance mapping (synthetic, not production traffic/quality evidence):
 
 Deferred: paid Phase 3 smoke, independent audit, broader contention/retention measurements and UI.
 No generic model-response/semantic cache, distributed limiter, multi-user quotas or auto-promotion.
+
+## Web product contract layer
+
+`api/product.py → product/{operations,results,materials}.py` composes existing business services.
+It does not add model tasks, change target dependencies, or create an alternative runtime ledger.
+`product_operations` stores validated requests and a preallocated run identity without requiring an
+uncommitted AgentRun FK. Creation commits independently of execution. A dedicated PostgreSQL session
+advisory lock owns synchronous execution; a short transaction commits running, then the final operation
+and business artifacts commit together. A lost execution lock with running state requires recovery.
+Cancellation/transaction rollback preserves the handle and never silently repeats generation. Existing
+attempt journals and recovery protection remain authoritative for uncertain provider outcomes.
+Known workflow failures commit their existing structured outcome; unexpected rollback is conservative
+recovery-required. This is discoverable state, not a durable worker or crash recovery promise.
+
+`material_submissions` links exact Resume revision, accepted/hash-checked PDF, optional
+Greeting/package, Application and event. Request-ID idempotency and Application CAS share the business
+transaction. These records describe actual user-confirmed use, not the current selection or generation.
+No historical source revisions are overwritten. Both new tables are additive in `ad04c0402601`;
+legacy records remain unchanged and need no invented operation/submission backfill.
+
+The product package projection resolves target wrappers server-side and exposes requested outputs only.
+It joins historical exact context and accepted-call feedback subjects, without rerunning compatibility
+or substituting current sources. Discovery uses bounded offset pages and deterministic ordering. Existing
+selected Debrief GET semantics and exact-generation creation semantics remain unchanged. No frontend,
+authentication system, scheduler, automatic send/application, or provider calls are added by discovery.
+
+Product audit closure: the operation business transaction observes outer commit/rollback completion.
+Only confirmed rollback triggers the existing `artifact_cleanup` mechanism; a successful commit or
+unknown commit outcome never triggers deletion. Provider/context-close failures after commit do not
+replace the committed operation result. Explicit research uses `company_research` /
+`company-research-product-v1` in state and trace as well as AgentRun; workflow-level captured-source
+conversion is currently incompatible for this entrypoint (task-level replay remains available).
+Recovery-required mapping is shared across operation kinds. Debrief discovery is a generation list:
+`generation_id`/`status` describe that historical row, `selected_run_id` is resolved from its root,
+`is_selected` compares the two, `detail_url` follows current selection, and `historical_detail_url`
+fixes the exact generation. Product results expose source Resume identity independently of output Resume identity.

@@ -143,7 +143,8 @@ async def test_runtime_reads(client, sessions):
     assert response.json()["workflow_version"] is None
     steps = (await client.get(f"/api/v1/runs/{run_id}/steps")).json()
     assert len(steps) == 1 and steps[0]["versions"]["prompt_version"] is None
-    assert (await client.post("/api/v1/runs", json={})).status_code == 404
+    # Collection discovery is read-only; arbitrary run creation remains unavailable.
+    assert (await client.post("/api/v1/runs", json={})).status_code == 405
 
 
 @pytest.mark.parametrize(
