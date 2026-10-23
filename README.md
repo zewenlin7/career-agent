@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current work is **Web product backend contract closure**, built on v0.1–v0.4.
+The current work is **v0.5 Web foundation**, built on the completed v0.1–v0.4 backend contracts.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -25,7 +25,7 @@ OpenAI Responses and Tavily adapters, deterministic target orchestration, versio
 structured zh-CN tailoring and static budget controls are implemented and tested offline.
 **Live extraction/research/fit/tailoring/PDF/greeting have been exercised; Interview Prep passed after a timeout-policy fix, and controlled compression produced an accepted PDF. v0.1c live acceptance is historical; v0.1d acceptance is offline only. Synthetic acceptance does not establish real job-search quality.**
 No automatic applications/messages, unrestricted planner, durable worker,
-vector search or frontend are implemented. Interview preparation is an explicit separate request.
+vector search or complete frontend business pages are implemented. Interview preparation is an explicit separate request.
 
 ## Architecture
 
@@ -897,3 +897,12 @@ reported as `recovery_required`, consistently with Preparation operations.
 Application Knowledge Notes and metadata-only Internal evaluation/attention discovery are documented
 in [Web backend contracts](docs/web-backend-discovery.md), including the server-only Next.js/BFF
 Ops-token boundary. No frontend or new control-plane actions are added.
+
+## v0.5 Web foundation
+
+The independent [frontend project](frontend/README.md) provides Next.js App Router + Tailwind,
+Product/Internal shells, established IA route placeholders and small shared UI primitives.
+Applications and its workspace now read existing backend APIs server-side: company/status
+filters, paging, exact context, same-company switching and factual Summary records. Other business
+sections remain placeholders. Product reads never use Ops credentials; no generation/write/control
+action or new authentication system is implemented.

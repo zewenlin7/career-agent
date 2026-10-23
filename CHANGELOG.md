@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Added — v0.5 Applications read-only workspace
+
+- Server-side existing API reads for Applications, Company/status filtering, pagination and exact
+  Application/Job/Company context. Same-company switching follows the existing one-Job/one-Application model.
+- Factual Summary projections of research, preparation, actual submissions, Mock/Actual interview,
+  Debrief metadata and Application events; independent unavailable/empty/history states.
+- Consumed-field runtime decoders and bounded Job joins; no Ops token in the Product reader,
+  no backend changes, paid operations, write actions or invented selected/progress state.
+- Offline reader/contract and production-server browser tests against isolated synthetic HTTP fixtures.
+
+### Added — v0.5 Web foundation
+
+- Independent Next.js App Router / React / TypeScript / Tailwind project with pinned npm lockfile.
+- Product and Internal shells, existing IA route/layout placeholders, shared UI primitives and
+  CSS token mapping from the project visual reference; no business API calls or fake records.
+- Server-only API transport boundary, sanitized errors and documented Next.js/BFF Ops-token handling.
+- Frontend lint/type/format/build and offline contract/browser checks; separate Web CI workflow.
+
 ### Added — Web preflight discovery
 
 - Optional Application ownership for Knowledge Notes, with legacy interview-linked discovery
