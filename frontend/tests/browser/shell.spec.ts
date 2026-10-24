@@ -26,10 +26,12 @@ test("all IA routes render; browser never calls backend APIs directly", async ({
   ];
   for (const item of pages) {
     await page.goto(item.href);
-    await expect(page.getByRole("heading", { name: item.label, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: item.label, exact: true, level: 1 }),
+    ).toBeVisible();
   }
   expect(errors).toEqual([]);
-  expect(apiCalls).toEqual([]);
+  expect(apiCalls.every((url) => url.startsWith("http://127.0.0.1:3100/api/product/"))).toBe(true);
 });
 
 test("shell navigation, narrow viewport and keyboard access", async ({ page }, testInfo) => {

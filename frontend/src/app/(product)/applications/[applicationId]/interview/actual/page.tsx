@@ -1,11 +1,4 @@
-import type { Metadata } from "next";
-import { PlaceholderPage } from "@/components/layout/placeholder-page";
-export const metadata: Metadata = { title: "Record Actual Interview" };
-export default function Page() {
-  return (
-    <PlaceholderPage
-      title="Record Actual Interview"
-      description="真实面试的问题、回答与笔记将在这里录入。"
-    />
-  );
+import { WorkspaceEntry } from "@/features/workspace/entry";
+export default async function Page({ params }: { params: Promise<{ applicationId: string }> }) {
+  return <WorkspaceEntry id={(await params).applicationId} feature="actual" />;
 }

@@ -903,6 +903,9 @@ Ops-token boundary. No frontend or new control-plane actions are added.
 The independent [frontend project](frontend/README.md) provides Next.js App Router + Tailwind,
 Product/Internal shells, established IA route placeholders and small shared UI primitives.
 Applications and its workspace now read existing backend APIs server-side: company/status
-filters, paging, exact context, same-company switching and factual Summary records. Other business
-sections remain placeholders. Product reads never use Ops credentials; no generation/write/control
-action or new authentication system is implemented.
+filters, paging, exact context, same-company switching and factual Summary records. Application
+business pages now integrate explicit Research/Fit, preparation operations and exact material use,
+Interview Prep/Mock/Actual, Debrief and Application Knowledge Notes through a Product-only BFF.
+Profile editing and Internal data/control integration remain deferred. No Ops credentials enter
+Product pages; no new authentication system or backend business semantics are introduced.
+See the frontend README for API mapping, prerequisite bindings, recovery and offline test boundaries.

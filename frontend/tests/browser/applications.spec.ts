@@ -95,7 +95,7 @@ test("bad bindings and invalid queries fail closed without exposing provider err
   await expect(page.getByText("当前筛选下没有申请记录。", { exact: true })).toBeVisible();
 });
 
-test("product server requests stay GET-only, no Internal paths and no Ops header", async ({
+test("Applications/Summary reads stay GET-only, no Internal paths and no Ops header", async ({
   page,
   request,
 }) => {

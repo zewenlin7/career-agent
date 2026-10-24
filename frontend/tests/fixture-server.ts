@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
+import { workspaceResponse, resetWorkspace } from "./fixtures/workspace-api.ts";
 import { fixtureResponse } from "./fixtures/product-api.ts";
 const requests: { method: string; path: string; hasOpsToken: boolean }[] = [];
-createServer((req, res) => {
+createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://127.0.0.1:3111");
   res.setHeader("Content-Type", "application/json");
   if (url.pathname === "/__ready") {
@@ -12,17 +13,31 @@ createServer((req, res) => {
     res.end(JSON.stringify(requests));
     return;
   }
+  if (url.pathname === "/__reset") {
+    resetWorkspace();
+    requests.length = 0;
+    res.end("{}");
+    return;
+  }
   requests.push({
     method: req.method || "",
     path: url.pathname + url.search,
     hasOpsToken: Boolean(req.headers["x-ops-token"]),
   });
-  if (req.method !== "GET") {
-    res.statusCode = 405;
-    res.end("{}");
+  let raw = "";
+  for await (const chunk of req) raw += chunk;
+  const payload = raw ? JSON.parse(raw) : {};
+  const result = workspaceResponse(url, req.method || "GET", payload) || fixtureResponse(url);
+  if ("sse" in result && result.sse) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.end(result.sse);
     return;
   }
-  const result = fixtureResponse(url);
+  if ("pdf" in result && result.pdf) {
+    res.setHeader("Content-Type", "application/pdf");
+    res.end("%PDF-1.4\n%%EOF");
+    return;
+  }
   res.statusCode = result.status;
   res.end(JSON.stringify(result.body));
 }).listen(3111, "127.0.0.1");

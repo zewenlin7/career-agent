@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added — v0.5 Application business workflows
+
+- Existing Company Research current/history and explicit operation/refresh, Fit results, Resume/Greeting
+  preparation, exact revision/PDF viewing and actual Submission recording with CAS/request identity.
+- Explicit Interview Prep bindings; separate Mock/Actual create/detail/history, Mock answer/generation
+  continuation and Actual current-state corrections/append-only notes.
+- Debrief frozen generation create/execute/regenerate, POST business-event SSE and ordered group/overall
+  presentation; Application-scoped Knowledge Notes creation/list.
+- Allowlisted same-origin Product BFF, sanitized errors and no Ops-token forwarding; offline fixture,
+  contract and browser coverage. No paid acceptance or backend schema changes.
+
 ### Added — v0.5 Applications read-only workspace
 
 - Server-side existing API reads for Applications, Company/status filtering, pagination and exact

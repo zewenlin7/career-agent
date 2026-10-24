@@ -5,7 +5,7 @@ import { cx } from "@/lib/styles";
 type Variant = "primary" | "secondary" | "quiet";
 function buttonStyle(variant: Variant) {
   return cx(
-    "inline-flex min-h-11 items-center justify-center gap-2 rounded-control border px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+    "inline-flex max-w-full break-all whitespace-normal min-h-11 items-center justify-center gap-2 rounded-control border px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
     // Darker reference hover color is used for readable white text on a full text button.
     variant === "primary" &&
       "border-accent-hover bg-accent-hover text-white enabled:hover:bg-accent-ink",

@@ -4,7 +4,7 @@ Next.js App Router, React, strict TypeScript and Tailwind CSS v4. Dependencies a
 in `package.json` and `package-lock.json`. No UI component framework or external font service.
 Dev/build explicitly use the supported Webpack path (Turbopack worker-port IPC is restricted
 in this development environment). The Python application remains a separate service. Applications
-and its workspace now make server-side **GET-only** reads; other business features remain placeholders.
+and Summary retain server-side reads. Application business pages now use an allowlisted Product BFF for explicit operations and history; Profile/Internal integration remains deferred.
 
 ## Run and verify
 
@@ -28,7 +28,7 @@ npm run test:browser
 `check` runs ESLint, generated Next route types + strict tsc, Node contract tests and Prettier.
 Browser tests use the production Next server on 3100 and an isolated synthetic HTTP fixture
 server on 3111. They exercise server-rendered API reads, filtering/pagination, context switching,
-error/empty/history distinctions, navigation and narrow-screen layout. They never use a real
+error/empty/history distinctions, explicit preparation operations, submissions, interview CAS/continuation, Debrief POST SSE and narrow-screen layout. They never use a real
 provider or production database. Fixture code lives only in tests, never app/src.
 Do not run dev/build concurrently against the same `.next` directory.
 
@@ -57,10 +57,9 @@ src/lib/
 
 `/` redirects to `/applications`; section roots redirect to their first page. All Application
 routes load and validate the explicit Application → current Job/JD → Company context, including
-otherwise-placeholder sections. Missing Application gives not-found; failed or mismatched joins
+the business sections. Missing Application gives not-found; failed or mismatched joins
 show a sanitized read error. No auto-selection of another Application.
-There is no synthetic Application link, fake metric, implied business success, or enabled
-backend action. Internal pages are static placeholders, **not** an authentication boundary.
+There is no synthetic Application link, fake metric or implied business success. Generation requires an explicit action and mode selection. Internal pages are static placeholders, **not** an authentication boundary.
 
 ## Visual basis
 
@@ -96,7 +95,7 @@ Before any feature integration, read the actual FastAPI contract. Add an explici
 module or allowlisted BFF handler, not a catch-all proxy. A future Ops reader must be separate
 from this Product reader and inject credentials server-side; never pass headers/config/credentials
 to a Client Component. Product code does not read the Ops token. Existing Ops controls and CAS remain
-unchanged. There are **no BFF HTTP handlers yet**, and no new auth/session system.
+unchanged. `app/api/product/[...path]/route.ts` is an explicit path/method/query/body-key allowlist, not arbitrary forwarding. It checks Origin against the browser Host for JSON writes, never copies browser credentials or Ops headers upstream, sanitizes error bodies, and streams only accepted PDF responses and the existing Debrief POST SSE. No new auth/session system is introduced.
 
 Before deployment, the BFF itself must be local/private or behind deployment access protection;
 an unauthenticated public proxy would lend its server credential to anyone. Private evaluation
@@ -129,8 +128,7 @@ query params fail visibly rather than silently showing all records. No invented 
 
 List reads join each page with Job details in batches of at most five. Workspace links show the
 first eight same-company Applications; a filtered, paginated list exposes the rest. One Job still
-means one Application. Switching always opens the chosen Application's Summary. All placeholders
-inherit its validated header/navigation; they do not generate any materials or analyses.
+means one Application. Switching always opens the chosen Application's Summary. Business pages inherit its validated header/navigation; navigating or reading never starts generation.
 
 Summary has independent read/error/empty states for each existing resource. No total counts are
 inferred from limited pages, no progress/fit score, no selected/current material inference.
@@ -140,8 +138,48 @@ current JD. The latest research history row is not automatically the current com
 Actual Interview's first row is explicitly called first-recorded, never latest interview.
 Reconciliation, retry, provider calls and writes are never triggered by these pages.
 
-## Scope still deferred
+## Application business workflows
 
-Research/Fit operations, Resume/Greeting/Submission detail workflows, Interview/Review business
-pages, Profile editing and all Internal data integration remain placeholders. No Summary engine,
-new backend API, unified interview timeline, material-selection lineage or new control actions.
+All paths below are existing `/api/v1` contracts; browser requests use same-origin `/api/product/...`.
+
+| Area             | Existing endpoints / behavior                                                                                                                                                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Company Research | `GET companies/{id}/research[/current]`, `POST companies/{id}/research`; company-level current/history, mode, freshness/compatibility and source evidence. Force refresh is explicit.                                                                         |
+| Preparation      | `POST operations`, `POST operations/{id}/execute`, `GET operations[/{id}]`; stable identity is committed before execution. Separate target requests for Fit, Tailoring, Greeting, and explicit `prepare_interview`.                                           |
+| Results/history  | `GET applications/{id}/preparation-packages`, `GET preparation-artifacts/{id}/product-view`, `GET job-revisions/{id}`; exact historical context, Fit requirement text, source Resume and reuse. No Greeting revision lineage or selected material pointer.    |
+| Resume           | `GET profile/revisions`, `GET resume-revisions`, `GET resume-variants/{id}?revision=...`, `POST resume-variants/{id}/render`, `GET artifacts/{id}/download`; explicit Profile/base Resume choice, structured revision view and accepted PDF preview/download. |
+| Submissions      | `GET/POST applications/{id}/submissions`; explicit actual-use confirmation, expected Application revision, stable request UUID, exact Resume/PDF and optional Greeting/package. Only this action records applied according to backend lifecycle rules.        |
+| Mock             | `POST mock-interviews`, `GET mock-interviews[/{id}]`, `POST .../{answers,generate,end}`; frozen context, policy quotas, immutable accepted answers, generation-only retry and early end.                                                                      |
+| Actual           | `GET/POST interviews`, `GET/PATCH interviews/{id}`, `POST .../{entries,notes}`; current-state CAS, ordered primary/follow-up, question/answer corrections, append-only legacy notes.                                                                          |
+| Debrief          | `GET/POST interview-debriefs`, `GET .../{id}?historical=true`, `POST .../{id}/{execute,regenerate}`, `GET .../{id}/events`; frozen source, exact generation response, selected/history, independent group/overall.                                            |
+| Knowledge        | `GET applications/{id}/knowledge-notes`, `POST knowledge-notes`; Application scope, creation and paginated read only.                                                                                                                                         |
+
+Forms never implicitly choose a Resume. Modes default to visibly labeled fixture execution; live is
+an explicit selection and may incur provider costs. This implementation's acceptance uses only
+synthetic HTTP fixtures, not paid providers or claims about generated job-search quality.
+
+Preparation creates an operation before a separate Execute click. Refresh/re-entry can discover
+committed operations for the current JD; historical packages remain readable across JD changes.
+Execution is synchronous, not a durable background task. Interrupted requests must be queried;
+needs_input/decision_required/recovery_required remain distinct. No automatic mutation retry.
+A repeated unchanged form uses the same request UUID; starting another explicit request creates a
+new identity. Mock continuation uses revision + pending question ID + request UUID.
+
+Previous Interviews has separate Mock and Actual list/detail views with their backend ordering and
+pagination, not a merged timeline. Actual note edits/deletion are unavailable in the backend and are
+not offered. CAS conflicts keep drafts and require an explicit reread; there is no automatic overwrite.
+
+Debrief streams persisted business events via POST fetch, not EventSource/token streaming. Completed
+artifacts are reread after notifications, displayed by group order with Overall last, independent of
+completion order. Disconnect has no promise of background continuation; query persisted results/events.
+Regenerate binds the exact frozen generation and returns a new run, not negative feedback.
+
+Material-use badges scan ordinary Submission pages rather than treating the first page as the entire
+history. Resume revision detail also exposes paginated exact usage checks. Package history has no
+creation timestamp or typed-result filter: pages are shown in backend order and expanded on selection.
+A manually rendered PDF has no general render-history discovery endpoint; its returned exact report
+ID is displayed, while generated package PDFs and submitted PDFs can be rediscovered via those records.
+
+Existing verified Profile/base Resume data is a prerequisite. This scope does not add Profile editing,
+manual Resume authoring, an Internal control UI, automatic sends/submissions, a Summary engine, a new
+backend API, a unified interview timeline, or new material-selection/revision semantics.
