@@ -6,10 +6,11 @@ from uuid import UUID
 
 from career_agent.evaluation.contracts import EvalCase
 from career_agent.interview.contracts import SourceSnapshot
-from career_agent.interview.validation import groups
+from career_agent.interview.debrief import inputs_for
 from career_agent.models.prompts import application_prompts
 from career_agent.preparation.contracts import TaskType
 from career_agent.preparation.prompts import task_spec
+from career_agent.product.prompts import TASK_SCHEMAS
 from career_agent.runtime.registry import REGISTRY
 
 
@@ -93,6 +94,7 @@ def initial_cases() -> list[EvalCase]:
     }
     source = SourceSnapshot.model_validate(
         {
+            "schema_version": "interview-source-v1",
             "source_kind": "actual",
             "interview_id": id(8),
             "content_revision": 1,
@@ -170,7 +172,9 @@ def initial_cases() -> list[EvalCase]:
             EvalCase.model_validate(
                 {
                     "case_id": key,
-                    "case_version": 1,
+                    "case_version": 2
+                    if key.startswith(("interview_group_debrief.", "interview_overall_debrief."))
+                    else 1,
                     "entrypoint": entry,
                     "source_snapshot": copy.deepcopy(snapshot),
                     "model_input": copy.deepcopy(inputs),
@@ -191,7 +195,7 @@ def initial_cases() -> list[EvalCase]:
         )
 
     for task in application_prompts().specs:
-        if task == "quality_judgement":
+        if task == "quality_judgement" or task in TASK_SCHEMAS:
             continue
         extra: dict[str, Any] = {}
         if task in {t.value for t in TaskType}:
@@ -199,7 +203,7 @@ def initial_cases() -> list[EvalCase]:
             from career_agent.preparation.prompts import ALLOWLIST
 
             inputs = task_spec(
-                enum, {key: copy.deepcopy(common[key]) for key in ALLOWLIST[enum]}
+                enum, {key: copy.deepcopy(common[key]) for key in ALLOWLIST[enum] if key in common}
             ).inputs
             extra = {
                 "facts": [fact],
@@ -232,13 +236,10 @@ def initial_cases() -> list[EvalCase]:
             }
             extra = {"context": frozen}
         elif task == "interview_group_debrief":
-            inputs = {"stable_context": {}, "group": groups(source)[0]}
+            inputs = inputs_for(source, UUID(id(9)))
             extra = {"source": source.model_dump(mode="json"), "group_ref": id(9)}
         else:
-            inputs = {
-                "stable_context": {},
-                "source": source.model_dump(mode="json", exclude={"context"}),
-            }
+            inputs = inputs_for(source, None)
             extra = {"source": source.model_dump(mode="json")}
         entry = {"kind": "component", "component_kind": "model_task", "name": task}
         add(task + ".normal", entry, extra, inputs, tags=["model_task", "normal"])

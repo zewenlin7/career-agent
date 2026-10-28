@@ -4,10 +4,9 @@ from pathlib import Path
 
 from career_agent.resume.fonts import FONT_FAMILY, FONT_HASHES
 from career_agent.resume.pdf import validate_pdf
-from career_agent.resume.policy import compress, initial_selection, selection_hash
+from career_agent.resume.policy import initial_selection, selection_hash
 from career_agent.resume.renderer import CompileError, TypstRenderer
 from career_agent.resume.schemas import (
-    MAX_ROUNDS,
     Attempt,
     Finding,
     PDFValidation,
@@ -23,8 +22,8 @@ def compile_resume(
     renderer: TypstRenderer,
 ) -> tuple[RenderReport, bytes | None]:
     versions = RenderVersions(
-        render_wrapper_version="resume-render-wrapper-v1",
-        validation_implementation_version="resume-validation-v1",
+        render_wrapper_version="resume-render-wrapper-v5",
+        validation_implementation_version="resume-validation-v4",
     )
     report = RenderReport(render_status="failed", validation_status="not_run", versions=versions)
     selection = initial_selection(document)
@@ -35,7 +34,7 @@ def compile_resume(
             versions.compiler_version = renderer.preflight(directory)
             versions.font_family = FONT_FAMILY
             versions.font_file_hashes = dict(FONT_HASHES)
-            for number in range(1, MAX_ROUNDS + 1):
+            for number in (1,):
                 try:
                     path = renderer.compile(selection, name, directory)
                 except CompileError as exc:
@@ -53,7 +52,13 @@ def compile_resume(
                         )
                     )
                     raise
-                validation = validate_pdf(path, selection, name)
+                validation = validate_pdf(
+                    path,
+                    selection,
+                    name,
+                    contacts=" · ".join(v for v in getattr(renderer, "header", {}).values() if v),
+                    photo_required=getattr(renderer, "photo", None) is not None,
+                )
                 report.attempts.append(
                     Attempt(
                         number=number,
@@ -77,14 +82,9 @@ def compile_resume(
                         "pdf_invalid" if "pdf_invalid" in codes else "text_validation_failed"
                     )
                     return report, None
-                next_selection = compress(selection)
-                if next_selection is None:
-                    break
-                if number == MAX_ROUNDS - 1:
-                    # The final round always tests the required-content floor.
-                    while (smaller := compress(next_selection)) is not None:
-                        next_selection = smaller
-                selection = next_selection
+                # Presentation is the user-approved content selection. Overflow must
+                # never substitute short forms or remove optional content silently.
+                break
             report.error_code = "layout_failed"
     except CompileError as exc:
         report.error_code = exc.code

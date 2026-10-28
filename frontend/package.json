@@ -15,7 +15,8 @@
     "format:check": "prettier --check .",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "check": "npm run lint && npm run typecheck && npm run test && npm run format:check",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:profile-browser": "playwright test --config playwright.profile.config.ts"
   },
   "dependencies": {
     "next": "16.4.3",

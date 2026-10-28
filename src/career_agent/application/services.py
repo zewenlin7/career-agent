@@ -35,25 +35,84 @@ def check_revision(actual: int, expected: int) -> None:
 
 
 async def get_profile(session: AsyncSession) -> e.PersonalProfile:
+    from career_agent.profile_area.entities import ProfileWorkspace
+
+    work = await session.get(ProfileWorkspace, "personal")
+    if work:
+        if work.current_profile_id is None:
+            raise DomainError("not_found", 404)
+        return await require(session, e.PersonalProfile, work.current_profile_id)
     profile = await session.scalar(
-        select(e.PersonalProfile).order_by(e.PersonalProfile.revision.desc())
+        select(e.PersonalProfile)
+        .where(e.PersonalProfile.archived_at.is_(None))
+        .order_by(e.PersonalProfile.revision.desc())
     )
     if profile is None:
         raise DomainError("not_found", 404)
     return profile
 
 
-async def put_profile(session: AsyncSession, payload: s.ProfileWrite) -> e.PersonalProfile:
+def profile_content(data: dict[str, Any]) -> dict[str, Any]:
+    value = s.ProfileData.model_validate(data).model_dump(mode="json")
+    for section in ["education", "experiences", "projects"]:
+        for entry in value[section]:
+            entry.pop("entry_id", None)
+            if section == "education" and not entry["degree"] and entry["role"]:
+                entry["degree"], entry["role"] = entry["role"], ""
+    return value
+
+
+async def put_profile(
+    session: AsyncSession, payload: s.ProfileWrite, *, update_current: bool = True
+) -> e.PersonalProfile:
     # Single-user profile: serialize even the first insert, where no row exists to lock.
     await session.execute(text("SELECT pg_advisory_xact_lock(78420101)"))
+    from career_agent.profile_area.entities import ProfileWorkspace
+
+    work = await session.get(ProfileWorkspace, "personal")
+    current = (
+        await session.get(e.PersonalProfile, work.current_profile_id)
+        if work and work.current_profile_id
+        else None
+    )
     latest = await session.scalar(select(func.max(e.PersonalProfile.revision))) or 0
-    check_revision(latest, payload.expected_revision)
+    expected_head = (current.revision if current else 0) if work and update_current else latest
+    check_revision(expected_head, payload.expected_revision)
+    if payload.data.personal.photo_id:
+        from career_agent.profile_area.entities import ProfilePhoto
+
+        await require(session, ProfilePhoto, payload.data.personal.photo_id)
+    for fact_id in payload.data.fact_ids:
+        await require(session, e.PersonalFact, fact_id)
     for experience in payload.data.education + payload.data.experiences + payload.data.projects:
         for fact_id in experience.fact_ids:
             await require(session, e.PersonalFact, fact_id)
-    profile = e.PersonalProfile(revision=latest + 1, data=payload.data.model_dump(mode="json"))
+    data = payload.data.model_dump(mode="json")
+    if (
+        current is not None
+        and current.archived_at is None
+        and profile_content(current.data) == profile_content(data)
+    ):
+        return current
+    if latest:
+        previous = await session.scalar(
+            select(e.PersonalProfile).where(e.PersonalProfile.revision == latest)
+        )
+        if (
+            previous is not None
+            and previous.archived_at is None
+            and profile_content(previous.data) == profile_content(data)
+        ):
+            if update_current:
+                if work:
+                    work.current_profile_id = previous.id
+            return previous
+    profile = e.PersonalProfile(revision=latest + 1, data=data)
     session.add(profile)
     await session.flush()
+    if update_current:
+        if work:
+            work.current_profile_id = profile.id
     return profile
 
 
@@ -122,6 +181,9 @@ async def create_job(session: AsyncSession, payload: s.JobCreate) -> e.JobPostin
     application = e.Application(job_id=job.id)
     session.add(application)
     await session.flush()
+    from career_agent.product.bindings import initialize
+
+    await initialize(session, application)
     session.add(
         e.ApplicationEvent(
             application_id=application.id,
@@ -231,7 +293,21 @@ async def application_note(
 
 async def create_interview(session: AsyncSession, payload: s.InterviewCreate) -> e.InterviewSession:
     await require(session, e.Application, payload.application_id)
-    interview = e.InterviewSession(**payload.model_dump(exclude={"expected_revision"}))
+    from career_agent.product.bindings import read as read_binding
+    from career_agent.product.bindings import view as binding_view
+
+    binding = await binding_view(session, await read_binding(session, payload.application_id))
+    interview = e.InterviewSession(
+        **payload.model_dump(exclude={"expected_revision"}),
+        context_binding={
+            "profile_id": str(binding.profile_id) if binding.profile_id else None,
+            "resume_revision_id": str(binding.resume_revision_id)
+            if binding.resume_revision_id
+            else None,
+            "job_revision_id": str(binding.job_revision_id),
+            "binding_revision": binding.revision,
+        },
+    )
     session.add(interview)
     await session.flush()
     return interview

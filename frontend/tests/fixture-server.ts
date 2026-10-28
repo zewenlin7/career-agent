@@ -1,3 +1,5 @@
+import { onboardingResponse, resetOnboarding } from "./fixtures/onboarding-api.ts";
+import { internalResponse, resetInternal } from "./fixtures/internal-api.ts";
 import { createServer } from "node:http";
 import { workspaceResponse, resetWorkspace } from "./fixtures/workspace-api.ts";
 import { fixtureResponse } from "./fixtures/product-api.ts";
@@ -15,6 +17,8 @@ createServer(async (req, res) => {
   }
   if (url.pathname === "/__reset") {
     resetWorkspace();
+    resetInternal();
+    resetOnboarding(url.searchParams.get("empty") === "true");
     requests.length = 0;
     res.end("{}");
     return;
@@ -27,7 +31,16 @@ createServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
   const payload = raw ? JSON.parse(raw) : {};
-  const result = workspaceResponse(url, req.method || "GET", payload) || fixtureResponse(url);
+  const result =
+    internalResponse(
+      url,
+      req.method || "GET",
+      payload,
+      req.headers["x-ops-token"] === "synthetic-never-forward",
+    ) ||
+    onboardingResponse(url, req.method || "GET", payload) ||
+    workspaceResponse(url, req.method || "GET", payload) ||
+    fixtureResponse(url);
   if ("sse" in result && result.sse) {
     res.setHeader("Content-Type", "text/event-stream");
     res.end(result.sse);

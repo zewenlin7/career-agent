@@ -2,6 +2,74 @@
 
 ## Unreleased
 
+### v0.5 checkpoint — Profile workspace manually accepted
+
+- Profile manual acceptance is complete. Accumulated Application and Internal implementations are
+  included in this checkpoint but remain pending subsequent manual acceptance.
+- Named Profiles use global edit sessions, local section/item saves, commit/cancel, inline names,
+  private photos and immutable internal snapshots; Product exposes no Fact review prerequisite.
+- Quick/AI Resume creation shares one saved-entry lifecycle. Ordinary edits, presentation changes
+  and compression preserve library identity; exact prior revisions remain readable. AI optimization
+  adds an entry with persisted naming branch/ordinal and parent lineage, separate from feedback.
+- Explicit short-expression selection replaces automatic PDF shortening/removal. AI compression
+  fills only eligible empty short forms in a recoverable proposal. Field errors map to exact inputs.
+- Structured Chinese Typst output includes contacts/photos and experience hierarchy. Visibility,
+  order and expression selection are frozen with PDF provenance; no implicit paid compression.
+- Migrations `b505c0802601` through `b905c1202601` add edit sessions, presentation/saved metadata,
+  independent numbering, naming branches and workspace entry continuity. Earlier migrations remain
+  required; no business data reset or historical-reference deletion.
+- Source archives explicitly exclude frontend dependency/build/test output and local-only reference
+  documents; wheel imports and bundled Typst resources are verified offline.
+- The earlier entries below record implementation stages; current behavior is documented in
+  `docs/profile-workspace.md`. In particular, Fact UI and automatic compression are superseded.
+
+
+### Changed — v0.5 Application-centered Product workflow
+
+- Application default exact Profile/JD/Resume binding; success-only task-specific result discovery;
+  Chinese Product navigation, one-click tasks and removal of Product technical/debug controls.
+- Profile/Resume no-op writes, Profile-derived editable base drafts and a resume-first library with
+  a single version selector. Tailoring library adoption and Application binding remain separate.
+- Review-first fact extraction, base drafting and Resume/Greeting/Interview Prep refinement through
+  existing prompt/gateway/budget/provenance controls; no automatic fact verification.
+- Actual Interview drafts and grouped CRUD, stable question anchors, answer-and-early-end for Mock,
+  compact numbered Debrief output resolved to immutable canonical evidence, and Knowledge Note CRUD.
+- Migrations `af05c0202601`, `b005c0302601`, `b105c0402601` add binding, draft/note lifecycle and private
+  draft ownership/library visibility. Legacy bindings are not guessed; historical source-v1 hashes
+  remain readable. Foundation suite v3 updates the two interview model-task case versions.
+- `cgstart` wraps the existing checked launcher. No paid smoke or external research was run.
+
+### Changed — v0.5 Product usability repairs
+
+- Task-facing Chinese copy, collapsed identifiers/development settings, and one-action preparation,
+  Mock start and Debrief execution without weakening durable operation/recovery semantics.
+- Company research no longer requires or reads personal profiles/facts. Raw-JD matching reuses the
+  existing extraction→Fit path; extraction prompt clarifies literal evidence-bound skills and failures
+  remain fail-closed. No model or fact guardrail has been relaxed.
+- Company autocomplete/new-company sections, optional advanced requirements, simpler tracking,
+  read/edit Profile, historical Resume view/copy-to-new-head with CAS and remembered exact selection.
+- Human-readable research sources and deterministic render-decision explanations.
+- Local `start-dev.sh` supervisor with controlled Typst/font checks, pinned missing-font installation,
+  migrations and process cleanup. No schema migration, paid calls or Profile/Fact model redesign.
+
+### Added — v0.5 empty-account Product entrypoints
+
+- Profile creation/CAS updates/history and explicit Fact create/verify/reject/supersede, with structured
+  education/experience/project fact references.
+- Exact-Profile Base Resume creation/revision and explicit render; new Job/Application with explicit
+  existing/new Company selection; Application lifecycle/CAS corrections and notes in Summary.
+- Narrow Product BFF additions and synthetic empty-state browser/contract coverage; no backend schema,
+  automatic verification, company deduplication or paid calls.
+
+### Added — v0.5 Internal Dashboard
+
+- Operations snapshot/window metrics, run/step/call and agent detail, categorized attention/recovery,
+  and existing CAS/idempotent operator controls through an allowlisted server-side token BFF.
+- Evaluation discovery, explicit offline run execution/cancellation, comparison, categorical quality,
+  blind annotation/calibration and capture triage/sanitized export/promotion contract interfaces.
+- Metadata-only default evaluation views, explicit private review, separate cache/reuse populations,
+  and synthetic unit/browser coverage. No backend changes, new control policies or paid acceptance.
+
 ### Added — v0.5 Application business workflows
 
 - Existing Company Research current/history and explicit operation/refresh, Fit results, Resume/Greeting
@@ -517,3 +585,29 @@ No final v0.1.0 release has been made.
 - Audit-fix offline acceptance: 577 tests passed, including 20 product contract cases, real
   PostgreSQL migration/drift/history upgrades and Typst regression coverage. Ruff/format,
   strict mypy and offline wheel/sdist build passed; no paid API calls.
+
+### Profile area restructuring (unreleased)
+
+- Separate personal-information, resume-library and fact-library Product pages.
+- Durable section-level Profile drafts and explicit publication, history restore/archive,
+  optional contact/education/work/project fields, exact multiline skills, ordinary preference fields.
+- Validated private photo upload/read/replace/remove and snapshot-bound PDF headers/photos.
+- Compact fact review with atomic batch confirm/reject/archive and proposed replacement editing.
+- Persistent deterministic Resume drafts without fact prerequisites; verified/grounded formal
+  publication, one version selector, stable names, rename and safe archival.
+- `b205c0502601` migration; old snapshots/artifacts remain readable. No paid model acceptance claimed.
+
+### Profile interaction correction
+
+- Named independent Profile records with section saves, preserved snapshots and protected deletion.
+- Unified saved Resume versions, arbitrary Profile source, idempotent creation, explicit AI generation/compression, and incremental deterministic short-text selection.
+- Facts table with mixed-state batch review, actual update times, exact Profile/Resume extraction sources, candidate selection, duplicate detection and real cancellation.
+- Migration `b305c0602601` preserves old snapshots and historical artifact references.
+
+### v0.5 Profile workspace closure + HITL
+
+- Selector-first Profile homepage, idempotent creation and inline identity editing.
+- One-action quick/AI Resume creation; Product Facts navigation retired without deleting backend data.
+- Source-aware PDF validation replaces manual intermediate Fact approval.
+- Feedback comments/Application/provenance and queryable feedback-to-refinement lineage.
+- Nullable migration `b405c0702601`; old snapshots and artifact references retained.

@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from career_agent.domain.rules import (
@@ -76,9 +78,11 @@ class PersonalProfile(Row, Base):
     __table_args__ = (CheckConstraint("revision > 0", name="positive_revision"),)
     revision: Mapped[int] = mapped_column(unique=True)
     data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(ProfileData))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PersonalFact(Row, Base):
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = "personal_facts"
     __table_args__ = (
         UniqueConstraint("lineage_id", "revision"),
@@ -87,6 +91,7 @@ class PersonalFact(Row, Base):
             "status != 'verified' OR verified_at IS NOT NULL", name="verification_time"
         ),
     )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lineage_id: Mapped[UUID] = mapped_column(default=uuid4)
     revision: Mapped[int] = mapped_column(default=1)
     statement: Mapped[str] = mapped_column(Text)
@@ -187,6 +192,10 @@ class InterviewSession(Row, Base):
     __tablename__ = "interview_sessions"
     __table_args__ = (CheckConstraint("content_revision > 0", name="positive_revision"),)
     content_revision: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(20), default="completed", server_default="completed")
+    round_number: Mapped[int | None] = mapped_column()
+    interview_type: Mapped[str | None] = mapped_column(String(20))
+    context_binding: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     entries: Mapped[list[dict[str, Any]]] = mapped_column(
         ValidatedList(InterviewEntry), default=list
@@ -202,6 +211,8 @@ class InterviewSession(Row, Base):
 
 class KnowledgeNote(Row, Base):
     __tablename__ = "knowledge_notes"
+    revision: Mapped[int] = mapped_column(default=1, server_default="1")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     application_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("applications.id", ondelete="RESTRICT"), index=True
     )
@@ -392,9 +403,13 @@ class ResumeVariant(Row, Base):
     __tablename__ = "resume_variants"
     __table_args__ = (CheckConstraint("current_revision > 0", name="positive_revision"),)
     current_revision: Mapped[int] = mapped_column(default=1)
+    library_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
 
 class ResumeVariantRevision(Row, Base):
+    library_state: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=utcnow)
+    presentation: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     __tablename__ = "resume_variant_revisions"
     __table_args__ = (
         UniqueConstraint("resume_variant_id", "revision"),
@@ -412,6 +427,10 @@ class ResumeVariantRevision(Row, Base):
     )
     document: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(ResumeDocument))
     input_snapshot: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InputSnapshot))
+    library_number: Mapped[int | None] = mapped_column()
+    display_name: Mapped[str | None] = mapped_column(String(200))
+    metadata_revision: Mapped[int] = mapped_column(default=1, server_default="1")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RenderArtifact(Row, Base):
@@ -638,3 +657,4 @@ from career_agent.evaluation import entities as evaluation_entities  # noqa: E40
 from career_agent.ops import entities as ops_entities  # noqa: E402, F401
 from career_agent.preparation import observation_store as observation_entities  # noqa: E402, F401
 from career_agent.product import entities as product_entities  # noqa: E402, F401
+from career_agent.profile_area import entities as profile_area_entities  # noqa: E402, F401

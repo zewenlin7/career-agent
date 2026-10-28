@@ -5,8 +5,8 @@ export function isActivePath(pathname: string, item: NavigationItem): boolean {
 }
 
 export const productNavigation: NavigationItem[] = [
-  { href: "/applications", label: "Applications" },
-  { href: "/profile", label: "Profile" },
+  { href: "/applications", label: "申请" },
+  { href: "/profile", label: "个人资料" },
 ];
 export const internalNavigation: NavigationItem[] = [
   { href: "/internal/operations", label: "Operations" },
@@ -27,28 +27,28 @@ export const evaluationNavigation: NavigationItem[] = [
 export function applicationNavigation(id: string): NavigationItem[] {
   const root = `/applications/${encodeURIComponent(id)}`;
   return [
-    { href: `${root}/summary`, label: "Summary" },
-    { href: `${root}/research-fit`, label: "Research & Fit" },
-    { href: `${root}/apply`, label: "Apply" },
-    { href: `${root}/interview`, label: "Interview" },
-    { href: `${root}/review`, label: "Review" },
+    { href: `${root}/summary`, label: "概览" },
+    { href: `${root}/research-fit`, label: "研究与匹配" },
+    { href: `${root}/apply`, label: "投递材料" },
+    { href: `${root}/interview`, label: "面试" },
+    { href: `${root}/review`, label: "复盘" },
   ];
 }
 export const applicationSections = {
   apply: [
-    ["resume", "Resume"],
-    ["greeting", "Greeting"],
-    ["submissions", "Submissions"],
+    ["resume", "简历"],
+    ["greeting", "招呼语"],
+    ["submissions", "投递记录"],
   ],
   interview: [
-    ["preparation", "Interview Prep"],
-    ["mock", "Mock Interview"],
-    ["actual", "Record Actual Interview"],
-    ["history", "Previous Interviews"],
+    ["preparation", "面试准备"],
+    ["mock", "模拟面试"],
+    ["actual", "记录真实面试"],
+    ["history", "历史面试"],
   ],
   review: [
-    ["debriefs", "Debriefs"],
-    ["knowledge-notes", "Knowledge Notes"],
+    ["debriefs", "面试复盘"],
+    ["knowledge-notes", "求职笔记"],
   ],
 } as const;
 

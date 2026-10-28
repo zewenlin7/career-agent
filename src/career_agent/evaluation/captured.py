@@ -50,6 +50,8 @@ async def freeze_inputs(
     resume_revision_id: UUID | None,
     request: dict[str, Any],
     data_dir: Path | None = None,
+    *,
+    additional_fact_ids: set[UUID] | None = None,
 ) -> dict[str, Any]:
     rows: dict[tuple[str, UUID], dict[str, Any]] = {}
     files: dict[str, dict[str, Any]] = {}
@@ -147,7 +149,7 @@ async def freeze_inputs(
 
     profile = await require(session, e.PersonalProfile, profile_id)
     await add(profile)
-    for fact_id in sorted(profile_fact_ids(profile), key=str):
+    for fact_id in sorted(profile_fact_ids(profile) | (additional_fact_ids or set()), key=str):
         await add(await require(session, e.PersonalFact, fact_id))
     job = await require(session, e.JobRevision, job_revision_id)
     await add(job)

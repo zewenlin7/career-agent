@@ -52,10 +52,16 @@ async def create(session: AsyncSession, payload: OperationCreate) -> OperationOu
     )
     data = payload.model_dump(mode="json")
     if old:
-        if old.payload != data:
+        if OperationCreate.model_validate(old.payload).model_dump(mode="json") != data:
             raise DomainError("idempotency_conflict")
         return view(old)
-    await require(session, e.PersonalProfile, payload.request.profile_id)
+    if payload.application_binding is not None:
+        from career_agent.product.bindings import validate_request
+
+        await validate_request(session, payload)
+    if payload.kind != "company_research":
+        assert payload.request.profile_id is not None
+        await require(session, e.PersonalProfile, payload.request.profile_id)
     await require(session, e.JobRevision, payload.request.job_revision_id)
     row = ProductOperation(
         request_id=payload.request_id, kind=payload.kind, run_id=uuid4(), payload=data
@@ -220,12 +226,12 @@ async def research_execute(r: PreparationWorkflow, run_id: UUID) -> None:
         workflow="company_research",
         workflow_version="company-research-product-v1",
         mode=r.request.mode,
-        profile_id=r.request.profile_id,
+        profile_id=None,
         job_revision_id=r.request.job_revision_id,
         requested_outputs=["company_research_synthesis"],
         limits=limits,
     )
-    await r.node("validate_inputs")
+    await r.node("validate_research_inputs")
     if not r.state.stop_reason:
         await r.node("research_company")
         if r.step.status == CallStatus.FAILED:

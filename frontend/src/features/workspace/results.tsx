@@ -1,9 +1,10 @@
 "use client";
+import { ResultActions } from "./result-actions";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { Context, PackageRow, PackageView, Result, Submission, Page } from "./contracts";
+import type { Context, PackageView, Result, Submission, Page } from "./contracts";
 import { api, endpoint, useRead } from "./client";
-import { Panel, Pages, ReadState, Refs, Status } from "./ui";
+import { ReadState, Refs, Status, ErrorNotice } from "./ui";
 import { collectSubmissionHistory } from "./submission-history";
 export const readSubmissions = (path: string, signal: AbortSignal) =>
   collectSubmissionHistory((offset) =>
@@ -14,17 +15,17 @@ const obj = (v: unknown): Record<string, unknown> =>
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const text = (v: unknown) => (typeof v === "string" ? v : "");
 const labels: Record<string, string> = {
-  matched: "有事实支持",
+  matched: "匹配",
   partial: "部分匹配",
-  no_evidence: "暂无证据（不等于不具备）",
-  explicit_gap: "明确差距",
+  no_evidence: "不确定",
+  explicit_gap: "明显差距",
   strengths: "优势",
   issues: "问题",
   knowledge_gap_hypotheses: "知识缺口假设",
   improvement_suggestions: "改进建议",
   recurring_issues: "反复出现的问题",
   practice_recommendations: "练习建议",
-  knowledge_candidates: "知识候选（未写入知识库）",
+  knowledge_candidates: "建议积累的知识",
   technical_questions: "技术问题",
   project_deep_dive_questions: "项目深挖",
   behavioral_questions: "行为问题",
@@ -79,25 +80,32 @@ export function ResultContent({
     return <p className="max-w-[760px] whitespace-pre-wrap break-words">{text(c.greeting_text)}</p>;
   if (result.kind === "fit_analysis")
     return (
-      <ul className="space-y-4">
-        {list(c.items).map((raw, i) => {
-          const x = obj(raw);
+      <div className="space-y-6">
+        {["matched", "partial", "no_evidence", "explicit_gap"].map((status) => {
+          const items = list(c.items)
+            .map(obj)
+            .filter((item) => item.status === status);
+          if (!items.length) return null;
           return (
-            <li key={i} className="border-b border-line pb-4">
-              <h4 className="mb-3 font-semibold">
-                {requirements[text(x.requirement_ref)] ||
-                  "要求原文暂未读取（见 exact requirement ref）"}
-              </h4>
-              <Status value={labels[text(x.status)] || text(x.status)} />
-              <p className="mt-3 whitespace-pre-wrap">{text(x.explanation)}</p>
-              {text(x.missing_evidence) && (
-                <p className="text-sm text-secondary">待补证据：{text(x.missing_evidence)}</p>
-              )}
-              <Refs values={{ requirement_ref: x.requirement_ref, fact_refs: x.fact_refs }} />
-            </li>
+            <section key={status}>
+              <h3 className="mb-3 font-semibold">{labels[status]}</h3>
+              <ul className="space-y-4">
+                {items.map((item, index) => (
+                  <li key={index} className="border-b border-line pb-3">
+                    <h4 className="font-medium">
+                      {requirements[text(item.requirement_ref)] || "岗位要求"}
+                    </h4>
+                    <p className="mt-2 whitespace-pre-wrap text-sm">{text(item.explanation)}</p>
+                    {text(item.missing_evidence) && (
+                      <p className="mt-1 text-sm text-secondary">{text(item.missing_evidence)}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
           );
         })}
-      </ul>
+      </div>
     );
   return (
     <div className="max-w-[760px] space-y-5">
@@ -131,7 +139,7 @@ export function ResultContent({
             const q = obj(raw);
             return (
               <article key={i} className="mt-4 border-l border-line pl-4">
-                <p>{text(q.question)}</p>
+                <h4 className="font-semibold">{text(q.question)}</h4>
                 <p className="text-sm text-secondary">
                   {text(q.why_likely)} · {text(q.what_is_being_tested)}
                 </p>
@@ -154,20 +162,30 @@ export function ResultContent({
     </div>
   );
 }
-export function PdfLinks({ id }: { id: string }) {
+export function PdfLinks({ id, downloadFirst = false }: { id: string; downloadFirst?: boolean }) {
   const [preview, setPreview] = useState(false);
   return (
     <div className="space-y-3">
       <div className="flex gap-4">
+        {downloadFirst && (
+          <a
+            className="inline-flex min-h-11 items-center text-accent-ink underline"
+            href={endpoint(`artifacts/${id}/download`)}
+          >
+            下载 PDF
+          </a>
+        )}
         <Button onClick={() => setPreview(!preview)}>
           {preview ? "关闭 PDF 预览" : "预览 PDF"}
         </Button>
-        <a
-          className="inline-flex min-h-11 items-center text-accent-ink underline"
-          href={endpoint(`artifacts/${id}/download`)}
-        >
-          下载 PDF
-        </a>
+        {!downloadFirst && (
+          <a
+            className="inline-flex min-h-11 items-center text-accent-ink underline"
+            href={endpoint(`artifacts/${id}/download`)}
+          >
+            下载 PDF
+          </a>
+        )}
       </div>
       {preview && (
         <>
@@ -176,7 +194,7 @@ export function PdfLinks({ id }: { id: string }) {
             src={endpoint(`artifacts/${id}/download?inline=true`)}
             className="h-[640px] w-full border border-line"
           />
-          <p className="text-sm">浏览器无法预览时，请使用下载链接；文件缺失或损坏仍由后端拒绝。</p>
+          <p className="text-sm">浏览器无法预览时，请下载 PDF 查看。</p>
         </>
       )}
     </div>
@@ -186,8 +204,12 @@ export function ResultCard({
   result,
   packageId,
   submissions = [],
+  applicationId,
+  onSaved,
 }: {
   result: Result;
+  applicationId?: string;
+  onSaved?: () => void;
   packageId: string;
   submissions?: Submission[];
 }) {
@@ -206,12 +228,19 @@ export function ResultCard({
   return (
     <article className="space-y-4 border-t border-line pt-4">
       <div className="flex flex-wrap gap-3">
-        <Status value={result.status} />
         <span className="text-sm">{result.reused ? "复用已有结果" : "本次结果"}</span>
-        {used.length > 0 && <span className="text-sm">已用于真实 Submission</span>}
+        {used.length > 0 && <span className="text-sm">已用于投递</span>}
       </div>
-      {result.reason && <p className="text-sm">原因：{result.reason}</p>}
+      {result.reason && <ErrorNotice code={result.reason} />}
       <ResultContent result={result} requirements={requirements} />
+      <ResultActions
+        key={
+          result.target_artifact_id || result.result_id || result.resume_revision_id || result.kind
+        }
+        result={result}
+        applicationId={applicationId}
+        onSaved={onSaved}
+      />
       {result.content && result.kind === "greeting_generation" && (
         <Refs
           values={{
@@ -265,46 +294,11 @@ export function PackageDetail({
               <ResultCard key={r.kind} result={r} packageId={id} submissions={submissions} />
             ))}
           {target && !read.data.results.some((r) => r.kind === target) && (
-            <p>此 package 没有请求该结果。</p>
+            <p>这次准备没有生成此类结果。</p>
           )}
         </>
       )}
     </div>
-  );
-}
-export function History({ ctx, target }: { ctx: Context; target: string }) {
-  const [offset, setOffset] = useState(0),
-    [selected, setSelected] = useState("");
-  const rows = useRead<PackageRow[]>(
-    `applications/${ctx.application.id}/preparation-packages?limit=10&offset=${offset}`,
-  );
-  const subs = useRead<Submission[]>(
-    `applications/${ctx.application.id}/submissions`,
-    readSubmissions,
-  );
-  return (
-    <Panel title="准备结果与历史">
-      <ReadState loaded={!!rows.data} error={rows.error} empty={rows.data?.length === 0} />
-      <ul className="space-y-2">
-        {rows.data?.map((r) => (
-          <li key={r.id}>
-            <Button onClick={() => setSelected(r.id)} aria-pressed={selected === r.id}>
-              {r.outcome?.status || "历史结果"} ·{" "}
-              {r.job_revision_id === ctx.job.job_revision_id ? "当前 JD" : "历史 JD"} · {r.id}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {rows.data && <Pages offset={offset} setOffset={setOffset} more={rows.data.length === 10} />}
-      <p className="text-sm text-secondary">
-        按后端 package 历史顺序展示；选择后只读取该 package
-        的对应结果。生成记录不代表当前选择或实际使用。
-      </p>
-      {subs.error && <p>实际使用记录暂时不可读取。</p>}
-      {selected && (
-        <PackageDetail id={selected} target={target} ctx={ctx} submissions={subs.data} />
-      )}
-    </Panel>
   );
 }
 export function Evaluation({ value }: { value: Record<string, unknown> }) {
@@ -324,11 +318,7 @@ export function Evaluation({ value }: { value: Record<string, unknown> }) {
                     <ul className="text-sm text-secondary">
                       {list(f.evidence).map((raw, j) => {
                         const e = obj(raw);
-                        return (
-                          <li key={j}>
-                            第 {String(e.question_number)} 题 · {text(e.label)}：{text(e.preview)}
-                          </li>
-                        );
+                        return <li key={j}>参考：{String(e.question_number)}</li>;
                       })}
                     </ul>
                   </li>
@@ -342,6 +332,69 @@ export function Evaluation({ value }: { value: Record<string, unknown> }) {
           <h4 className="font-semibold">示例回答</h4>
           <p>{text(obj(value.example_answer).content)}</p>
         </section>
+      )}
+    </div>
+  );
+}
+
+export function CompressionSummary({
+  report,
+  content,
+}: {
+  report: import("./contracts").Render["report"];
+  content?: Record<string, unknown>;
+}) {
+  const decisions = [
+    ...new Map(
+      (report.attempts || [])
+        .flatMap((a) => a.decisions)
+        .map((d) => [`${d.action}:${d.target_id}`, d]),
+    ).values(),
+  ];
+  const sections = list(content?.sections).map(obj);
+  const labels = {
+    short_text: "使用精简正文",
+    remove_item: "移除可选内容",
+    remove_section: "移除可选章节",
+  };
+  return (
+    <div className="space-y-2 text-sm">
+      {report.error_code === "layout_failed" && <p>内容仍超出页面，请精简后重新生成。</p>}
+      {decisions.length > 0 && (
+        <details>
+          <summary>排版调整说明（{decisions.length} 项）</summary>
+          <ul>
+            {Object.entries(labels).map(([key, label]) => {
+              const n = decisions.filter((d) => d.action === key).length;
+              return n > 0 ? (
+                <li key={key}>
+                  {label}：{n} 处
+                </li>
+              ) : null;
+            })}
+          </ul>
+          {content && (
+            <ul className="mt-2 space-y-2">
+              {decisions.map((d) => {
+                const section = sections.find((s) => s.section_id === d.target_id);
+                const item = sections
+                  .flatMap((s) => list(s.items).map(obj))
+                  .find((i) => i.item_id === d.target_id);
+                const description = item
+                  ? text(item.text).slice(0, 100)
+                  : section
+                    ? text(section.name)
+                    : "";
+                return (
+                  <li key={`${d.action}:${d.target_id}`}>
+                    {labels[d.action]}
+                    {description && `：${description}`}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </details>
       )}
     </div>
   );

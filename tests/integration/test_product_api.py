@@ -140,7 +140,11 @@ async def test_profile_job_and_application_discovery(client, prep_input):
     job = (await client.get("/api/v1/jobs")).json()[0]
     profile = (await client.get("/api/v1/profile")).json()
     updated = await client.put(
-        "/api/v1/profile", json={"expected_revision": profile["revision"], "data": profile["data"]}
+        "/api/v1/profile",
+        json={
+            "expected_revision": profile["revision"],
+            "data": {**profile["data"], "display_name": "更新资料"},
+        },
     )
     assert updated.status_code == 200
     history = (await client.get("/api/v1/profile/revisions?limit=1")).json()
@@ -544,3 +548,128 @@ async def test_research_guardrail_step_preserves_workflow(
         assert all(
             step.versions["workflow_version"] == "company-research-product-v1" for step in steps
         )
+
+
+async def test_research_without_personal_context(client, sessions, monkeypatch):
+    from sqlalchemy import event
+
+    from career_agent.preparation.workflows import PreparationWorkflow
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("research must not validate personal inputs")
+
+    monkeypatch.setattr(PreparationWorkflow, "validate_inputs", forbidden)
+    job = (
+        await client.post(
+            "/api/v1/jobs",
+            json={
+                "company_name": "合成研究公司",
+                "title": "开发工程师",
+                "jd_text": "Python 服务开发",
+            },
+        )
+    ).json()
+    reads = []
+    engine = client._transport.app.state.engine.sync_engine
+
+    def observe(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            reads.append(statement.lower())
+
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        for _ in range(2):
+            op = await client.post(
+                f"/api/v1/companies/{job['company_id']}/research",
+                json={
+                    "request_id": str(uuid4()),
+                    "kind": "company_research",
+                    "request": {"job_revision_id": job["job_revision_id"], "mode": "fixture"},
+                },
+            )
+            assert op.status_code == 201, op.text
+            done = await client.post(f"/api/v1/operations/{op.json()['id']}/execute")
+            assert done.json()["status"] == "success", done.text
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert not any("personal_facts" in q or "personal_profiles" in q for q in reads)
+    async with sessions() as session:
+        assert len(list(await session.scalars(select(e.CompanyResearch)))) == 1
+        assert len(list(await session.scalars(select(e.ModelCall)))) == 1
+
+
+async def test_raw_jd_fit_extracts_once_with_shared_run(client, sessions, prep_input):
+    # prep_input provides a real verified context; this separate job has raw JD only.
+    job = (
+        await client.post(
+            "/api/v1/jobs",
+            json={
+                "company_name": "合成岗位公司",
+                "title": "开发工程师",
+                "jd_text": "使用 Python 开发服务。",
+            },
+        )
+    ).json()
+    body = {**prep_input, "job_revision_id": job["job_revision_id"], "targets": ["fit_analysis"]}
+    _, op = await make_operation(client, body)
+    done = (await client.post(f"/api/v1/operations/{op['id']}/execute")).json()
+    assert done["status"] == "success", done
+    async with sessions() as session:
+        calls = list(
+            await session.scalars(
+                select(e.ModelCall).join(e.AgentStep).where(e.AgentStep.run_id == op["run_id"])
+            )
+        )
+        assert sorted(c.task_type for c in calls) == ["fit_analysis", "job_requirement_extraction"]
+        requirements = list(
+            await session.scalars(
+                select(e.JobRequirement).where(
+                    e.JobRequirement.job_revision_id == job["job_revision_id"]
+                )
+            )
+        )
+        assert requirements and all(r.source_quote in job["jd_text"] for r in requirements)
+    _, other = await make_operation(client, body)
+    assert (await client.post(f"/api/v1/operations/{other['id']}/execute")).json()[
+        "status"
+    ] == "success"
+    async with sessions() as session:
+        assert (
+            len(
+                list(
+                    await session.scalars(
+                        select(e.ModelCall).where(
+                            e.ModelCall.task_type == "job_requirement_extraction"
+                        )
+                    )
+                )
+            )
+            == 1
+        )
+
+
+async def test_fit_with_existing_requirements_skips_extraction(client, sessions, prep_input):
+    job = (
+        await client.post(
+            "/api/v1/jobs",
+            json={
+                "company_name": "合成已有要求公司",
+                "title": "开发工程师",
+                "jd_text": "使用 Python 开发服务。",
+                "requirements": [
+                    {
+                        "text": "使用 Python 开发服务。",
+                        "category": "skill",
+                        "importance": "must",
+                        "source_quote": "使用 Python 开发服务。",
+                    }
+                ],
+            },
+        )
+    ).json()
+    _, op = await make_operation(client, {**prep_input, "job_revision_id": job["job_revision_id"]})
+    done = (await client.post(f"/api/v1/operations/{op['id']}/execute")).json()
+    assert done["status"] == "success", done
+    async with sessions() as session:
+        calls = list(await session.scalars(select(e.ModelCall)))
+        assert [call.task_type for call in calls] == ["fit_analysis"]

@@ -29,15 +29,9 @@ export default async function ApplicationLayout({
   const siblings = await optionalRead(() => applications.siblings(ctx));
   return (
     <>
-      <div className="mb-5 text-sm">
-        <Link href="/applications" className="text-secondary underline underline-offset-4">
-          Applications
-        </Link>
-        <span aria-hidden="true" className="mx-3 text-muted">
-          /
-        </span>
-        <span>Application</span>
-      </div>
+      <Link href="/applications" className="mb-5 inline-block text-sm text-secondary">
+        ← 返回申请列表
+      </Link>
       <section
         aria-label="当前申请"
         className="mb-6 rounded-panel border border-line bg-surface p-5 sm:p-6"
@@ -82,7 +76,7 @@ export default async function ApplicationLayout({
                   >
                     {job.title}
                     <span className="text-secondary">
-                      {application.id === id ? "当前申请" : "进入 Summary"}
+                      {application.id === id ? "当前申请" : "查看申请"}
                     </span>
                   </Link>
                 </li>

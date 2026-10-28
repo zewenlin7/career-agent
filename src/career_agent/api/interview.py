@@ -40,12 +40,16 @@ async def list_actual(
     session: DB,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    status: Literal["draft", "completed"] = "completed",
 ) -> list[e.InterviewSession]:
     await require(session, e.Application, application_id)
     return list(
         await session.scalars(
             select(e.InterviewSession)
-            .where(e.InterviewSession.application_id == application_id)
+            .where(
+                e.InterviewSession.application_id == application_id,
+                e.InterviewSession.status == status,
+            )
             .order_by(e.InterviewSession.created_at, e.InterviewSession.id)
             .limit(limit)
             .offset(offset)

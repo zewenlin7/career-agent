@@ -17,6 +17,8 @@ async def test_health_profile_and_fact_lifecycle(client, sessions, synthetic):
     assert response.json()["revision"] == 1
     assert (await client.put("/api/v1/profile", json=payload)).status_code == 409
     payload["expected_revision"] = 1
+    assert (await client.put("/api/v1/profile", json=payload)).json()["revision"] == 1
+    payload["data"] = {**payload["data"], "display_name": "Updated synthetic profile"}
     assert (await client.put("/api/v1/profile", json=payload)).json()["revision"] == 2
     assert (await client.get("/api/v1/profile")).json()["revision"] == 2
     fact = (await client.post("/api/v1/facts", json=synthetic["fact"])).json()

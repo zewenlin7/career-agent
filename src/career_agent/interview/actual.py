@@ -8,6 +8,7 @@ from career_agent.application.services import check_revision, require
 from career_agent.domain import schemas as s
 from career_agent.domain.rules import DomainError
 from career_agent.infrastructure import entities as e
+from career_agent.interview.numbering import numbered
 
 
 def validate_entries(entries: list[s.InterviewEntry]) -> None:
@@ -30,9 +31,28 @@ async def update(session: AsyncSession, id: UUID, payload: s.InterviewUpdate) ->
         row.occurred_at = payload.occurred_at
     if payload.entries is not None:
         validate_entries(payload.entries)
+        previous = [s.InterviewEntry.model_validate(v) for v in row.entries]
+        if any(v.main_question_number is None for v in previous):
+            previous = numbered(previous)
         row.entries = [
-            x.model_dump(mode="json") for x in sorted(payload.entries, key=lambda x: x.order)
+            x.model_dump(mode="json")
+            for x in sorted(numbered(payload.entries, previous), key=lambda x: x.order)
         ]
+    if (
+        payload.status == "completed"
+        or (payload.entries is not None and row.status == "completed" and payload.status != "draft")
+    ) and not any(e["kind"] == "primary" for e in row.entries):
+        raise DomainError("interview_questions_required", 422)
+    for name in ("status", "round_number", "interview_type"):
+        if getattr(payload, name) is not None:
+            setattr(row, name, getattr(payload, name))
+    if payload.notes_text is not None:
+        text = payload.notes_text.strip()
+        row.notes = (
+            [s.InterviewNoteData(text=text, recorded_at=e.utcnow().isoformat()).model_dump()]
+            if text
+            else []
+        )
     row.content_revision += 1
     await session.flush()
     return row

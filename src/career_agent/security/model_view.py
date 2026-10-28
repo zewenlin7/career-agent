@@ -3,11 +3,14 @@
 import re
 from typing import Any
 
-MODEL_VIEW_VERSION = "model-view-v2"
+MODEL_VIEW_VERSION = "model-view-v3"
 
 CONTACT_KEYS = frozenset(
     {
         "email",
+        "personal",
+        "photo_id",
+        "other_contact",
         "phone",
         "mobile",
         "telephone",

@@ -162,6 +162,11 @@ class Orchestrator:
             if target in {"greeting_generation", "interview_preparation"}
             else None,
         }
+        if target == "fit_analysis" and r.request.fit_input:
+            payload["fit_input"] = r.request.fit_input
+            payload["fit_resume"] = (
+                str(r.request.resume_revision_id) if r.request.resume_revision_id else None
+            )
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     async def restore(self, artifact: TargetArtifact) -> None:
@@ -219,6 +224,8 @@ class Orchestrator:
                 selected_context.append({"id": str(id), "data": story.data})
             for id in r.request.knowledge_note_ids[:10]:
                 note = await require(r.session, e.KnowledgeNote, id)
+                if note.deleted_at is not None:
+                    raise DomainError("not_found", 404)
                 selected_context.append({"id": str(id), "content": note.content})
             key = hashlib.sha256(
                 (
@@ -291,7 +298,12 @@ class Orchestrator:
                 # Old outputs remain readable; missing validator/source provenance is not reusable.
                 await self.node("analyze_fit")
                 output = TargetArtifact(
-                    target=target, fingerprint=key, result_id=r.state.fit_analysis_id
+                    target=target,
+                    fingerprint=key,
+                    result_id=r.state.fit_analysis_id,
+                    source_resume_revision_id=r.request.resume_revision_id
+                    if r.request.fit_input in {"resume", "both"}
+                    else None,
                 )
             elif target == "resume_tailoring":
                 assert source is not None
@@ -500,6 +512,8 @@ async def execute(
     r: "PreparationWorkflow", workflow: Literal["prepare_application", "prepare_interview"]
 ) -> dict[str, Any]:
     await require(r.session, e.JobRevision, r.request.job_revision_id)
+    if r.request.profile_id is None:
+        raise ModelGatewayError("profile_required")
     await require(r.session, e.PersonalProfile, r.request.profile_id)
     limits = r.request.limits.model_copy(deep=True)
     limits.max_estimated_cost = min(limits.max_estimated_cost, r.settings.max_run_cost)
@@ -536,7 +550,15 @@ async def execute(
         if workflow == "prepare_application":
             await o.application()
         else:
-            await o.node("load_interview_context")
+            if r.request.application_package_id is None:
+                if r.request.resume_revision_id is None:
+                    o.special, o.reason = "needs_input", "resume_selection_required"
+                    return await o.finish()
+                # Validate the selected base before any prerequisite model work.
+                await o.node("load_interview_context")
+                await o.prerequisites()
+            else:
+                await o.node("load_interview_context")
             assert r.variant is not None
             id = await o.target("interview_preparation", r.variant.id)
             o.results["interview_preparation"] = TargetOutcome(status="completed", artifact_id=id)

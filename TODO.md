@@ -2,8 +2,9 @@
 
 ## Current milestone
 
-**Web product backend contract closure — offline acceptance complete; awaiting independent audit.**
-v0.1–v0.4 behavior remains preserved. No paid calls in this backend/API work.
+**v0.5 Profile workspace — user manual acceptance passed; checkpoint preparation.**
+Application and Internal implementations are included, but their final manual acceptance remains pending.
+This checkpoint verification uses offline adapters and isolated test databases; no paid calls.
 
 Completed: skeleton/configuration, domain/persistence and migration, typed local API,
 revision/event semantics, runtime/version metadata, fake model gateway, privacy baseline,
@@ -269,3 +270,37 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
   not globally atomic, offset pages may shift on concurrent inserts, orphan artifact cleanup remains deferred.
 - [x] Product audit fixes: confirmed-rollback PDF cleanup, research workflow/recovery identity,
   selected/history Debrief discovery and source Resume projection. No new migration required.
+
+### v0.5 Product refactor acceptance
+
+- [x] Application-owned default context with immutable historical operation/artifact bindings.
+- [x] Review-first Profile fact extraction, deterministic/model base drafts and three refinement tasks.
+- [x] Task-specific histories, explicit resume-library adoption, concrete submission material selection.
+- [x] Actual drafts/grouped editing, stable question anchors and compact Debrief evidence resolution.
+- [x] Notes edit/delete, Chinese Product surface and local `cgstart` wrapper.
+- [ ] Optional interview/result renaming and arbitrary multi-group Debrief subsets remain separate product work; PDF import/OCR is not implemented.
+- [ ] Live quality acceptance of the new drafting/refinement prompts (not authorized in this round).
+
+### Profile workspace final state
+
+- [x] Named Profile selection, inline rename, global edit commit/cancel, local section/item saves.
+- [x] Structured optional fields, private photos, immutable snapshots and binding deletion protection.
+- [x] Unified quick/AI Resume creation, stable library entries and persisted refinement naming branches.
+- [x] Ordinary saves/compression retain the library entry; exact old revisions remain readable.
+- [x] Explicit short-expression presentation, no automatic PDF compression, inline field validation.
+- [x] Profile workspace user manual acceptance.
+- [ ] Application workflow final manual acceptance.
+- [ ] Internal Dashboard final manual acceptance.
+- [ ] Separate Facts dependency audit after checkpoint; no permanent removal in this change.
+- [ ] Additional real-model quality evaluation remains distinct from completed Profile UX acceptance.
+
+### v0.5 Profile workspace closure + HITL
+
+- [x] Selector-first named Profile homepage, creation intent idempotency and inline name editing.
+- [x] Unified quick/AI Resume creation with automatic persistence and selection.
+- [x] Product Facts entry removed; legacy route redirects and backend remains available.
+- [x] User/Profile source evidence permits direct PDF without intermediate Fact review.
+- [x] Claim-level diagnostics and explicit source-bound AI correction create a new saved expression.
+- [x] Three artifact refinement tasks expose persistent feedback/comments and queryable lineage.
+- [ ] After milestone commit: separate Facts dependency audit and permanent cleanup.
+- [ ] Additional paid-model quality evaluation; Profile manual product acceptance has already passed.

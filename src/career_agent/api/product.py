@@ -4,28 +4,36 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import String, cast, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from career_agent.api.dependencies import DB
 from career_agent.api.schemas import ApplicationOut, KnowledgeOut, ProfileOut
 from career_agent.application.compatibility import compatible, execution_versions
-from career_agent.application.services import application_events, require
+from career_agent.application.services import application_events, check_revision, require
 from career_agent.domain.rules import ApplicationStatus, DomainError, RunStatus
+from career_agent.domain.schemas import KnowledgeUpdate
 from career_agent.infrastructure import entities as e
 from career_agent.preparation.providers import dependencies
-from career_agent.product import materials, operations
+from career_agent.product import bindings, materials, operations
 from career_agent.product.contracts import (
+    ApplicationBindingOut,
+    ApplicationBindingWrite,
+    ContextSummary,
     OperationCreate,
     OperationOut,
     PackageView,
     Page,
+    ResultView,
     SubmissionCreate,
     SubmissionOut,
+    TaskHistoryItem,
 )
-from career_agent.product.entities import MaterialSubmission, ProductOperation
-from career_agent.product.results import package_view
+from career_agent.product.draft_contracts import DraftAdopt, DraftCreate
+from career_agent.product.drafts import DraftService
+from career_agent.product.entities import MaterialSubmission, ProductDraft, ProductOperation
+from career_agent.product.results import package_view, populate_target
 
 router = APIRouter(prefix="/api/v1", tags=["product"])
 Limit = Annotated[int, Query(ge=1, le=100)]
@@ -196,6 +204,7 @@ async def applications(
     session: DB,
     job_id: UUID | None = None,
     company_id: UUID | None = None,
+    company_q: Annotated[str | None, Query(max_length=200)] = None,
     status: ApplicationStatus | None = None,
     limit: Limit = 50,
     offset: Offset = 0,
@@ -209,6 +218,10 @@ async def applications(
         stmt = stmt.where(e.Application.job_id == job_id)
     if company_id:
         stmt = stmt.where(e.JobPosting.company_id == company_id)
+    if company_q and company_q.strip():
+        stmt = stmt.join(e.Company).where(
+            e.Company.name.contains(company_q.strip(), autoescape=True)
+        )
     if status:
         stmt = stmt.where(e.Application.status == status)
     found, more = await rows(session, stmt, limit, offset)
@@ -255,7 +268,9 @@ async def submissions(id: UUID, session: DB, limit: Limit = 50, offset: Offset =
 async def profiles(session: DB, limit: Limit = 50, offset: Offset = 0) -> Any:
     found, more = await rows(
         session,
-        select(e.PersonalProfile).order_by(e.PersonalProfile.revision.desc(), e.PersonalProfile.id),
+        select(e.PersonalProfile)
+        .where(e.PersonalProfile.archived_at.is_(None))
+        .order_by(e.PersonalProfile.revision.desc(), e.PersonalProfile.id),
         limit,
         offset,
     )
@@ -468,6 +483,7 @@ async def application_knowledge(
     # Include legacy notes through their authoritative actual-interview association.
     stmt = (
         select(e.KnowledgeNote)
+        .where(e.KnowledgeNote.deleted_at.is_(None))
         .where(
             or_(
                 e.KnowledgeNote.application_id == id,
@@ -485,3 +501,208 @@ async def application_knowledge(
         offset=offset,
         has_more=more,
     )
+
+
+@router.post("/resume-revisions/{id}/save")
+async def save_resume_to_library(id: UUID, session: DB) -> dict[str, Any]:
+    revision = await require(session, e.ResumeVariantRevision, id)
+    variant = await require(session, e.ResumeVariant, revision.resume_variant_id, lock=True)
+    variant.library_visible = True
+    return {"resume_revision_id": revision.id, "saved": True}
+
+
+@router.get("/resume-revisions/{id}/renders")
+async def resume_renders(id: UUID, session: DB) -> list[dict[str, Any]]:
+    revision = await require(session, e.ResumeVariantRevision, id)
+    artifacts = await session.scalars(
+        select(e.RenderArtifact)
+        .where(
+            e.RenderArtifact.resume_variant_id == revision.resume_variant_id,
+            e.RenderArtifact.resume_variant_revision == revision.revision,
+            e.RenderArtifact.report["render_status"].astext == "accepted",
+        )
+        .order_by(e.RenderArtifact.created_at.desc(), e.RenderArtifact.id)
+        .limit(100)
+    )
+    return [
+        {
+            "id": artifact.id,
+            "created_at": artifact.created_at,
+            "download_url": f"/api/v1/artifacts/{artifact.id}/download",
+        }
+        for artifact in artifacts
+    ]
+
+
+@router.get("/applications/{id}/context", response_model=ApplicationBindingOut)
+async def application_binding(id: UUID, session: DB) -> ApplicationBindingOut:
+    return await bindings.view(session, await bindings.read(session, id))
+
+
+@router.put("/applications/{id}/context", response_model=ApplicationBindingOut)
+async def update_application_binding(
+    id: UUID, payload: ApplicationBindingWrite, session: DB
+) -> ApplicationBindingOut:
+    return await bindings.view(session, await bindings.update(session, id, payload))
+
+
+@router.get("/applications/{id}/results", response_model=Page[TaskHistoryItem])
+async def task_history(
+    id: UUID,
+    target: Literal[
+        "fit_analysis", "resume_tailoring", "greeting_generation", "interview_preparation"
+    ],
+    session: DB,
+    limit: Limit = 20,
+    offset: Offset = 0,
+) -> Page[TaskHistoryItem]:
+    application = await require(session, e.Application, id)
+    job = await require(session, e.JobPosting, application.job_id)
+    stmt = (
+        select(e.PreparationArtifact)
+        .join(e.JobRevision, e.JobRevision.id == e.PreparationArtifact.job_revision_id)
+        .where(
+            e.JobRevision.job_id == job.id,
+            e.PreparationArtifact.data["kind"].astext == "target",
+            e.PreparationArtifact.data["output"]["target"].astext == target,
+        )
+        .order_by(e.PreparationArtifact.created_at.desc(), e.PreparationArtifact.id)
+    )
+    found, more = await rows(session, stmt, limit, offset)
+    items = []
+    for row in found:
+        profile = await require(session, e.PersonalProfile, row.profile_id)
+        jd = await require(session, e.JobRevision, row.job_revision_id)
+        item = ResultView(
+            kind=target,
+            status="success",
+            reused=False,
+            context=ContextSummary(
+                profile_id=profile.id,
+                profile_revision=profile.revision,
+                job_id=job.id,
+                job_revision_id=jd.id,
+                job_revision=jd.revision,
+                job_title=jd.title,
+                company_id=job.company_id,
+            ),
+        )
+        await populate_target(session, row.id, item)
+        items.append(TaskHistoryItem(created_at=row.created_at, result=item))
+    return Page(items=items, limit=limit, offset=offset, has_more=more)
+
+
+@router.patch("/knowledge-notes/{id}", response_model=KnowledgeOut)
+async def update_knowledge(id: UUID, payload: KnowledgeUpdate, session: DB) -> e.KnowledgeNote:
+    note = await require(session, e.KnowledgeNote, id, lock=True)
+    if note.deleted_at is not None:
+        raise DomainError("not_found", 404)
+    check_revision(note.revision, payload.expected_revision)
+    if (note.title, note.content) != (payload.title, payload.content):
+        note.title, note.content = payload.title, payload.content
+        note.revision += 1
+    return note
+
+
+@router.delete("/knowledge-notes/{id}")
+async def delete_knowledge(id: UUID, expected_revision: int, session: DB) -> dict[str, bool]:
+    note = await require(session, e.KnowledgeNote, id, lock=True)
+    check_revision(note.revision, expected_revision)
+    note.deleted_at = note.deleted_at or e.utcnow()
+    return {"deleted": True}
+
+
+@router.post("/product-drafts", status_code=201)
+async def create_product_draft(payload: DraftCreate, request: Request) -> dict[str, Any]:
+    factory = getattr(request.app.state, "preparation_dependencies", None)
+    context = (
+        factory(request.app.state.settings, payload.mode)
+        if factory
+        else dependencies(request.app.state.settings, payload.mode, require_research=False)
+    )
+    async with context as (gateway, _):
+        return await DraftService(
+            request.app.state.sessions, request.app.state.settings, gateway
+        ).create(payload)
+
+
+@router.get("/product-drafts/{id}")
+async def read_product_draft(id: UUID, session: DB) -> dict[str, Any]:
+    row = await require(session, ProductDraft, id, lock=True)
+    if row.status == "running":
+        free = await session.scalar(
+            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 4308))"), {"key": str(id)}
+        )
+        if free:
+            row.status, row.reason = "recovery_required", "execution_interrupted"
+    return DraftService.view(row)
+
+
+@router.post("/product-drafts/{id}/execute")
+async def execute_product_draft(id: UUID, request: Request) -> dict[str, Any]:
+    async with request.app.state.sessions() as session:
+        row = await require(session, ProductDraft, id)
+        mode = row.mode
+    factory = getattr(request.app.state, "preparation_dependencies", None)
+    context = (
+        factory(request.app.state.settings, mode)
+        if factory
+        else dependencies(request.app.state.settings, mode, require_research=False)
+    )
+    async with context as (gateway, _):
+        from career_agent.profile_area.cancellation import execute
+
+        return await execute(
+            DraftService(request.app.state.sessions, request.app.state.settings, gateway), id
+        )
+
+
+@router.post("/product-drafts/{id}/adopt")
+async def adopt_product_draft(id: UUID, payload: DraftAdopt, request: Request) -> dict[str, Any]:
+    async with dependencies(request.app.state.settings, "fixture", require_research=False) as (
+        gateway,
+        _,
+    ):
+        return await DraftService(
+            request.app.state.sessions, request.app.state.settings, gateway
+        ).adopt(id, payload)
+
+
+@router.get("/resume-library", response_model=Page[dict[str, Any]])
+async def resume_library(
+    session: DB, limit: Limit = 20, offset: Offset = 0
+) -> Page[dict[str, Any]]:
+    stmt = (
+        select(e.ResumeVariantRevision)
+        .join(e.ResumeVariant)
+        .where(
+            e.ResumeVariant.library_visible.is_(True),
+            e.ResumeVariantRevision.archived_at.is_(None),
+            e.ResumeVariantRevision.revision == e.ResumeVariant.current_revision,
+        )
+        .order_by(e.ResumeVariantRevision.created_at.desc(), e.ResumeVariantRevision.id)
+    )
+    found, more = await rows(session, stmt, limit, offset)
+    return Page(
+        items=[
+            {
+                "resume_variant_id": r.resume_variant_id,
+                "resume_revision_id": r.id,
+                "revision": r.revision,
+                "label": r.document.get("metadata", {}).get("label"),
+                "profile_id": r.profile_id,
+                "created_at": r.created_at,
+            }
+            for r in found
+        ],
+        limit=limit,
+        offset=offset,
+        has_more=more,
+    )
+
+
+@router.post("/product-drafts/{id}/cancel")
+async def cancel_product_draft(id: UUID, request: Request) -> dict[str, Any]:
+    from career_agent.profile_area.cancellation import cancel
+
+    return await cancel(request.app.state.sessions, id)

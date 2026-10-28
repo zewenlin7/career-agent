@@ -122,6 +122,9 @@ def application_prompts() -> PromptRegistry:
     from career_agent.evaluation.prompts import PROMPT as judge
     from career_agent.interview.prompts import PROMPTS as interview
     from career_agent.preparation.prompts import PROMPTS as preparation
+    from career_agent.product.prompts import PROMPTS as product
     from career_agent.runtime.prompts import PROMPTS as runtime
 
-    return PromptRegistry([*preparation.values(), *runtime.values(), *interview.values(), judge])
+    return PromptRegistry(
+        [*preparation.values(), *runtime.values(), *interview.values(), *product.values(), judge]
+    )

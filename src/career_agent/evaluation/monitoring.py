@@ -34,9 +34,33 @@ async def resolve_subject(session: AsyncSession, subject: Subject) -> q.Invocati
     invocation = await session.scalar(
         select(q.InvocationRow).where(q.InvocationRow.model_call_id == call.id)
     )
+    output_matches = invocation is not None and invocation.data.get("output_ref") == str(
+        subject.subject_id
+    )
+    if invocation is not None and not output_matches:
+        from career_agent.profile_area.contracts import ResumeDraftData
+        from career_agent.profile_area.entities import ResumeWorkspace
+
+        source = await session.scalar(
+            select(ResumeWorkspace).where(
+                ResumeWorkspace.accepted_revision_id == subject.subject_id,
+                ResumeWorkspace.id == invocation.data.get("output_ref"),
+            )
+        )
+        formal = await session.get(e.ResumeVariantRevision, subject.subject_id)
+        output_matches = (
+            source is not None
+            and formal is not None
+            and (
+                ResumeDraftData.model_validate(source.document).model_dump(mode="json")
+                == ResumeDraftData.model_validate(
+                    {"sections": formal.document["sections"]}
+                ).model_dump(mode="json")
+            )
+        )
     if (
         invocation is None
-        or invocation.data.get("output_ref") != str(subject.subject_id)
+        or not output_matches
         or invocation.data.get("accepted_model_call_id") != str(call.id)
         or invocation.data.get("logical_operation_id")
         != (str(call.logical_operation_id) if call.logical_operation_id else None)
@@ -96,6 +120,44 @@ async def record_feedback(
     session: AsyncSession, feedback: Feedback, policy: JudgeSamplingPolicy
 ) -> q.FeedbackRow:
     invocation = await resolve_subject(session, feedback.subject)
+    resume = await session.get(e.ResumeVariantRevision, feedback.subject.subject_id)
+    artifact = await session.get(e.PreparationArtifact, feedback.subject.subject_id)
+    from career_agent.profile_area.entities import ResumeWorkspace
+
+    workspace = await session.get(ResumeWorkspace, feedback.subject.subject_id)
+    job_id = resume.job_revision_id if resume else artifact.job_revision_id if artifact else None
+    application = None
+    if job_id:
+        jd = await require(session, e.JobRevision, job_id)
+        application = await session.scalar(
+            select(e.Application).where(e.Application.job_id == jd.job_id)
+        )
+    if feedback.application_id and (
+        application is None or feedback.application_id != application.id
+    ):
+        raise DomainError("context_revision_mismatch", 422)
+    assert feedback.subject.accepted_model_call_id is not None
+    call = await require(session, e.ModelCall, feedback.subject.accepted_model_call_id)
+    step = await require(session, e.AgentStep, call.step_id)
+    feedback = feedback.model_copy(
+        update={
+            "application_id": application.id if application else None,
+            "artifact_type": "resume_revision"
+            if resume
+            else artifact.data.get("kind")
+            if artifact
+            else "resume_workspace"
+            if workspace
+            else "artifact",
+            "generation_provenance": {
+                "run_id": str(step.run_id),
+                "step_id": str(step.id),
+                "model_call_id": str(call.id),
+                "invocation_id": str(invocation.id),
+                "generation_subject_id": invocation.data.get("output_ref"),
+            },
+        }
+    )
     row = q.FeedbackRow(
         subject_id=feedback.subject.subject_id, data=feedback.model_dump(mode="json")
     )

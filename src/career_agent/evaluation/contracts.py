@@ -241,6 +241,10 @@ class JudgeSpec(Contract):
 
 
 class Feedback(Contract):
+    comment: str | None = Field(default=None, max_length=4000)
+    application_id: UUID | None = None
+    artifact_type: str | None = None
+    generation_provenance: dict[str, Any] = Field(default_factory=dict)
     subject: Subject
     vote: Literal["thumbs_up", "thumbs_down"]
     reason: Literal[

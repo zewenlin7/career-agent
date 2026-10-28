@@ -12,7 +12,7 @@ from career_agent.resume.fonts import FONT_FAMILY, FONT_HASHES, FONT_POLICY_VERS
 from career_agent.resume.pdf import validate_pdf
 from career_agent.resume.policy import initial_selection
 from career_agent.resume.renderer import CompileError, TypstRenderer
-from career_agent.resume.schemas import MAX_ROUNDS, Finding, PDFValidation, ResumeDocument
+from career_agent.resume.schemas import Finding, PDFValidation, ResumeDocument
 
 pytestmark = pytest.mark.typst
 
@@ -26,7 +26,7 @@ def fixture(name):
     "name,expected,attempts",
     [
         ("normal_one_page_zh_cn", "accepted", 1),
-        ("compressible_overflow_zh_cn", "accepted", 3),
+        ("compressible_overflow_zh_cn", "failed", 1),
         ("impossible_one_page_zh_cn", "failed", 1),
         ("mixed_script_font_regression", "accepted", 1),
     ],
@@ -37,8 +37,8 @@ def test_real_acceptance_and_repeatability(name, expected, attempts, tmp_path):
     assert report.render_status == expected, report.model_dump_json()
     assert len(report.attempts) == attempts
     assert report.versions.compiler_version == "0.15.1"
-    assert report.versions.render_wrapper_version == "resume-render-wrapper-v1"
-    assert report.versions.validation_implementation_version == "resume-validation-v1"
+    assert report.versions.render_wrapper_version == "resume-render-wrapper-v5"
+    assert report.versions.validation_implementation_version == "resume-validation-v4"
     assert report.versions.locale == "zh-CN"
     assert report.versions.font_family == FONT_FAMILY
     assert report.versions.font_policy_version == FONT_POLICY_VERSION
@@ -71,14 +71,10 @@ def test_real_acceptance_and_repeatability(name, expected, attempts, tmp_path):
         assert report.error_code == "layout_failed"
         assert report.page_count > 1
     if name == "compressible_overflow_zh_cn":
-        assert report.attempts[0].validation.page_count > 1
-        assert [d.action for d in report.attempts[-1].decisions] == ["short_text", "remove_item"]
-        short, removed = report.attempts[-1].decisions
-        assert short.target_id == next(
-            i.item_id for s in doc.sections for i in s.items if i.short_text
+        assert not report.attempts[0].decisions
+        assert {i.item_id for s in doc.sections for i in s.items} == set(
+            report.attempts[0].selected_item_ids
         )
-        assert removed.target_id not in report.attempts[-1].selected_item_ids
-        assert removed.target_id not in required
 
 
 def test_typst_text_is_not_executable(tmp_path):
@@ -157,7 +153,7 @@ def test_blank_pdf_and_out_of_bounds(tmp_path):
         assert expected in {x.code for x in report.findings}
 
 
-def test_bounded_rounds(monkeypatch):
+def test_overflow_does_not_retry_with_changed_content(monkeypatch):
     from career_agent.resume import compiler
 
     f, doc = fixture("normal_one_page")
@@ -168,13 +164,13 @@ def test_bounded_rounds(monkeypatch):
     monkeypatch.setattr(
         compiler,
         "validate_pdf",
-        lambda *args: PDFValidation(
+        lambda *args, **kwargs: PDFValidation(
             status="failed", page_count=2, findings=[Finding(code="layout_overflow")]
         ),
     )
     report, pdf = compile_resume(doc, f["name"], TypstRenderer())
     assert report.error_code == "layout_failed" and pdf is None
-    assert len(report.attempts) == MAX_ROUNDS
+    assert len(report.attempts) == 1
 
 
 def test_raw_diagnostics_are_not_exposed(monkeypatch, tmp_path):
@@ -226,7 +222,7 @@ def test_compile_timeout_after_preflight(tmp_path, monkeypatch):
     assert len(report.attempts) == 1
 
 
-def test_final_round_keeps_only_required(monkeypatch):
+def test_round_limit_never_silently_mass_removes_optional_content(monkeypatch):
     from career_agent.resume import compiler
 
     f, doc = fixture("normal_one_page")
@@ -236,18 +232,18 @@ def test_final_round_keeps_only_required(monkeypatch):
         doc.sections[0].items.append(item)
     actual = compiler.validate_pdf
 
-    def require_floor(path, selected, name):
+    def require_floor(path, selected, name, **kwargs):
         if any(not i.required for s in selected.sections for i in s.items):
             return PDFValidation(
                 status="failed", page_count=2, findings=[Finding(code="layout_overflow")]
             )
-        return actual(path, selected, name)
+        return actual(path, selected, name, **kwargs)
 
     monkeypatch.setattr(compiler, "validate_pdf", require_floor)
     report, pdf = compile_resume(doc, f["name"], TypstRenderer())
-    assert report.render_status == "accepted" and pdf
-    assert len(report.attempts) == MAX_ROUNDS
-    assert len(report.attempts[-1].decisions) == 20
+    assert report.render_status == "failed" and pdf is None
+    assert len(report.attempts) == 1
+    assert len(report.attempts[-1].decisions) == 0
 
 
 @pytest.mark.parametrize("failure", ["read", "hash"])

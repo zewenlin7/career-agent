@@ -27,8 +27,8 @@ def execution_versions(target: str) -> dict[str, str]:
             layout=POLICY_VERSION,
             compiler=COMPILER_VERSION,
             font=FONT_POLICY_VERSION,
-            render="resume-render-wrapper-v1",
-            pdf="resume-validation-v1",
+            render="resume-render-wrapper-v5",
+            pdf="resume-validation-v4",
         )
     return versions
 

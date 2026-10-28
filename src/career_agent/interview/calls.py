@@ -20,10 +20,12 @@ from career_agent.interview.policy import CallPolicy
 from career_agent.models.contracts import ModelGatewayError, ModelRequestContext, PrivacyClass
 from career_agent.models.gateway import ModelGateway
 from career_agent.preparation.budget import BudgetLedger, input_bound
+from career_agent.product.entities import ProductDraft
+from career_agent.product.prompts import TASK_SCHEMAS as PRODUCT_TASKS
 from career_agent.runtime.contracts import Budget, OutputDiagnostic, Usage
 
-OwnerKind = Literal["mock", "debrief"]
-Owner = e.MockInterviewSession | e.DebriefRun
+OwnerKind = Literal["mock", "debrief", "product_draft"]
+Owner = e.MockInterviewSession | e.DebriefRun | ProductDraft
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,8 @@ class AcceptedCall:
 
 
 async def owner(session: AsyncSession, kind: OwnerKind, id: UUID, *, lock: bool = True) -> Owner:
+    if kind == "product_draft":
+        return await require(session, ProductDraft, id, lock=lock)
     if kind == "mock":
         return await require(session, e.MockInterviewSession, id, lock=lock)
     return await require(session, e.DebriefRun, id, lock=lock)
@@ -62,10 +66,16 @@ class InterviewCalls:
         prompt = self.gateway.prompts.resolve(task)
         return ModelRequestContext(
             task_type=task,
-            workflow="mock_interview"
-            if task == "mock_interview_turn_generation"
-            else "interview_debrief",
-            workflow_version="interview-loop-v1",
+            workflow=(
+                "product_drafting"
+                if task in PRODUCT_TASKS
+                else "mock_interview"
+                if task == "mock_interview_turn_generation"
+                else "interview_debrief"
+            ),
+            workflow_version="product-drafting-v1"
+            if task in PRODUCT_TASKS
+            else "interview-loop-v1",
             output_schema=prompt.output_schema,
             max_output_tokens=policy.max_output_tokens,
             privacy_class=PrivacyClass.SYNTHETIC if mode == "fixture" else PrivacyClass.PRIVATE,

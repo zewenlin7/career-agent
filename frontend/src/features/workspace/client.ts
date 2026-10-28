@@ -1,9 +1,11 @@
 "use client";
+import { safeResumeFields, type ResumeFieldError } from "../profile-area/short-text";
 import { useCallback, useEffect, useRef, useState } from "react";
 export class ApiError extends Error {
   constructor(
     public code: string,
     public status = 0,
+    public fields: ResumeFieldError[] = [],
   ) {
     super(code);
   }
@@ -29,7 +31,11 @@ export async function api<T>(
   }
   if (!response.ok) {
     const error = await response.json().catch(() => null);
-    throw new ApiError(error?.error?.code || "request_failed", response.status);
+    throw new ApiError(
+      error?.error?.code || "request_failed",
+      response.status,
+      safeResumeFields(error?.error?.fields),
+    );
   }
   return response.json() as Promise<T>;
 }

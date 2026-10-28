@@ -97,6 +97,10 @@ export function fixtureResponse(url: URL): { status: number; body: unknown } {
         applications.filter(
           (a) =>
             (!q.get("status") || a.status === q.get("status")) &&
+            (!q.get("company_q") ||
+              companies
+                .find((c) => c.id === job(numberId(a.id)).company_id)
+                ?.name.includes(q.get("company_q")!)) &&
             (!q.get("company_id") || job(numberId(a.id)).company_id === q.get("company_id")),
         ),
         q,

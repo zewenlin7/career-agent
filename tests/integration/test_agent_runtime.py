@@ -484,7 +484,10 @@ async def test_rejected_resume_binding_does_not_poison_confirmed_state(
         profile = (await client.get("/api/v1/profile")).json()
         response = await client.put(
             "/api/v1/profile",
-            json={"expected_revision": profile["revision"], "data": profile["data"]},
+            json={
+                "expected_revision": profile["revision"],
+                "data": {**profile["data"], "display_name": "Changed synthetic profile"},
+            },
         )
         assert response.status_code == 200, response.text
         updated = response.json()

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TaskSummary } from "../workspace/task-summary";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Surface } from "@/components/ui/surface";
@@ -8,7 +9,7 @@ import { statusLabels, type ApplicationStatus, type ApplicationContext } from ".
 import type { Summary, ReadState } from "./repository";
 
 export function ApplicationStatusBadge({ status }: { status: ApplicationStatus }) {
-  return <Badge title={status}>{statusLabels[status]}</Badge>;
+  return <Badge>{statusLabels[status]}</Badge>;
 }
 export function Pager({
   previous,
@@ -44,20 +45,9 @@ export function Pager({
     </nav>
   );
 }
-export function Identity({ values }: { values: [string, string][] }) {
-  return (
-    <details className="mt-3 text-sm">
-      <summary className="cursor-pointer text-secondary">查看关联标识</summary>
-      <dl className="mt-3 grid gap-2">
-        {values.map(([name, value]) => (
-          <div key={name}>
-            <dt className="text-secondary">{name}</dt>
-            <dd className="break-all font-mono text-xs">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </details>
-  );
+export function Identity(_props: { values: [string, string][] }) {
+  void _props;
+  return null;
 }
 function SummaryCard<T>({
   title,
@@ -88,13 +78,6 @@ function SummaryCard<T>({
 function items<T>(state: ReadState<{ items: T[] }>): ReadState<T[]> {
   return state.state === "ready" ? { state: "ready", value: state.value.items } : state;
 }
-const workflowLabels = {
-  completed: "全部请求项已完成",
-  partial: "部分请求项已完成",
-  failed: "执行失败",
-  needs_input: "等待输入",
-  decision_required: "等待决策",
-};
 const mockLabels = {
   ready_to_generate: "等待生成下一题",
   waiting_answer: "等待回答",
@@ -123,48 +106,19 @@ export function SummaryRecords({
       >
         {([r]) => (
           <>
-            <p>
-              第 {r.research_version} 版 · {r.mode === "live" ? "真实 research" : "Fixture 数据"}
-            </p>
+            <p>第 {r.research_version} 版 · 公司研究</p>
             <p>
               取得于 <DateTime value={r.fetched_at} />
             </p>
             <p>
               有效期至 <DateTime value={r.expires_at} />
             </p>
-            <p>
-              {r.reusable_for_current_execution ? "后端确认当前可复用" : "后端确认当前不可复用"}
-            </p>
-            <p className="text-xs">这是最新历史记录，不代表已为当前申请执行新的研究。</p>
+            <p>{r.reusable_for_current_execution ? "资料仍可使用" : "建议更新资料"}</p>
+            <p className="text-xs">同一公司的研究资料可供不同职位参考。</p>
           </>
         )}
       </SummaryCard>
-      <SummaryCard title="最近准备记录" result={summary.packages} empty="尚无准备记录。">
-        {(records) => (
-          <ul className="space-y-4">
-            {records.map((r) => (
-              <li key={r.id}>
-                <p className="text-ink">
-                  {r.outcome ? workflowLabels[r.outcome.status] : "历史记录未提供终态"}
-                </p>
-                <p>
-                  {r.job_revision_id === context.job.job_revision_id
-                    ? "绑定当前 JD revision"
-                    : "绑定历史 JD revision"}
-                </p>
-                <Identity
-                  values={[
-                    ["Package", r.id],
-                    ["Run", r.run_id],
-                    ["JD revision", r.job_revision_id],
-                    ["Profile snapshot", r.profile_id],
-                  ]}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </SummaryCard>
+      <TaskSummary applicationId={context.application.id} />
       <SummaryCard
         title="最近实际投递"
         result={items(summary.submissions)}
@@ -175,7 +129,7 @@ export function SummaryRecords({
             <p>
               记录于 <DateTime value={r.created_at} />
             </p>
-            <p>使用的简历与 PDF 已固定关联；不代表当前选择。</p>
+            <p>此处展示实际投递时使用的材料。</p>
             <Identity
               values={[
                 ["Submission", r.id],
@@ -227,11 +181,7 @@ export function SummaryRecords({
             <p>
               <DateTime value={r.created_at} />
             </p>
-            <p>
-              {r.is_selected
-                ? "该 generation 是对应复盘的 selected result"
-                : "历史 generation，不是对应复盘的 selected result"}
-            </p>
+            <p>{r.is_selected ? "该 generation 是对应复盘的 selected result" : "历史复盘结果"}</p>
           </>
         )}
       </SummaryCard>

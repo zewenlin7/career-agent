@@ -29,13 +29,13 @@ export function AppShell({
           </Link>
           <Navigation
             items={internal ? internalNavigation : productNavigation}
-            label={internal ? "Internal 主导航" : "Product 主导航"}
+            label={internal ? "Internal 主导航" : "主导航"}
           />
           <Link
             href={internal ? "/applications" : "/internal/operations/overview"}
             className="ml-auto inline-flex min-h-11 items-center rounded-control px-2 text-sm text-secondary underline-offset-4 hover:text-accent-ink hover:underline"
           >
-            {internal ? "返回 Applications" : "Internal"}
+            {internal ? "返回申请列表" : "系统管理"}
           </Link>
         </div>
       </header>

@@ -16,6 +16,7 @@ dependencies = [
   "asyncpg>=0.30,<1",
   "alembic>=1.14,<2",
   "pdfplumber>=0.11,<1",
+  "pillow>=12,<13",
   "openai>=2,<3",
   "httpx>=0.28,<1",
 ]
@@ -41,3 +42,20 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 tmp_path_retention_policy = "none"
 markers = ["integration: requires real PostgreSQL and creates a temporary database", "typst: requires pinned real Typst CLI"]
+
+# Hatch does not apply all nested Git/local excludes to source archives.
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/frontend/node_modules",
+  "/frontend/.next",
+  "/frontend/out",
+  "/frontend/coverage",
+  "/frontend/test-results",
+  "/frontend/test-results-profile",
+  "/frontend/playwright-report",
+  "/frontend/blob-report",
+  "/frontend/tsconfig.tsbuildinfo",
+  "/frontend/next-env.d.ts",
+  "/docs/ui-design-system.md",
+  "/docs/web-backend-discovery.md",
+]

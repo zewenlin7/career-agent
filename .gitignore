@@ -30,3 +30,6 @@ pgdata/
 *.woff
 *.woff2
 .font-cache/
+
+# Isolated real-backend browser artifacts
+frontend/test-results-profile/

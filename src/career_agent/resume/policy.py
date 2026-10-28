@@ -23,17 +23,23 @@ def initial_selection(document: ResumeDocument) -> Selection:
 
 
 def compress(selection: Selection) -> Selection | None:
-    """Short forms once, then one optional item per round. Never drop required items."""
+    """One lowest-priority short form per validation, then one optional item."""
     result = selection.model_copy(deep=True)
     short_items = sorted(
-        [i for s in result.sections for i in s.items if i.short_text],
-        key=lambda i: (i.priority, i.ordering, str(i.item_id)),
+        [(s, i) for s in result.sections for i in s.items if i.short_text],
+        key=lambda pair: (
+            pair[0].priority,
+            pair[1].priority,
+            pair[0].ordering,
+            pair[1].ordering,
+            str(pair[1].item_id),
+        ),
     )
     if short_items:
-        for item in short_items:
-            assert item.short_text is not None
-            item.text, item.short_text = item.short_text, None
-            result.decisions.append(Decision(action="short_text", target_id=item.item_id))
+        _, item = short_items[0]
+        assert item.short_text is not None
+        item.text, item.short_text = item.short_text, None
+        result.decisions.append(Decision(action="short_text", target_id=item.item_id))
         return result
     optional = sorted(
         [(s, i) for s in result.sections for i in s.items if not i.required],

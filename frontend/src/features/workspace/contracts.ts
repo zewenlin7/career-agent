@@ -11,6 +11,7 @@ export type Profile = {
   data: { display_name: string };
 };
 export type ResumeChoice = {
+  label?: string | null;
   resume_revision_id: string;
   resume_variant_id: string;
   revision: number;
@@ -20,6 +21,8 @@ export type ResumeChoice = {
   hints: { same_job: boolean; same_jd: boolean; original: boolean };
 };
 export type Entry = {
+  main_question_number?: number | null;
+  followup_index?: number | null;
   entry_id: string;
   order: number;
   kind: "primary" | "follow_up";
@@ -28,6 +31,9 @@ export type Entry = {
   primary_entry_id: string | null;
 };
 export type Actual = {
+  status: "draft" | "completed";
+  round_number: number | null;
+  interview_type: string | null;
   id: string;
   application_id: string;
   content_revision: number;
@@ -57,6 +63,13 @@ export type PackageRow = {
   outcome: { status: string } | null;
 };
 export type Result = {
+  feedback_target?: {
+    subject_id: string;
+    task_type: string;
+    accepted_model_call_id?: string | null;
+    operation_id?: string | null;
+    origin?: "business" | "evaluation";
+  } | null;
   kind: Target;
   status: string;
   result_id: string | null;
@@ -137,6 +150,10 @@ export type Render = {
     error_code?: string;
     page_count: number | null;
     findings: { code?: string; message?: string }[];
+    attempts?: {
+      number: number;
+      decisions: { action: "short_text" | "remove_item" | "remove_section"; target_id: string }[];
+    }[];
   };
 };
 export type Mock = {
@@ -156,6 +173,9 @@ export type Mock = {
     binding: { profile_id: string; job_revision_id: string; resume_revision_id: string };
   };
   turns: {
+    question_number?: string;
+    main_question_number?: number;
+    followup_index?: number | null;
     id: string;
     sequence: number;
     question: { kind: string; question: string; topic: string; primary_entry_id: string | null };
@@ -183,6 +203,7 @@ export type DebriefRow = {
   created_at: string;
 };
 export type Debrief = {
+  transcript?: (Entry & { question_number: string })[];
   id: string;
   root_run_id: string;
   run_id: string;
@@ -210,6 +231,7 @@ export type Debrief = {
   }[];
 };
 export type Knowledge = {
+  revision: number;
   id: string;
   application_id: string;
   title: string;
@@ -239,12 +261,23 @@ export const statusText: Record<string, string> = {
   user_ended_early: "用户提前结束",
 };
 export function errorText(code: string) {
+  if (["unsupported_requirement_inference", "requirement_evidence_missing"].includes(code))
+    return "未能从职位描述中可靠提取要求，匹配分析尚未开始。请检查职位描述后重试。";
+  if (["missing_verified_fact", "verified_facts_required"].includes(code))
+    return "请先在个人资料中关联已确认的事实。";
+  if (code === "profile_required" || code === "not_found")
+    return "未找到所需资料，请先完善资料或刷新页面。";
+
+  if (code === "resume_claims_unsupported") return "请在简历库修改缺少个人资料依据的描述后重试。";
+  if (code === "resume_selection_required") return "请先在申请概览中选择要使用的简历。";
+  if (code === "feedback_required") return "请填写希望调整的内容。";
+  if (/budget|limit|exhausted/.test(code)) return "本次生成已达到使用限制，请稍后重试。";
   if (/revision|conflict|stale/.test(code))
     return "记录已变化或请求冲突。请重新读取后核对，未自动重试。";
   if (/recovery|unknown/.test(code))
     return "执行结果需要人工恢复确认。请查看已保存状态，不要重复生成。";
   if (/interrupted|unavailable|request_failed/.test(code))
     return "连接中断或暂时无法读取。操作可能已经保存，请先重新查询状态。";
-  if (code === "no_current_research") return "当前模式下没有新鲜且兼容的公司研究。";
+  if (code === "no_current_research") return "暂无近期公司研究，可以开始研究。";
   return "请求未完成。请核对输入、版本和来源后再操作。";
 }

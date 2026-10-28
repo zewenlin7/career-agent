@@ -4,10 +4,11 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
 from career_agent.domain.schemas import Contract, InterviewEntry, InterviewNoteData, Text
 from career_agent.preparation.contracts import Accounting, RunLimits
+from career_agent.product.contracts import ApplicationBindingRef
 
 
 class InterviewLimits(RunLimits):
@@ -69,6 +70,7 @@ class MockPolicy(Contract):
 
 
 class MockCreate(Contract):
+    application_binding: ApplicationBindingRef | None = None
     context: ContextBinding
     focus: Literal["technical", "project", "behavioral", "company_specific", "mixed"] = "mixed"
     policy: MockPolicy = Field(default_factory=MockPolicy)
@@ -81,6 +83,7 @@ class Continuation(Contract):
 
 
 class AnswerSubmit(Continuation):
+    end_early: bool = False
     pending_question_id: UUID
     answer: Text
 
@@ -97,7 +100,7 @@ class TurnOutput(Contract):
 
 
 class SourceSnapshot(Contract):
-    schema_version: Literal["interview-source-v1"] = "interview-source-v1"
+    schema_version: Literal["interview-source-v1", "interview-source-v2"] = "interview-source-v2"
     source_kind: Literal["actual", "mock"]
     interview_id: UUID
     content_revision: int
@@ -105,6 +108,15 @@ class SourceSnapshot(Contract):
     notes: list[InterviewNoteData]
     context: FrozenContext | None = None
     completion_type: Literal["target_reached", "user_ended_early"] | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_historical_hash(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if self.schema_version == "interview-source-v1":
+            for entry in data["entries"]:
+                entry.pop("main_question_number", None)
+                entry.pop("followup_index", None)
+        return dict(data)
 
 
 class DebriefCreate(Contract):

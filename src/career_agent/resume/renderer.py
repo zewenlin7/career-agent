@@ -4,13 +4,51 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from career_agent.config import Settings
 from career_agent.resume.fonts import FONT_FAMILY, FontDependencyError, verified_fonts
 from career_agent.resume.policy import canonical_json
-from career_agent.resume.schemas import COMPILER_VERSION, HEADINGS, Selection
+from career_agent.resume.schemas import COMPILER_VERSION, HEADINGS, ResumeItem, Selection
 
 TEMPLATE = Path(__file__).parent / "templates" / "resume_zh_cn_a4_single_v1.typ"
+
+
+def rebound_layout(source: dict[str, Any], text: str) -> dict[str, Any] | None:
+    layout = source.get("layout")
+    if not layout or hashlib.sha256(source["text"].encode()).hexdigest() != layout["text_sha256"]:
+        return None
+    old, new = source["text"].split("\n"), text.split("\n")
+    try:
+        result = {
+            "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "title_line": new.index(old[layout["title_line"]]),
+            "date_lines": [new.index(old[i]) for i in layout["date_lines"]],
+            "subtitle_lines": [new.index(old[i]) for i in layout["subtitle_lines"]],
+        }
+        return result
+    except (ValueError, IndexError, KeyError):
+        return None
+
+
+def item_view(item: ResumeItem) -> dict[str, object]:
+    result: dict[str, object] = {"kind": item.kind, "text": item.text}
+    layout = item.layout
+    if layout is None or hashlib.sha256(item.text.encode()).hexdigest() != layout.text_sha256:
+        return result
+    lines = item.text.split("\n")
+    indices = [layout.title_line, *layout.date_lines, *layout.subtitle_lines]
+    if len(set(indices)) != len(indices) or any(i < 0 or i >= len(lines) for i in indices):
+        return result
+    # Presentation only references already-validated text; no extra factual content.
+    result.update(
+        structured=True,
+        title=lines[layout.title_line],
+        period=" – ".join(lines[i].replace("-", ".") for i in layout.date_lines),
+        subtitle=" · ".join(lines[i] for i in layout.subtitle_lines),
+        body=[line for i, line in enumerate(lines) if i not in indices and line.strip()],
+    )
+    return result
 
 
 class CompileError(Exception):
@@ -32,6 +70,8 @@ class TypstRenderer:
     def __init__(
         self, binary: str = "typst", timeout: float = 15, font_dir: Path | None = None
     ) -> None:
+        self.header: dict[str, str] = {}
+        self.photo: bytes | None = None
         self.font_dir = font_dir if font_dir is not None else Settings().font_dir
         self._fonts: dict[str, bytes] | None = None
         self.binary = binary
@@ -109,14 +149,18 @@ class TypstRenderer:
             (directory / "main.typ").write_bytes(self.template_bytes())
             data = {
                 "name": name,
+                "contacts": [value for value in self.header.values() if value],
+                "photo": self.photo is not None,
                 "sections": [
                     {
                         "heading": HEADINGS[s.name],
-                        "items": [{"kind": i.kind, "text": i.text} for i in s.items],
+                        "items": [item_view(i) for i in s.items],
                     }
                     for s in selection.sections
                 ],
             }
+            if self.photo is not None:
+                (directory / "photo.jpg").write_bytes(self.photo)
             (directory / "data.json").write_bytes(canonical_json(data))
         except OSError:
             raise CompileError("artifact_write_failed") from None

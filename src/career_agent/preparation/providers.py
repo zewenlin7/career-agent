@@ -27,11 +27,13 @@ from career_agent.preparation.research import (
     ResearchAdapter,
     TavilyResearchAdapter,
 )
+from career_agent.product.prompts import TASK_SCHEMAS as PRODUCT_TASKS
 from career_agent.runtime.contracts import Usage
 
 POLICY = ModelPolicy(
-    version="career-model-policy-v5",
+    version="career-model-policy-v8",
     task_tiers={
+        **{task: ModelTier.STRONG for task in PRODUCT_TASKS},
         **{
             t.value: ModelTier.CHEAP if t == TaskType.EXTRACTION else ModelTier.STRONG
             for t in TaskType
@@ -52,6 +54,14 @@ class FixtureTaskProvider:
     async def generate(
         self, candidate: ModelCandidate, context: ModelRequestContext, task: TaskSpec
     ) -> ProviderResponse:
+        if context.task_type in PRODUCT_TASKS:
+            from career_agent.product.drafts import fixture_output
+
+            return ProviderResponse(
+                output=fixture_output(context.task_type, task.inputs),
+                usage=Usage(input_tokens=100, output_tokens=100, estimated_cost=0),
+                finish_reason="fixture_completed",
+            )
         if context.task_type == "quality_judgement":
             return ProviderResponse(
                 output={

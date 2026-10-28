@@ -83,12 +83,12 @@ def test_invalid_debrief_targets(targets):
 
 
 def test_evidence_group_scope_and_missing_answer():
-    from career_agent.interview.contracts import QuestionGroupEvaluation
+    from career_agent.interview.compact import CompactGroup, canonical
+    from career_agent.interview.debrief import inputs_for
 
     snap = source()
-    group = groups(snap)[0]
-    data = output("interview_group_debrief", {"group": group})
-    result = QuestionGroupEvaluation.model_validate(data)
+    data = output("interview_group_debrief", inputs_for(snap, snap.entries[2].entry_id))
+    result = canonical(CompactGroup.model_validate(data), snap, snap.entries[2].entry_id)
     validate_evaluation(result, snap, snap.entries[2].entry_id)
     for ref in (uuid4(), snap.entries[0].entry_id):
         bad = result.model_copy(deep=True)

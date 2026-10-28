@@ -46,8 +46,8 @@ administrative access, not an untrusted API boundary.
 
 ### Personal knowledge
 
-`PersonalProfile` is an append-only revision history of structured profile data. The latest
-revision is current. A PostgreSQL transaction-scoped advisory lock serializes single-user writes,
+`PersonalProfile` is an append-only revision history of structured profile data. Legacy singleton APIs treat the latest
+revision as current; Product uses named `ProfileRecord` heads instead. A PostgreSQL transaction-scoped advisory lock serializes single-user writes,
 including first insertion; clients supply the expected revision. This is not a distributed lock service.
 
 `PersonalFact` starts `proposed`. Only the explicit verify API/service performs user confirmation.
@@ -242,10 +242,12 @@ the profile display name. Standalone skill strings are not independently verifie
 supporting facts through a profile entry before referencing them in a resume.
 
 Variant revisions are append-only; expected revisions and row locks serialize edits. A PostgreSQL
-trigger also rejects UPDATEs to saved revision rows. Old revisions remain addressable through
+trigger protects saved revision bodies/snapshots; explicitly allowlisted presentation/library metadata may change. Old revisions remain addressable through
 `GET ...?revision=N`. Render requires the revision explicitly, never an ambiguous current head.
 
-### Grounding baseline and limits
+### Low-level canonical grounding baseline and limits
+
+Product workspace resolution first validates user/Profile source evidence without manual Fact approval; see [workspace contracts](profile-workspace.md). The following rules describe the lower-level canonical fact-backed variant path.
 
 The render operation reloads current facts and locks them until artifact transaction commit.
 All referenced facts must exist, be verified, belong to the exact profile snapshot, and match the
@@ -264,23 +266,13 @@ The name header comes from the exact Profile snapshot, not an invented fact or m
 
 ### Deterministic policy
 
-Content ordering uses section/item `ordering` with UUID tie-breakers. Original content is tried
-first. If the only finding is layout overflow:
-
-1. Switch all provided short forms, recording decisions in ascending priority/order/UUID order.
-2. Remove the lowest-priority optional bullet; then optional entries/summaries, with stable
-   section priority/order and UUID tie-breakers. Remove an empty optional section.
-3. Repeat within an eight-compile hard cap. If still needed, the final round removes all remaining
-   optional content in that same order and tests the required-content floor.
-4. If required content cannot fit, return `layout_failed`, retaining the actual multi-page count
-   and overflow findings but **no accepted/downloadable PDF**.
-
-Required items are never removed, even inside an optional section. A required section heading
-is retained; required items may use their explicitly supplied, grounding-checked short forms.
-Spacing, margins and font sizes do not change. Eight rounds is a bounded incremental alternative
-to the suggested three major rounds; the acceptance fixture fits in three. This policy is not an
-optimizer for best visual density. Decisions, selected IDs and canonical selection hashes are
-stored per attempt, allowing repeated selections/layout validation to be compared.
+Current content policy v3 renders only the presentation explicitly saved by the user: visible
+sections/items, work/project order, item order and selected short expressions. It never substitutes
+unselected short text or removes optional content on overflow. A failing one-page check returns no
+accepted PDF. `required`/`priority` remain compatibility and validation fields, not Product controls.
+Explicit AI compression proposes short expressions for visible items lacking them; it never changes
+full text or saves a new library entry automatically. The user confirms the editing proposal before
+rendering. Selection and presentation snapshots remain attributable in historical render reports.
 
 ### Trusted rendering and fonts
 
@@ -1087,10 +1079,89 @@ fixes the exact generation. Product results expose source Resume identity indepe
 
 ### Web preflight discovery boundary
 
-See [Web discovery contracts](web-backend-discovery.md). KnowledgeNote now has an optional
+KnowledgeNote has an optional
 Application FK, with matching Actual Interview ownership validated at creation; legacy links
 remain queryable without backfill. Internal discovery uses explicit metadata projections rather
 than serializing private evaluation rows. The attention index preserves source identity and
 lifecycle, performs no recovery writes, and does not equate failures with RecoveryIncidents.
 New Internal discovery shares Ops token validation without requiring controller readiness;
 controller-specific Ops queries retain the existing readiness guard.
+
+## v0.5 Product context and review boundary
+
+`ApplicationBinding` is a mutable CAS-protected exact Resume/JD default, not an artifact rewrite.
+New Resume bindings derive execution Profile context from the Resume source; legacy Profile-only
+bindings remain readable. Fit explicitly accepts Profile, Resume or both, with no implicit selection.
+Operation creation validates binding revision and freezes its own inputs; later changes never rebind it.
+
+`ProductDraft` owns a reviewable proposal and uses the existing `InterviewCalls` attempt boundary,
+financial ledger, controller, journal and accepted ModelCall linkage. Feature-local prompt specs
+register fact extraction, base drafting and three refinement tasks. Execution is idempotent and
+serialized per draft; interrupted in-flight work requires recovery rather than replay. Adoption is
+transactional and independently idempotent. Facts remain proposed; their literal source association
+is added with Profile CAS. Resume and text adoption creates new canonical artifacts. No generic chat,
+automatic verification or separate model routing/budget implementation is introduced.
+
+Resume library visibility distinguishes generated/persisted tailoring output from user adoption;
+actual material submissions remain separate immutable facts. Task result discovery resolves canonical
+target wrappers server-side. Product pages display names/content, while machine identities remain
+in typed requests and Internal provenance.
+
+Actual interviews maintain one editable state and content revision; `draft` records stay out of normal
+history. Server-assigned primary/follow-up anchors survive text edits and reorder of existing entries.
+Debrief source-v2 freezes these anchors; legacy v1 serialization omits added fields to preserve hashes.
+Provider output-v2 uses compact question numbers, which are deterministically resolved to canonical
+UUID evidence before grounding validation and persistence. A single unanswered entry never gains
+answer-quality evidence through implicit mapping. Overall and group analysis remain independent.
+
+Knowledge deletion is soft to retain historical provenance; deleted notes are absent from discovery
+and cannot become new preparation inputs. No fact conversion happens on note writes.
+
+### Profile area: named records, saved expressions and factual evidence
+
+Product has two pages: `/profile` and `/profile/resumes`; `/profile/facts` redirects.
+Named Profile records retain immutable internal snapshots and protected deletion. A global editing
+session persists section/item changes separately from committed data; commit publishes one changed
+snapshot and cancel discards local saves. No-op commits create no snapshot. Contacts/photos and
+structured education/work/project fields are persisted; model views exclude personal contacts/photos.
+
+The Resume library uses stable entry identity independent of immutable revisions. Ordinary edits and
+compression update an entry; independent creation and AI refinement add entries. Names, branch
+counters and original creation ordering persist. Deletion hides records without breaking historical
+bindings or PDFs, and active Application bindings prevent deletion. PDF generation validates frozen
+user/Profile sources and AI claims without requiring Product Fact review.
+
+Facts backend storage, extraction, cancellation and lifecycle remain available for compatibility;
+permanent dependency cleanup is deferred. See [Profile workspace contracts](profile-workspace.md)
+for current API semantics and migrations through `b905c1202601`.
+
+Profile manual acceptance is complete. Application/Internal integration is included in this checkpoint
+but still awaits subsequent manual acceptance; offline test success is not that acceptance.
+
+### Profile workspace closure and HITL
+
+Product now exposes only Profile and Resume library. Facts endpoints and lineage remain for
+compatibility; the retired Product route redirects. Named Profile creation accepts an idempotency
+UUID. Persisted editing sessions use section/item CAS; rename alone
+never changes the exact Profile snapshot. Quick/AI resume creation both persist and select a saved
+expression after a single explicit action.
+
+Resume workspace `content_sources` records frozen authoritative user/Profile input separately from
+AI expression. Directly entered text is user-provided evidence; deterministic content inherits
+Profile evidence. Rendering resolves that evidence through existing factual snapshots and validators,
+without asking the user to approve an intermediate Fact list. AI expression itself is never automatically
+verified. Legacy missing author metadata only permits exact recoverable Profile evidence; other claims
+fail closed with item-level diagnostics. As before, deterministic grounding checks references and hard
+fields, not unrestricted semantic entailment. PDF remains Typst output, never model-produced binary.
+
+Feedback remains an independent Eval record, now with optional comment and authoritative Application,
+artifact kind and generation provenance. Subject/call resolution verifies identity before storing.
+Negative feedback may enqueue pending evaluation; recording feedback performs no model execution.
+Refinement requests separately persist intent (refine/regenerate), original artifact, optional feedback
+reference and Application. A feedback reference must match the exact source result. Adoption creates a
+new artifact and accepted-call binding. Operator-protected `/evaluation/feedback` filters by subject,
+Application or task; `/evaluation/refinements` exposes metadata lineage by feedback/source, without
+private inputs. No Internal UI redesign is included.
+
+Migration `b405c0702601` adds nullable Profile creation-intent and saved-expression evidence metadata.
+Existing Feedback JSON is backward compatible; historical missing metadata remains unknown.

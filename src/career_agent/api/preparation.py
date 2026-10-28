@@ -4,7 +4,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Request
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from career_agent.api.dependencies import DB
 from career_agent.application.services import require
@@ -237,24 +237,43 @@ async def package_context(id: UUID, session: DB) -> dict[str, Any]:
 
 @router.get("/resume-revisions")
 async def resume_choices(
-    profile_id: UUID,
     session: DB,
+    profile_id: UUID | None = None,
+    variant_id: UUID | None = None,
     job_revision_id: UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
     if not 1 <= limit <= 100 or offset < 0:
         raise DomainError("invalid_pagination", 422)
-    await require(session, e.PersonalProfile, profile_id)
+    if profile_id:
+        await require(session, e.PersonalProfile, profile_id)
     if job_revision_id:
         await require(session, e.JobRevision, job_revision_id)
+    stmt = (
+        select(e.ResumeVariantRevision)
+        .join(e.ResumeVariant)
+        .where(
+            e.ResumeVariant.library_visible.is_(True), e.ResumeVariantRevision.archived_at.is_(None)
+        )
+    )
+    if profile_id:
+        stmt = stmt.where(e.ResumeVariantRevision.profile_id == profile_id)
+    if variant_id:
+        stmt = stmt.where(e.ResumeVariantRevision.resume_variant_id == variant_id)
+    if job_revision_id:
+        jd = await require(session, e.JobRevision, job_revision_id)
+        stmt = stmt.where(
+            or_(
+                e.ResumeVariantRevision.job_revision_id.is_(None),
+                e.ResumeVariantRevision.job_revision_id.in_(
+                    select(e.JobRevision.id).where(e.JobRevision.job_id == jd.job_id)
+                ),
+            )
+        )
     rows = list(
         await session.scalars(
-            select(e.ResumeVariantRevision)
-            .where(
-                e.ResumeVariantRevision.profile_id == profile_id,
-            )
-            .order_by(e.ResumeVariantRevision.created_at.desc(), e.ResumeVariantRevision.id)
+            stmt.order_by(e.ResumeVariantRevision.created_at.desc(), e.ResumeVariantRevision.id)
             .limit(limit)
             .offset(offset)
         )
@@ -283,6 +302,7 @@ async def resume_choices(
     return [
         {
             "resume_revision_id": r.id,
+            "label": r.document.get("metadata", {}).get("label"),
             "resume_variant_id": r.resume_variant_id,
             "revision": r.revision,
             "profile_id": r.profile_id,

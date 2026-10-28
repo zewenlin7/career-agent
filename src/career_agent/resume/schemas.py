@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints, model_validator
 
-from career_agent.domain.schemas import Contract
+from career_agent.domain.schemas import Contract, PersonalInformation
 from career_agent.resume.fonts import FONT_POLICY_VERSION
 from career_agent.runtime.contracts import VersionMetadata
 
@@ -16,7 +16,7 @@ ResumeText = Annotated[
 SectionName = Literal["summary", "experience", "projects", "education", "skills"]
 SCHEMA_VERSION = "resume-v2"
 TEMPLATE_VERSION = "resume_zh_cn_a4_single_v1"
-POLICY_VERSION = "content-v1"
+POLICY_VERSION = "content-v3"
 COMPILER_VERSION = "0.15.1"
 MAX_ROUNDS = 8
 HEADINGS = {
@@ -34,7 +34,17 @@ class HardClaim(Contract):
     fact_ref: UUID
 
 
+class EntryLayout(Contract):
+    # Bound to the exact text. Edited/shortened text falls back to plain content,
+    # never retaining hidden or removed information from an old presentation.
+    text_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    title_line: int = Field(default=0, ge=0)
+    date_lines: list[int] = Field(default_factory=list, max_length=2)
+    subtitle_lines: list[int] = Field(default_factory=list, max_length=5)
+
+
 class ResumeItem(Contract):
+    layout: EntryLayout | None = None
     item_id: UUID
     kind: Literal["bullet", "summary", "entry"]
     text: ResumeText
@@ -108,6 +118,7 @@ class FactSnapshot(Contract):
 
 class InputSnapshot(Contract):
     display_name: str
+    personal: PersonalInformation | None = None
     facts: list[FactSnapshot]
 
 
@@ -158,6 +169,7 @@ class RenderVersions(VersionMetadata):
 
 
 class RenderReport(Contract):
+    presentation: dict[str, object] = Field(default_factory=dict)
     file_hash: str | None = None
     render_status: Literal["accepted", "failed"]
     validation_status: Literal["passed", "failed", "not_run"]

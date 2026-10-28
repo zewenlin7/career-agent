@@ -151,16 +151,28 @@ def validate_task(
         if not check["valid"]:
             raise ModelGatewayError("grounding_failed")
     elif task in {"interview_group_debrief", "interview_overall_debrief"}:
-        deterministic(
-            "debrief_evidence",
-            {
-                "source": source.get("source", source),
-                "group_ref": inputs["group"]["group_ref"]
-                if task == "interview_group_debrief"
-                else None,
-                "output": output,
-            },
+        from career_agent.interview.compact import CompactGroup, CompactOverall, canonical
+
+        snapshot = SourceSnapshot.model_validate(source.get("source", source))
+        ref = source.get("group_ref")
+        if task == "interview_group_debrief" and not ref:
+            from career_agent.interview.numbering import anchor, numbered
+
+            matches = [
+                entry
+                for entry in numbered(snapshot.entries)
+                if entry.kind == "primary"
+                and anchor(entry) == inputs.get("group", {}).get("group_number")
+            ]
+            if len(matches) != 1:
+                raise ModelGatewayError("case_incompatible")
+            ref = str(matches[0].entry_id)
+        resolved = canonical(
+            CompactGroup.model_validate(output) if ref else CompactOverall.model_validate(output),
+            snapshot,
+            UUID(ref) if ref else None,
         )
+        validate_evaluation(resolved, snapshot, UUID(ref) if ref else None)
     elif task == "mock_interview_turn_generation":
         from career_agent.interview.contracts import FrozenContext, TurnOutput
         from career_agent.interview.validation import validate_turn

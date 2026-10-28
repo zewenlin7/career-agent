@@ -393,6 +393,12 @@ class EvalRunner:
                 if case.model_input is None:
                     raise ModelGatewayError("case_incompatible")
                 spec = gateway.prompts.resolve(entry.name)
+                if entry.name in {"interview_group_debrief", "interview_overall_debrief"}:
+                    block = case.model_input.get("group", case.model_input.get("source", {}))
+                    if not isinstance(block, dict) or any(
+                        "number" not in item for item in block.get("entries", [])
+                    ):
+                        raise ModelGatewayError("case_incompatible")
                 ctx = ModelRequestContext(
                     task_type=entry.name,
                     workflow="evaluation",

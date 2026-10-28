@@ -79,7 +79,7 @@ async def test_variant_revisions_render_download(client, sessions, resume_input)
     assert report["versions"]["compiler_version"] == "0.15.1"
     assert report["versions"]["resume_variant_schema_version"] == "resume-v2"
     assert report["versions"]["resume_template_version"] == "resume_zh_cn_a4_single_v1"
-    assert report["versions"]["layout_policy_version"] == "content-v1"
+    assert report["versions"]["layout_policy_version"] == "content-v3"
     artifact_url = "/api/v1/artifacts/" + artifact["id"]
     assert (await client.get(artifact_url)).json() == artifact
     pdf = await client.get(artifact_url + "/download")

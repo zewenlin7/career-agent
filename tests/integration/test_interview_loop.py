@@ -83,7 +83,7 @@ async def test_actual_cas_relations_and_snapshot(client):
     )
     assert debrief.status_code == 201, debrief.text
     frozen = debrief.json()
-    update = {"expected_revision": row["content_revision"], "entries": []}
+    update = {"expected_revision": row["content_revision"], "entries": [], "status": "draft"}
     assert (await client.patch(f"/api/v1/interviews/{row['id']}", json=update)).status_code == 200
     assert (await client.patch(f"/api/v1/interviews/{row['id']}", json=update)).status_code == 409
     historical = (await client.get(f"/api/v1/interview-debriefs/{frozen['id']}")).json()
@@ -101,7 +101,10 @@ async def test_actual_cas_relations_and_snapshot(client):
         "status"
     ] == "tracking"
     listed = (
-        await client.get("/api/v1/interviews", params={"application_id": job["application_id"]})
+        await client.get(
+            "/api/v1/interviews",
+            params={"application_id": job["application_id"], "status": "draft"},
+        )
     ).json()
     assert len(listed) == 1 and listed[0]["entries"] == []
 

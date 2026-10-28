@@ -1,9 +1,8 @@
 "use client";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import type { Context, Mode, Research, Page } from "./contracts";
 import { useRead } from "./client";
-import { ModeSelect, Panel, Pages, ReadState, Refs } from "./ui";
+import { Panel, Pages, ReadState, Refs, Select } from "./ui";
 import { OperationPanel, PreparationPage } from "./preparation";
 function safeUrl(raw: string) {
   try {
@@ -16,18 +15,38 @@ function safeUrl(raw: string) {
 function Report({ value }: { value: Research }) {
   return (
     <article className="space-y-4">
-      <p>
-        研究版本 {value.research_version} · {value.data.mode} · 取得于 {value.fetched_at}
-      </p>
+      <p>更新于 {new Date(value.fetched_at).toLocaleString("zh-CN")}</p>
       <p className="text-sm">
         有效期至 {value.expires_at}；
-        {value.reusable_for_current_execution ? "后端确认可复用" : "历史可读，不代表当前可复用"}。
+        {value.reusable_for_current_execution ? "资料仍在有效期内" : "历史资料，建议更新"}。
       </p>
       <h3 className="font-semibold">有来源支持的结论</h3>
       <ul className="space-y-3">
         {value.data.report.conclusions.map((c, i) => (
           <li key={i}>
             {c.text}
+            <ul className="mt-1 text-sm text-secondary">
+              {c.evidence_refs.map((ref) => {
+                const source = value.data.evidence.find((e) => e.id === ref);
+                const href = source && safeUrl(source.source_url);
+                return source ? (
+                  <li key={ref}>
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        {source.title}
+                      </a>
+                    ) : (
+                      source.title
+                    )}
+                  </li>
+                ) : null;
+              })}
+            </ul>
             <Refs values={{ evidence_refs: c.evidence_refs }} />
           </li>
         ))}
@@ -37,6 +56,28 @@ function Report({ value }: { value: Research }) {
         {value.data.report.inference.map((c, i) => (
           <li key={i}>
             {c.text}
+            <ul className="mt-1 text-sm text-secondary">
+              {c.evidence_refs.map((ref) => {
+                const source = value.data.evidence.find((e) => e.id === ref);
+                const href = source && safeUrl(source.source_url);
+                return source ? (
+                  <li key={ref}>
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        {source.title}
+                      </a>
+                    ) : (
+                      source.title
+                    )}
+                  </li>
+                ) : null;
+              })}
+            </ul>
             <Refs values={{ evidence_refs: c.evidence_refs }} />
           </li>
         ))}
@@ -66,7 +107,10 @@ function Report({ value }: { value: Research }) {
               )}
             </p>
             <p className="whitespace-pre-wrap text-sm">{e.content}</p>
-            <Refs values={{ id: e.id, provider: e.provider, retrieved_at: e.retrieved_at }} />
+            <p className="text-sm text-secondary">
+              网页资料 · 抓取于 {new Date(e.retrieved_at).toLocaleString("zh-CN")}
+            </p>
+            <Refs values={{ id: e.id, provider: e.provider }} />
           </article>
         ))}
       </details>
@@ -82,11 +126,9 @@ export function ResearchFit({ ctx }: { ctx: Context }) {
   return (
     <div className="space-y-7">
       <Panel title="当前职位与要求">
-        <p>
-          JD revision {ctx.job.revision} · {ctx.job.job_revision_id}
-        </p>
+        <p>职位说明 · 第 {ctx.job.revision} 版</p>
         <details>
-          <summary className="cursor-pointer">JD 原文</summary>
+          <summary className="cursor-pointer">职位描述原文</summary>
           <p className="whitespace-pre-wrap">{ctx.job.jd_text}</p>
         </details>
         <ul className="space-y-3">
@@ -98,12 +140,16 @@ export function ResearchFit({ ctx }: { ctx: Context }) {
           ))}
         </ul>
       </Panel>
-      <Panel title={`${ctx.company.name} · 公司研究`}>
-        <p className="text-sm">
-          同公司各职位复用公司研究；不是本 Application 独有。当前结果由后端 freshness /
-          compatibility 决定。
-        </p>
-        <ModeSelect value={mode} onChange={setMode} />
+      <OperationPanel
+        ctx={ctx}
+        kind="company_research"
+        onModeChange={setMode}
+        onResult={() => {
+          setSelected("");
+          setOffset(0);
+          setRefresh((n) => n + 1);
+        }}
+      >
         <ResearchReads
           key={`${mode}:${refresh}`}
           company={ctx.company.id}
@@ -113,9 +159,8 @@ export function ResearchFit({ ctx }: { ctx: Context }) {
           selected={selected}
           setSelected={setSelected}
         />
-      </Panel>
-      <OperationPanel ctx={ctx} kind="company_research" onResult={() => setRefresh((n) => n + 1)} />
-      <h2 className="font-serif text-xl">Fit Analysis</h2>
+      </OperationPanel>
+      <h2 className="font-serif text-xl">岗位匹配</h2>
       <PreparationPage ctx={ctx} target="fit_analysis" />
     </div>
   );
@@ -139,28 +184,35 @@ function ResearchReads({
     history = useRead<Page<Research>>(
       `companies/${company}/research?mode=${mode}&limit=10&offset=${offset}`,
     );
-  const report = history.data?.items.find((r) => r.id === selected);
+  const report =
+    history.data?.items.find((r) => r.id === selected) ||
+    (!selected ? current.data || history.data?.items[0] : undefined);
   return (
     <div className="space-y-5">
-      <h3 className="font-semibold">当前可复用研究</h3>
-      <ReadState loaded={!!current.data} error={current.error} />
-      {current.data && <Report value={current.data} />}
-      <h3 className="font-semibold">研究历史</h3>
       <ReadState
         loaded={!!history.data}
         error={history.error}
         empty={history.data?.items.length === 0}
       />
-      <ul>
-        {history.data?.items.map((r) => (
-          <li key={r.id}>
-            <Button onClick={() => setSelected(r.id)}>
-              研究版本 {r.research_version} · {r.fetched_at}
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {history.data && <Pages offset={offset} setOffset={setOffset} more={history.data.has_more} />}{" "}
+      {!!history.data?.items.length && (
+        <Select
+          label="研究版本"
+          value={report?.id || ""}
+          onChange={(event) => setSelected(event.target.value)}
+        >
+          {current.data && !history.data.items.some((item) => item.id === current.data?.id) && (
+            <option value={current.data.id}>
+              最近研究 · {new Date(current.data.fetched_at).toLocaleString("zh-CN")}
+            </option>
+          )}
+          {history.data.items.map((item) => (
+            <option key={item.id} value={item.id}>
+              公司研究 · {new Date(item.fetched_at).toLocaleString("zh-CN")}
+            </option>
+          ))}
+        </Select>
+      )}
+      {history.data && <Pages offset={offset} setOffset={setOffset} more={history.data.has_more} />}
       {report && <Report value={report} />}
     </div>
   );

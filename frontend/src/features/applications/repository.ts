@@ -71,6 +71,7 @@ export function applicationRepository(read: Reader) {
       params({
         status: query.status,
         company_id: query.company_id,
+        company_q: query.company_q || undefined,
         limit: APPLICATION_PAGE_SIZE,
         offset: (query.page - 1) * APPLICATION_PAGE_SIZE,
       }),

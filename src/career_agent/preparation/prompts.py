@@ -40,7 +40,7 @@ OUTPUTS: dict[TaskType, type[BaseModel]] = {
 ALLOWLIST = {
     TaskType.EXTRACTION: {"job"},
     TaskType.RESEARCH: {"company", "evidence"},
-    TaskType.FIT: {"requirements", "facts", "profile_refs"},
+    TaskType.FIT: {"requirements", "facts", "profile_refs", "fit_input"},
     TaskType.TAILOR: {
         "requirements",
         "facts",
@@ -73,7 +73,7 @@ ALLOWLIST = {
 OPTIONAL = {
     TaskType.EXTRACTION: set(),
     TaskType.RESEARCH: set(),
-    TaskType.FIT: set(),
+    TaskType.FIT: {"fit_input"},
     TaskType.TAILOR: {"fit"},
     TaskType.COMPRESS: set(),
     TaskType.GREETING: {"fit", "research"},
@@ -120,6 +120,10 @@ INSTRUCTIONS = {
         "Extract only explicit JD requirements. Every evidence_span must be an exact nonempty "
         "substring of job.jd_text. Do not invent inferred requirements. Deduplicate. Preserve "
         "must/nice_to_have/responsibility/preferred/other distinctions. "
+        "Each skills value must occur literally (case-insensitive) inside its own evidence_span. "
+        "Do not expand abbreviations or translate skill names in skills; use [] if no literal "
+        "skill is present. normalized_requirement must not introduce any number absent from "
+        "evidence_span. Keep normalized prose separate from quoted evidence. "
     ),
     TaskType.RESEARCH: (
         "Synthesize company-level findings only from supplied evidence. Cite evidence UUIDs "
@@ -130,7 +134,10 @@ INSTRUCTIONS = {
         "Cover each requirement exactly once. matched/partial need supporting fact_refs; "
         "no_evidence means unknown capability, not inability. explicit_gap requires a verified "
         "explicit_gap fact. Fill summary UUID lists consistently with item statuses. No "
-        "probability, scores or percentage match. "
+        "probability, scores or percentage match. When fit_input is supplied, respect its source: "
+        "resume evaluates only the selected resume expression, "
+        "profile evaluates personal background, "
+        "both considers both without double-counting shared evidence. "
     ),
     TaskType.TAILOR: (
         "Adapt the explicitly selected base_resume, preserving its grounded core content. "
@@ -193,7 +200,9 @@ PROMPTS = {
             }
         ),
         prompt_name=task.value,
-        prompt_version=f"{task.value}_v6",
+        prompt_version=f"{task.value}_v7"
+        if task in {TaskType.EXTRACTION, TaskType.FIT}
+        else f"{task.value}_v6",
         task_type=task.value,
         input_schema_version="task-input-v3",
         output_schema_version=f"{task.value}-output-v1",

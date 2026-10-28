@@ -323,8 +323,12 @@ async def test_live_and_interview_require_explicit_inputs(client, prep_input):
     assert (
         result.status_code == 409 and result.json()["error"]["code"] == "live_configuration_missing"
     )
-    result = await run(client, prep_input, "prepare_interview")
-    assert result["state"]["stop_reason"] == "application_package_required"
+    result = await run(
+        client,
+        {k: v for k, v in prep_input.items() if k != "resume_revision_id"},
+        "prepare_interview",
+    )
+    assert result["state"]["stop_reason"] == "resume_selection_required"
     assert result["state"]["usage"]["model_calls"] == 0
 
 
@@ -527,7 +531,10 @@ async def test_fit_gate_or_informational(client, prep_input, sessions, gated, ga
         updated = (
             await client.put(
                 "/api/v1/profile",
-                json={"expected_revision": profile["revision"], "data": profile["data"]},
+                json={
+                    "expected_revision": profile["revision"],
+                    "data": {**profile["data"], "display_name": "Changed synthetic profile"},
+                },
             )
         ).json()
         async with sessions() as session:
@@ -624,7 +631,10 @@ async def test_history_discovery_exact_context_and_mismatch(client, prep_input, 
     updated = (
         await client.put(
             "/api/v1/profile",
-            json={"expected_revision": profile["revision"], "data": profile["data"]},
+            json={
+                "expected_revision": profile["revision"],
+                "data": {**profile["data"], "display_name": "Changed synthetic profile"},
+            },
         )
     ).json()
     job_id = original["job"]["id"]

@@ -219,9 +219,10 @@ class TargetArtifact(Contract):
     source_resume_revision_id: UUID | None = None
 
 
-class WorkflowRequest(Contract):
+class WorkflowInputs(Contract):
+    fit_input: Literal["profile", "resume", "both"] | None = None
     job_revision_id: UUID
-    profile_id: UUID
+    profile_id: UUID | None = None
     mode: Literal["fixture", "live"] = "fixture"
     limits: RunLimits = Field(default_factory=RunLimits)
     targets: list[Literal["fit_analysis", "resume_tailoring", "greeting_generation"]] = Field(
@@ -237,7 +238,12 @@ class WorkflowRequest(Contract):
     force_research_refresh: bool = False
 
     @model_validator(mode="after")
-    def valid_targets(self) -> "WorkflowRequest":
+    def valid_targets(self) -> "WorkflowInputs":
+        if self.fit_input is not None:
+            if self.targets != ["fit_analysis"] or (
+                self.fit_input in {"resume", "both"} and self.resume_revision_id is None
+            ):
+                raise ValueError("invalid fit input selection")
         if len(set(self.targets)) != len(self.targets):
             raise ValueError("duplicate targets")
         for target, binding in self.bindings.items():
@@ -253,6 +259,14 @@ class WorkflowRequest(Contract):
     knowledge_note_ids: Refs = Field(default_factory=list)
 
 
+class WorkflowRequest(WorkflowInputs):
+    profile_id: UUID
+
+
+class CompanyResearchRequest(WorkflowInputs):
+    """Company/JD context only. Legacy personal bindings are accepted but never read."""
+
+
 class WorkflowState(Contract):
     run_id: UUID
     workflow: Literal["prepare_application", "prepare_interview", "company_research"]
@@ -261,7 +275,7 @@ class WorkflowState(Contract):
         "preparation-v2"
     )
     job_revision_id: UUID
-    profile_id: UUID
+    profile_id: UUID | None = None
     profile_revision: int | None = Field(default=None, ge=1)
     job_id: UUID | None = None
     job_revision: int | None = Field(default=None, ge=1)
@@ -287,6 +301,12 @@ class WorkflowState(Contract):
     stop_reason: Identifier | None = None
     outcome: WorkflowOutcome | None = None
     bindings: dict[str, ResumeBinding] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def personal_binding(self) -> "WorkflowState":
+        if self.workflow != "company_research" and self.profile_id is None:
+            raise ValueError("profile_required")
+        return self
 
 
 class PrivateResult(Contract):

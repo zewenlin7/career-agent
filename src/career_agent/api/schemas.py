@@ -1,5 +1,8 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
+
+from pydantic import model_validator
 
 from career_agent.domain.rules import ApplicationStatus, CallStatus, FactStatus, RunStatus
 from career_agent.domain.schemas import (
@@ -68,6 +71,10 @@ class ApplicationOut(RowOut):
 
 
 class InterviewOut(RowOut):
+    status: str
+    round_number: int | None
+    interview_type: str | None
+    context_binding: dict[str, Any] | None
     content_revision: int
     occurred_at: datetime | None
     entries: list[InterviewEntry]
@@ -75,8 +82,16 @@ class InterviewOut(RowOut):
     round_name: str
     notes: list[InterviewNoteData]
 
+    @model_validator(mode="after")
+    def display_numbers(self) -> "InterviewOut":
+        from career_agent.interview.numbering import numbered
+
+        self.entries = numbered(self.entries)
+        return self
+
 
 class KnowledgeOut(RowOut):
+    revision: int
     application_id: UUID | None
     title: str
     content: str

@@ -1,7 +1,7 @@
 # Career Agent
 
 Career Agent is a primarily single-user personal job-search Agent engineering project.
-The current work is **v0.5 Web foundation**, built on the completed v0.1–v0.4 backend contracts.
+The current work is **v0.5 Web product**, built on the completed v0.1–v0.4 backend contracts.
 Development and demonstrations use synthetic data; this is not a multi-user production service.
 
 ## Implemented now
@@ -11,13 +11,13 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 - Application tracker with optimistic revision checks, status/correction/note events.
 - Actual interview rounds with CAS-protected ordered primary/follow-up Q&A and legacy notes.
 - Separate text Mock Interview sessions and snapshot-based standalone Interview Debrief.
-- Knowledge-note creation/global discovery and Application-scoped discovery; generated knowledge candidates never auto-promote to facts.
+- Knowledge-note creation, CAS editing/soft deletion, global and Application-scoped discovery; generated knowledge candidates never auto-promote to facts.
 - PostgreSQL persistence for source documents, STAR structures and runtime metadata.
 - Run/step/call metadata APIs and two explicitly invoked fixed preparation workflows.
 - Model-independent contracts, approved per-task candidate policies and an injected fake provider.
 - Safe error responses, allowlisted operational logging and private-data configuration.
 - Synthetic tests using a real temporary PostgreSQL database, Ruff and strict mypy.
-- Hand-authored, versioned ResumeVariants, fact grounding, deterministic content compression,
+- Named Resume library entries, immutable revisions, source grounding, explicit expression selection,
   trusted zh-CN Typst rendering, one-page PDF validation and exact-revision artifact APIs.
   Chinese resumes with English technical terms are the current canonical product.
 
@@ -25,7 +25,7 @@ OpenAI Responses and Tavily adapters, deterministic target orchestration, versio
 structured zh-CN tailoring and static budget controls are implemented and tested offline.
 **Live extraction/research/fit/tailoring/PDF/greeting have been exercised; Interview Prep passed after a timeout-policy fix, and controlled compression produced an accepted PDF. v0.1c live acceptance is historical; v0.1d acceptance is offline only. Synthetic acceptance does not establish real job-search quality.**
 No automatic applications/messages, unrestricted planner, durable worker,
-vector search or complete frontend business pages are implemented. Interview preparation is an explicit separate request.
+or vector search is implemented. Interview preparation is an explicit separate request.
 
 ## Architecture
 
@@ -74,6 +74,34 @@ Access logging is disabled in the documented command to avoid logging user-suppl
 
 Stop PostgreSQL with `docker compose stop`; `docker compose down` retains the named volume.
 Do not use `down -v` unless intentionally deleting the local database.
+
+## Local Web development shortcut
+
+After `uv sync --locked`, `npm ci --prefix frontend`, and local `.env` configuration:
+
+```sh
+./cgstart --check  # Offline Typst/font/dependency check; does not start services
+./cgstart               # PostgreSQL, migrations, pinned fonts, FastAPI and Next.js
+```
+
+The shortcut requires Docker Compose, Node.js and **Typst 0.15.1** already installed.
+It installs missing Chinese fonts only through `scripts/setup_resume_fonts.py` (pinned
+source and verified hashes); corrupt fonts fail closed. It never downloads Typst or
+substitutes system fonts. The first missing-font install requires network access.
+Product is at `http://127.0.0.1:3000`, API docs at `http://127.0.0.1:8000/docs`.
+Ctrl+C stops the two application processes and retains PostgreSQL data. The existing
+individual commands remain supported. An existing Ops token, or an ephemeral local
+token, is passed only to the server processes and never printed. This is a local-only
+single-user convenience, not login/authentication or a deployment supervisor.
+
+Product tasks use one explicit user action to create and execute their durable operation.
+Company research needs Company/JD context, not personal facts. Job matching extracts
+requirements from the raw JD when absent; extraction evidence/grounding failures stop
+before Fit. Existing requirements are reused. Product defaults to real services; offline
+fixture adapters remain available to offline tests, not as Product UI controls, and do not establish model quality.
+Historical base-resume editing copies that content into a new revision using the head
+revision captured when editing begins; subsequent concurrent updates still conflict.
+Named Profiles support structured editing and quick/AI Resume creation; Product does not require manual Fact review. See [Profile workspace contracts](docs/profile-workspace.md).
 
 ## API contract
 
@@ -243,11 +271,11 @@ This script validates synthetic fact references before invoking the compiler.
 | Fixture | Observed result with 0.15.1 |
 | --- | --- |
 | normal_one_page_zh_cn | Accepted, 1 page, 1 attempt |
-| compressible_overflow_zh_cn | 5 pages → short form, 3 pages → optional item removal → accepted 1 page; 3 attempts |
+| compressible_overflow_zh_cn | Overflow unless the explicitly selected presentation fits; no automatic short-form substitution or optional-item removal |
 | impossible_one_page_zh_cn | Required content occupies 4 pages; `layout_failed`, no accepted PDF |
 | mixed_script_font_regression | Accepted, 1 page; Chinese/English/numbers/punctuation extracted |
 
-The accepted PDFs have been visually inspected locally: no obvious clipping, overlap or missing
+Historical accepted PDFs were visually inspected locally: no obvious clipping, overlap or missing
 glyphs. This does not mean automatic checks can detect every aesthetic/visual defect.
 
 ### Variant / artifact API
@@ -259,7 +287,7 @@ glyphs. This does not mean automatic checks can detect every aesthetic/visual de
 - `GET /api/v1/artifacts/{id}`: status, findings, selection decisions, attempts and versions.
 - `GET /api/v1/artifacts/{id}/download`: accepted artifacts only, verified SHA-256, `no-store`.
 
-Use the synthetic fixture `document` as a payload shape, but replace its fixture IDs with actual
+These low-level canonical endpoints retain factual-reference validation. Product uses the source-aware workspace resolve/save path instead of asking users to maintain Fact links. For direct canonical API clients, use the synthetic fixture `document` as a payload shape, but replace its fixture IDs with actual
 Profile/Fact IDs created via your local API. Add each fact ID to an education/experience/project
 entry in the Profile before creating the Variant. Supply `profile_id` and `profile_revision`.
 The optional `job_revision_id` identifies an exact stored JD revision. Sections are predefined
@@ -280,14 +308,14 @@ A render request returns HTTP 201 for a **persisted render result**, including f
 `pdf_invalid`, `text_validation_failed`, `layout_overflow` (per-attempt finding), `layout_failed`,
 and `artifact_write_failed`. Error responses never include Typst raw diagnostics/private paths.
 
-The compiler tries the original content, then supplied short forms, then removes optional bullets
-before optional entries using priority/order/UUID tie-breakers. Empty optional sections disappear.
-At most **8 compilations**, with the final round testing required content only if necessary.
-Every selection decision is recorded; no required item is deleted. Within the compiler, short forms are supplied data. The separate preparation workflow may
-perform one explicit semantic compression call after eligible layout failure. Failure never becomes clipping or an unreadable font size.
+The compiler renders the explicitly selected presentation once and returns no accepted PDF on
+failure. It does not substitute short expressions or delete optional items on overflow. Product
+compression requires an explicit action, returns an editing proposal and requires user save.
+The low-level preparation workflow retains its separately bounded semantic-compression branch;
+it is not an implicit model call from the Product PDF button.
 
 The current contract is `locale=zh-CN`, schema `resume-v2`, template
-`resume_zh_cn_a4_single_v1`, layout policy `content-v1`, and font policy
+`resume_zh_cn_a4_single_v1`, layout policy `content-v3`, and font policy
 `noto-sans-cjk-sc-2.004-regular-bold-v1`. Reports retain these versions, actual font family,
 verified font-file hashes, compiler version and template hash; never local absolute font paths.
 Retained text uses ordered, non-overlapping ranges in immutable normalized extraction, so matching
@@ -854,8 +882,7 @@ background worker is included. Existing preparation endpoints remain available.
 - `GET /api/v1/companies`, `GET /companies/{id}`; company research history and fresh compatible
   current report under `/companies/{id}/research` and `/research/current?mode=live|fixture`.
 - `POST /api/v1/companies/{id}/research` creates an explicit research operation. Its body is
-  `{request_id, kind: "company_research", request: WorkflowRequest}`. An exact Profile and JD
-  context is required by the existing research contract. Set `request.force_research_refresh=true`
+  `{request_id, kind: "company_research", request: WorkflowRequest}`. Company/JD context is required; personal Profile/Facts are not required or consumed. Set `request.force_research_refresh=true`
   to bypass both report and observation reuse. Missing research is never implicitly authorized.
 - `POST /api/v1/operations` durably creates an idempotent handle for `prepare_application`,
   `prepare_interview` or `company_research`. Save its ID before calling `POST /operations/{id}/execute`.
@@ -894,18 +921,42 @@ reported as `recovery_required`, consistently with Preparation operations.
 
 ## Web preflight discovery
 
-Application Knowledge Notes and metadata-only Internal evaluation/attention discovery are documented
-in [Web backend contracts](docs/web-backend-discovery.md), including the server-only Next.js/BFF
-Ops-token boundary. No frontend or new control-plane actions are added.
+Application Knowledge Notes and metadata-only Internal evaluation/attention discovery are exposed
+through the allowlisted BFFs. Ops credentials remain server-only; neither BFF provides login or
+public-deployment authentication. See [frontend contracts](frontend/README.md).
 
-## v0.5 Web foundation
+## v0.5 checkpoint
 
-The independent [frontend project](frontend/README.md) provides Next.js App Router + Tailwind,
-Product/Internal shells, established IA route placeholders and small shared UI primitives.
-Applications and its workspace now read existing backend APIs server-side: company/status
-filters, paging, exact context, same-company switching and factual Summary records. Application
-business pages now integrate explicit Research/Fit, preparation operations and exact material use,
-Interview Prep/Mock/Actual, Debrief and Application Knowledge Notes through a Product-only BFF.
-Profile editing and Internal data/control integration remain deferred. No Ops credentials enter
-Product pages; no new authentication system or backend business semantics are introduced.
-See the frontend README for API mapping, prerequisite bindings, recovery and offline test boundaries.
+**Profile workspace has passed user manual acceptance. Application and Internal implementations
+are included in this checkpoint but remain pending subsequent manual acceptance.** Offline regression
+coverage is distinct from real model quality or final acceptance of those surfaces.
+
+The [frontend](frontend/README.md) uses Next.js App Router and Tailwind with Product and Internal
+shells. Application pages integrate discovery, tracking, Research/Fit, materials/submissions,
+Interview and Review. Internal pages integrate Operations and Evaluation through a server-only
+Ops-token BFF. Profile provides named personal records and a Resume library, not a Facts workflow.
+
+### Product workspace and drafting
+
+New Application bindings select an exact Resume; execution derives its Profile source. Legacy Profile-only bindings remain readable. Fit independently selects Profile, Resume or both.
+Changing this binding affects future work, never historical results. Company Research remains
+independent of personal data. Generated results are browsed by business task, not preparation package.
+
+Internal fact extraction retains proposed status and source associations. Product Quick creation maps the selected Profile deterministically; AI creation uses a separately governed task. Both save and select the new Resume without an intermediate Fact-review step. Resume/Greeting/Interview Prep adjustments preserve the
+original result and exact context. Saving an optimized resume adds its already-persisted revision to
+the resume library; changing the Application binding is a separate user choice.
+
+Actual interviews support drafts, current-record corrections and question groups. Debriefs freeze
+sources and resolve compact question-number evidence into canonical entry references. Notes support
+CAS editing and soft deletion; historical provenance remains readable. New draft tasks have only
+synthetic/offline acceptance here, not a claim about live model or hiring quality.
+
+`./start-dev.sh` remains supported as the underlying launcher used by `./cgstart`.
+
+See [Profile workspace contracts](docs/profile-workspace.md) for editing sessions, photos,
+source validation, explicit short-expression selection, naming branches and stable library entries.
+The migration head is `b905c1202601`; all earlier migrations remain required.
+
+Run `cd frontend && npm run test:profile-browser` after building the frontend and preparing local
+PostgreSQL, Typst and fonts. This suite uses an isolated temporary database, real FastAPI/Next.js,
+photo storage and Typst with offline model adapters; it does not reset the business database.

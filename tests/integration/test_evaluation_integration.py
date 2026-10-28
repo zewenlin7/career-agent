@@ -126,6 +126,7 @@ async def test_frozen_regenerate_sampling_judge_feedback_and_capture(client, ses
             json={
                 "expected_revision": interview["content_revision"],
                 "entries": [],
+                "status": "draft",
             },
         )
     ).status_code == 200

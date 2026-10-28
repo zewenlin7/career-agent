@@ -13,7 +13,7 @@ test("application navigation preserves the explicit route context", () => {
   assert.equal(applicationNavigation("a/b")[0].href, "/applications/a%2Fb/summary");
   assert.deepEqual(
     sectionNavigation("synthetic-id", "apply").map((x) => x.label),
-    ["Resume", "Greeting", "Submissions"],
+    ["简历", "招呼语", "投递记录"],
   );
 });
 test("transport stays on the configured origin and versioned relative path", () => {

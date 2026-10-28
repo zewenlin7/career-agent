@@ -44,85 +44,7 @@ async def package_view(session: AsyncSession, id: UUID) -> PackageView:
             reused=any(n.name == kind and n.status == "reused" for n in state.outcome.nodes),
         )
         if outcome.artifact_id:
-            wrapper = await require(session, e.PreparationArtifact, outcome.artifact_id)
-            target = PrivateResult.model_validate(wrapper.data).output
-            if (
-                not isinstance(target, TargetArtifact)
-                or target.target != kind
-                or wrapper.profile_id != profile.id
-                or wrapper.job_revision_id != jd.id
-            ):
-                raise DomainError("context_revision_mismatch")
-            item.target_artifact_id = wrapper.id
-            item.source_resume_revision_id = target.source_resume_revision_id
-            item.versions = dict(target.compatibility_versions or {})
-            subject_id = target.result_id or target.resume_revision_id
-            if target.result_id:
-                result = await require(session, e.PreparationArtifact, target.result_id)
-                if result.profile_id != profile.id or result.job_revision_id != jd.id:
-                    raise DomainError("context_revision_mismatch")
-                item.result_id = result.id
-                item.content = result.data["output"]
-                item.allowed_actions = ["read"]
-            if target.resume_revision_id:
-                resume = await require(session, e.ResumeVariantRevision, target.resume_revision_id)
-                if resume.profile_id != profile.id or resume.job_revision_id != jd.id:
-                    raise DomainError("context_revision_mismatch")
-                item.resume_revision_id, item.resume_variant_id, item.revision = (
-                    resume.id,
-                    resume.resume_variant_id,
-                    resume.revision,
-                )
-                item.content = resume.document
-                item.allowed_actions = ["read", "create_revision"]
-                if target.render_artifact_id:
-                    artifact = await require(session, e.RenderArtifact, target.render_artifact_id)
-                    if (
-                        artifact.resume_variant_id != resume.resume_variant_id
-                        or artifact.resume_variant_revision != resume.revision
-                    ):
-                        raise DomainError("context_revision_mismatch")
-                    item.render_artifact_id = artifact.id
-                    if artifact.report["render_status"] == "accepted":
-                        item.download_url = f"/api/v1/artifacts/{artifact.id}/download"
-                        item.allowed_actions.append("download")
-            if subject_id:
-                invocation = await session.scalar(
-                    select(InvocationRow)
-                    .where(
-                        InvocationRow.data["output_ref"].astext == str(subject_id),
-                        InvocationRow.model_call_id.is_not(None),
-                    )
-                    .order_by(InvocationRow.created_at.desc(), InvocationRow.id)
-                    .limit(1)
-                )
-                if invocation and invocation.model_call_id:
-                    call = await require(session, e.ModelCall, invocation.model_call_id)
-                    if call.status.value == "succeeded" and invocation.data.get(
-                        "accepted_model_call_id"
-                    ) == str(call.id):
-                        item.feedback_target = Subject(
-                            subject_id=subject_id,
-                            task_type=call.task_type,
-                            accepted_model_call_id=call.id,
-                            operation_id=invocation.id,
-                        )
-                        item.allowed_actions.append("feedback")
-                        item.versions.update(
-                            {
-                                k: v
-                                for k, v in call.versions.items()
-                                if k
-                                in {
-                                    "prompt_version",
-                                    "prompt_hash",
-                                    "input_schema_version",
-                                    "output_schema_version",
-                                    "model_policy_version",
-                                    "workflow_version",
-                                }
-                            }
-                        )
+            await populate_target(session, outcome.artifact_id, item)
         elif outcome.status == "pending":
             item.allowed_actions = (
                 ["provide_input"] if state.outcome.status == "needs_input" else ["decide"]
@@ -131,3 +53,91 @@ async def package_view(session: AsyncSession, id: UUID) -> PackageView:
     return PackageView(
         package_id=id, run_id=package.run_id, status=state.outcome.status, results=results
     )
+
+
+async def populate_target(session: AsyncSession, id: UUID, item: ResultView) -> None:
+    wrapper = await require(session, e.PreparationArtifact, id)
+    target = PrivateResult.model_validate(wrapper.data).output
+    if (
+        not isinstance(target, TargetArtifact)
+        or target.target != item.kind
+        or wrapper.profile_id != item.context.profile_id
+        or wrapper.job_revision_id != item.context.job_revision_id
+    ):
+        raise DomainError("context_revision_mismatch")
+    item.target_artifact_id = wrapper.id
+    item.source_resume_revision_id = target.source_resume_revision_id
+    item.versions = dict(target.compatibility_versions or {})
+    subject_id = target.result_id or target.resume_revision_id
+    if target.result_id:
+        result = await require(session, e.PreparationArtifact, target.result_id)
+        if (
+            result.profile_id != item.context.profile_id
+            or result.job_revision_id != item.context.job_revision_id
+        ):
+            raise DomainError("context_revision_mismatch")
+        item.result_id = result.id
+        item.content = result.data["output"]
+        item.allowed_actions = ["read"]
+    if target.resume_revision_id:
+        resume = await require(session, e.ResumeVariantRevision, target.resume_revision_id)
+        if (
+            resume.profile_id != item.context.profile_id
+            or resume.job_revision_id != item.context.job_revision_id
+        ):
+            raise DomainError("context_revision_mismatch")
+        item.resume_revision_id, item.resume_variant_id, item.revision = (
+            resume.id,
+            resume.resume_variant_id,
+            resume.revision,
+        )
+        item.content = resume.document
+        item.allowed_actions = ["read", "create_revision"]
+        if target.render_artifact_id:
+            artifact = await require(session, e.RenderArtifact, target.render_artifact_id)
+            if (
+                artifact.resume_variant_id != resume.resume_variant_id
+                or artifact.resume_variant_revision != resume.revision
+            ):
+                raise DomainError("context_revision_mismatch")
+            item.render_artifact_id = artifact.id
+            if artifact.report["render_status"] == "accepted":
+                item.download_url = f"/api/v1/artifacts/{artifact.id}/download"
+                item.allowed_actions.append("download")
+    if subject_id:
+        invocation = await session.scalar(
+            select(InvocationRow)
+            .where(
+                InvocationRow.data["output_ref"].astext == str(subject_id),
+                InvocationRow.model_call_id.is_not(None),
+            )
+            .order_by(InvocationRow.created_at.desc(), InvocationRow.id)
+            .limit(1)
+        )
+        if invocation and invocation.model_call_id:
+            call = await require(session, e.ModelCall, invocation.model_call_id)
+            if call.status.value == "succeeded" and invocation.data.get(
+                "accepted_model_call_id"
+            ) == str(call.id):
+                item.feedback_target = Subject(
+                    subject_id=subject_id,
+                    task_type=call.task_type,
+                    accepted_model_call_id=call.id,
+                    operation_id=invocation.id,
+                )
+                item.allowed_actions.append("feedback")
+                item.versions.update(
+                    {
+                        k: v
+                        for k, v in call.versions.items()
+                        if k
+                        in {
+                            "prompt_version",
+                            "prompt_hash",
+                            "input_schema_version",
+                            "output_schema_version",
+                            "model_policy_version",
+                            "workflow_version",
+                        }
+                    }
+                )

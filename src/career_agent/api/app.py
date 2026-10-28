@@ -50,6 +50,7 @@ async def facts(session: DB, limit: Limit = 50, offset: Offset = 0) -> list[e.Pe
     return list(
         await session.scalars(
             select(e.PersonalFact)
+            .where(e.PersonalFact.archived_at.is_(None))
             .order_by(e.PersonalFact.created_at, e.PersonalFact.id)
             .limit(limit)
             .offset(offset)
@@ -150,6 +151,7 @@ async def knowledge(session: DB, limit: Limit = 50, offset: Offset = 0) -> list[
     return list(
         await session.scalars(
             select(e.KnowledgeNote)
+            .where(e.KnowledgeNote.deleted_at.is_(None))
             .order_by(e.KnowledgeNote.created_at, e.KnowledgeNote.id)
             .limit(limit)
             .offset(offset)
@@ -209,6 +211,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from career_agent.api.product import router as product_router
 
     app.include_router(product_router)
+    from career_agent.profile_area.api import router as profile_area_router
+
+    app.include_router(profile_area_router)
+    from career_agent.profile_area.records import router as profile_records_router
+
+    app.include_router(profile_records_router)
     from career_agent.api.agents import router as agent_router
 
     app.include_router(agent_router)
@@ -246,6 +254,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         # Pydantic errors contain original inputs and context: never reflect them.
+        fields = []
+        for error in exc.errors():
+            location = error["loc"]
+            if (
+                str(error.get("ctx", {}).get("error", "")) == "short_text must be shorter"
+                and len(location) == 6
+                and location[:3] == ("body", "document", "sections")
+                and location[4] == "items"
+                and isinstance(location[3], int)
+                and isinstance(location[5], int)
+            ):
+                fields.append(
+                    {
+                        "section": location[3],
+                        "item": location[5],
+                        "field": "short_text",
+                        "code": "short_text_not_shorter",
+                    }
+                )
+        if fields:
+            return JSONResponse(
+                status_code=422,
+                content={"error": {"code": "resume_field_validation", "fields": fields}},
+            )
         return JSONResponse(
             status_code=422,
             content={

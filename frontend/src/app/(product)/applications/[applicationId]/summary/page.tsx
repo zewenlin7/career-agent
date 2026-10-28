@@ -1,3 +1,5 @@
+import { ApplicationMaterials } from "@/features/workspace/application-binding";
+import { ApplicationTracking } from "@/features/onboarding/tracking";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PageHeading, SectionHeading } from "@/components/ui/typography";
@@ -7,7 +9,7 @@ import { BackendError } from "@/lib/api/error";
 import { applications, getApplicationContext } from "@/features/applications/server";
 import { UUID_PATTERN, statusLabels } from "@/features/applications/contracts";
 import { SummaryRecords } from "@/features/applications/views";
-export const metadata: Metadata = { title: "Summary" };
+export const metadata: Metadata = { title: "概览" };
 export default async function Page({ params }: { params: Promise<{ applicationId: string }> }) {
   const id = (await params).applicationId.toLowerCase();
   if (!UUID_PATTERN.test(id)) notFound();
@@ -28,12 +30,11 @@ export default async function Page({ params }: { params: Promise<{ applicationId
   };
   return (
     <>
-      <PageHeading title="Summary" description="申请事实与已有记录概览；以下时间使用北京时间。" />
+      <PageHeading title="概览" description="申请事实与已有记录概览；以下时间使用北京时间。" />
       <Surface className="mb-5" aria-label="职位信息">
         <SectionHeading>当前职位与 JD</SectionHeading>
         <p className="mt-3 text-sm text-secondary">
-          申请创建于 <DateTime value={ctx.application.created_at} /> · Application revision{" "}
-          {ctx.application.revision}
+          申请创建于 <DateTime value={ctx.application.created_at} />
         </p>
         <details className="mt-4">
           <summary className="cursor-pointer text-sm">
@@ -44,6 +45,8 @@ export default async function Page({ params }: { params: Promise<{ applicationId
           </p>
         </details>
       </Surface>
+      <ApplicationMaterials applicationId={id} />
+      <ApplicationTracking id={id} />
       <SummaryRecords context={ctx} summary={summary} />
       <Surface className="mt-5" aria-label="最近申请记录">
         <SectionHeading>最近申请记录</SectionHeading>

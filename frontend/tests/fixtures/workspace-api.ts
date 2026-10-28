@@ -117,20 +117,26 @@ const operations = new Map<string, Operation>(),
   actuals = new Map<string, Actual>(),
   debriefs = new Map<string, Debrief>(),
   selected = new Map<string, string>();
+const firstMockFailure = new Set<string>();
 const submissions: Submission[] = [],
   notes: Record<string, unknown>[] = [];
 let revision = 2;
+let bindingRevision = 1;
+let boundResume = resume;
 export function resetWorkspace() {
   operations.clear();
   operationBodies.clear();
   packages.clear();
   mocks.clear();
+  firstMockFailure.clear();
   actuals.clear();
   debriefs.clear();
   selected.clear();
   submissions.length = 0;
   notes.length = 0;
   revision = 2;
+  bindingRevision = 1;
+  boundResume = resume;
   seq = 20000;
 }
 function newId() {
@@ -225,6 +231,75 @@ export function workspaceResponse(
     q = url.searchParams,
     ok = (body: unknown): FixtureReply => ({ status: 200, body }),
     fail = (code: string, status = 409) => ({ status, body: { error: { code } } });
+  if (p === `applications/${id(1)}/context`) {
+    if (method === "PUT") {
+      if (body.expected_revision !== bindingRevision) return fail("revision_conflict");
+      boundResume = String(body.resume_revision_id || "");
+      bindingRevision++;
+    }
+    return ok({
+      application_id: id(1),
+      revision: bindingRevision,
+      profile_id: profile,
+      profile_revision: 1,
+      profile_name: "合成求职者",
+      resume_revision_id: boundResume || null,
+      resume_name: "合成简历",
+      resume_revision: 1,
+      job_revision_id: jd,
+      job_revision: 2,
+    });
+  }
+  if (p === `applications/${id(1)}/results`)
+    return ok(
+      page(
+        [...packages.values()]
+          .reverse()
+          .flatMap((item) => item.results)
+          .filter((item) => item.kind === q.get("target"))
+          .map((result) => ({ created_at: time(), result })),
+        q,
+      ),
+    );
+  if (/^resume-revisions\/[^/]+\/save$/.test(p)) return ok({ saved: true });
+  if (/^resume-revisions\/[^/]+\/renders$/.test(p))
+    return ok([{ id: pdf, created_at: time(), download_url: `/api/v1/artifacts/${pdf}/download` }]);
+  if (p === "resume-workspaces") return ok([]);
+  if (p === "profile-library")
+    return ok(page([{ id: profile, name: "合成求职资料", profile_id: profile }], q));
+  if (p === "resume-library/versions")
+    return ok(
+      page(
+        [
+          {
+            id: resume,
+            variant_id: variant,
+            revision: 1,
+            name: "合成简历",
+            metadata_revision: 1,
+            created_at: time(),
+            profile_id: profile,
+          },
+        ],
+        q,
+      ),
+    );
+  if (p === "resume-library")
+    return ok(
+      page(
+        [
+          {
+            resume_revision_id: resume,
+            resume_variant_id: variant,
+            revision: 1,
+            profile_id: profile,
+            label: "合成简历",
+            created_at: time(),
+          },
+        ],
+        q,
+      ),
+    );
   if (p.startsWith("job-revisions/"))
     return ok({
       job_id: id(2001),
@@ -235,7 +310,7 @@ export function workspaceResponse(
   if (p === "profile/revisions") return ok(page([profileRow], q));
   if (p === "resume-revisions")
     return ok(
-      q.get("profile_id") === profile
+      !q.get("profile_id") || q.get("profile_id") === profile
         ? [
             {
               resume_revision_id: resume,
@@ -393,6 +468,7 @@ export function workspaceResponse(
       turns: [],
     };
     mocks.set(r.id, r);
+    if (body.focus !== "mixed") firstMockFailure.add(r.id);
     return ok(r);
   }
   if (p === "mock-interviews" && mocks.size)
@@ -424,10 +500,45 @@ export function workspaceResponse(
         r.status = "ready_to_generate";
         r.pending_question_id = null;
         r.stop_reason = "provider_request_timeout";
+        if (body.end_early) {
+          r.status = "completed";
+          r.completion_type = "user_ended_early";
+          r.stop_reason = null;
+        } else if (firstMockFailure.has(r.id)) firstMockFailure.delete(r.id);
+        else if (r.primary_question_count >= r.policy.primary_target) {
+          r.status = "completed";
+          r.completion_type = "target_reached";
+          r.stop_reason = null;
+        } else {
+          const turn = {
+            id: newId(),
+            sequence: r.turns.length + 1,
+            question_number: String(r.primary_question_count + 1),
+            main_question_number: r.primary_question_count + 1,
+            followup_index: null,
+            question: {
+              kind: "primary",
+              question: "请介绍你的验证方法。",
+              topic: "项目",
+              primary_entry_id: null,
+            },
+            answer: null,
+            accepted_model_call_id: newId(),
+          };
+          r.turns.push(turn);
+          r.primary_question_count++;
+          r.interviewer_turn_count++;
+          r.pending_question_id = turn.id;
+          r.status = "waiting_answer";
+          r.stop_reason = null;
+        }
       } else {
         const turn = {
           id: newId(),
           sequence: r.turns.length + 1,
+          question_number: String(r.primary_question_count + 1),
+          main_question_number: r.primary_question_count + 1,
+          followup_index: null,
           question: {
             kind: "primary",
             question: "请介绍你的 Python 项目。",
@@ -452,6 +563,9 @@ export function workspaceResponse(
       id: newId(),
       application_id: String(body.application_id),
       content_revision: 1,
+      status: (body.status as "draft" | "completed") || "completed",
+      round_number: Number(body.round_number || 1),
+      interview_type: String(body.interview_type || "technical"),
       round_name: String(body.round_name),
       occurred_at: body.occurred_at as string | null,
       created_at: time(),
@@ -461,12 +575,14 @@ export function workspaceResponse(
     actuals.set(r.id, r);
     return ok(r);
   }
-  if (p === "interviews" && actuals.size)
+  if (p === "interviews" && (actuals.size || q.get("status") === "draft"))
     return ok(
-      [...actuals.values()].slice(
-        Number(q.get("offset") || 0),
-        Number(q.get("offset") || 0) + Number(q.get("limit") || 50),
-      ),
+      [...actuals.values()]
+        .filter((row) => row.status === (q.get("status") || "completed"))
+        .slice(
+          Number(q.get("offset") || 0),
+          Number(q.get("offset") || 0) + Number(q.get("limit") || 50),
+        ),
     );
   m = p.match(/^interviews\/([^/]+)(?:\/(entries|notes))?$/);
   if (m) {
@@ -476,6 +592,9 @@ export function workspaceResponse(
         id: id(8701),
         application_id: id(1),
         content_revision: 2,
+        status: "completed",
+        round_number: 1,
+        interview_type: "technical",
         round_name: "技术一面",
         occurred_at: time(),
         created_at: time(),
@@ -509,15 +628,47 @@ export function workspaceResponse(
       else {
         if (body.entries) r.entries = body.entries as Actual["entries"];
         if (body.round_name) r.round_name = String(body.round_name);
+        if (body.status) r.status = body.status as Actual["status"];
+        if ("notes_text" in body)
+          r.notes = body.notes_text ? [{ text: String(body.notes_text), recorded_at: time() }] : [];
+        r.entries.forEach((entry, index) => {
+          if (entry.kind === "primary") entry.main_question_number ||= index + 1;
+        });
+        r.entries.forEach((entry) => {
+          if (entry.kind === "follow_up") {
+            entry.main_question_number = r!.entries.find(
+              (e) => e.entry_id === entry.primary_entry_id,
+            )?.main_question_number;
+            entry.followup_index ||= 1;
+          }
+        });
       }
       r.content_revision++;
     }
     return ok(r);
   }
   if (p === `applications/${id(1)}/knowledge-notes`) return ok(page(notes, q));
+  if (/^knowledge-notes\/[^/]+$/.test(p)) {
+    const note = notes.find((item) => item.id === p.split("/")[1]);
+    if (!note) return fail("not_found", 404);
+    if (
+      (method === "DELETE" ? Number(q.get("expected_revision")) : body.expected_revision) !==
+      note.revision
+    )
+      return fail("revision_conflict");
+    if (method === "DELETE") notes.splice(notes.indexOf(note), 1);
+    else
+      Object.assign(note, {
+        title: body.title,
+        content: body.content,
+        revision: Number(note.revision) + 1,
+      });
+    return ok(note);
+  }
   if (p === "knowledge-notes" && method === "POST") {
     const n = {
       ...body,
+      revision: 1,
       id: newId(),
       created_at: time(),
       interview_id: null,

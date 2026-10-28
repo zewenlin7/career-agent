@@ -15,8 +15,10 @@ from career_agent.domain.schemas import InterviewEntry, InterviewNoteData
 from career_agent.infrastructure import entities as e
 from career_agent.infrastructure.claims import claim
 from career_agent.interview.calls import AcceptedCall, InterviewCalls, validate_accepted_call
+from career_agent.interview.compact import canonical, compact_entries
 from career_agent.interview.context import clean, digest, freeze
 from career_agent.interview.contracts import (
+    ContextBinding,
     DebriefCreate,
     DebriefRegenerate,
     EvaluationData,
@@ -27,6 +29,7 @@ from career_agent.interview.contracts import (
     SourceSnapshot,
 )
 from career_agent.interview.mock import frozen_policy, turns
+from career_agent.interview.numbering import anchor, numbered
 from career_agent.interview.policy import CallPolicy, InterviewPolicy
 from career_agent.interview.prompts import PROMPTS
 from career_agent.interview.validation import VALIDATION_VERSION, groups, validate_evaluation
@@ -39,13 +42,29 @@ CREATE_IDENTITY_VERSION = "debrief-create-v1"
 
 def inputs_for(snapshot: SourceSnapshot, group_ref: UUID | None) -> dict[str, Any]:
     context = snapshot.context.data if snapshot.context else {}
+    entries = compact_entries(snapshot, group_ref)
     if group_ref is None:
         return {
             "stable_context": context,
-            "source": clean(snapshot.model_dump(mode="json", exclude={"context"})),
+            "source": clean(
+                {
+                    "entries": entries,
+                    "notes": [note.model_dump(mode="json") for note in snapshot.notes],
+                }
+            ),
         }
-    group = next(g for g in groups(snapshot) if g["group_ref"] == str(group_ref))
-    return {"stable_context": context, "group": clean(group)}
+    return {
+        "stable_context": context,
+        "group": clean(
+            {
+                "entries": entries,
+                "entry_count": len(entries),
+                "group_number": next(
+                    anchor(e) for e in numbered(snapshot.entries) if e.entry_id == group_ref
+                ),
+            }
+        ),
+    }
 
 
 def call_policy(policy: InterviewPolicy, source: SourceSnapshot, kind: str) -> CallPolicy:
@@ -61,13 +80,14 @@ def task_type(kind: str) -> str:
 def presentation(snapshot: SourceSnapshot, artifact: e.DebriefArtifact) -> dict[str, Any]:
     """IDs remain machine refs in API data, never presentation labels or user prose."""
     all_groups = groups(snapshot)
+    display = {str(entry.entry_id): entry for entry in numbered(snapshot.entries)}
     anchors = {}
     for group in all_groups:
         for item in group["entries"]:
             anchors[item["entry_id"]] = {
-                "question_number": group["group_index"],
+                "question_number": anchor(display[item["entry_id"]]),
                 "label": "来自追问" if item["kind"] == "follow_up" else "主问题",
-                "preview": item["question"][:80],
+                "preview": "",
             }
     out: dict[str, Any] = {
         "section": "overall" if artifact.kind == "overall" else "questions",
@@ -142,10 +162,23 @@ class DebriefService:
                     session, e.InterviewSession, request.interview_id, lock=True
                 )
                 check_revision(interview.content_revision, request.expected_source_revision)
+                if interview.status == "draft":
+                    raise DomainError("interview_not_completed")
+                binding = request.context
+                stored = interview.context_binding or {}
+                if (
+                    binding is None
+                    and stored.get("profile_id")
+                    and stored.get("resume_revision_id")
+                ):
+                    binding = ContextBinding.model_validate(
+                        {
+                            key: stored[key]
+                            for key in ("profile_id", "job_revision_id", "resume_revision_id")
+                        }
+                    )
                 context = (
-                    await freeze(session, self.settings, self.gateway, request.context)
-                    if request.context
-                    else None
+                    await freeze(session, self.settings, self.gateway, binding) if binding else None
                 )
                 if context:
                     application = await require(session, e.Application, interview.application_id)
@@ -191,6 +224,7 @@ class DebriefService:
                         for t in history
                     ],
                 )
+            snapshot.entries = numbered(snapshot.entries)
             grouped = groups(snapshot)
             selected = (
                 grouped
@@ -270,7 +304,7 @@ class DebriefService:
             )
             session.add(run)
             await session.flush()
-            data = snapshot.model_dump(mode="json")
+            data = previous.snapshot if previous is not None else snapshot.model_dump(mode="json")
             row = e.DebriefRun(
                 request_fingerprint=fingerprint,
                 run_id=run.id,
@@ -332,6 +366,10 @@ class DebriefService:
                 "supersedes_run_id": row.supersedes_run_id,
                 "root_run_id": row.root_run_id or row.id,
                 "snapshot": row.snapshot,
+                "transcript": [
+                    {**entry.model_dump(mode="json"), "question_number": anchor(entry)}
+                    for entry in numbered(source.entries)
+                ],
                 "usage": row.usage,
                 "event_sequence": row.event_sequence,
                 "artifacts": [
@@ -470,7 +508,7 @@ class DebriefService:
                     task_type(kind),
                     inputs,
                     call_policy(policy, source, kind),
-                    lambda value: validate_evaluation(value, source, ref),
+                    lambda value: validate_evaluation(canonical(value, source, ref), source, ref),
                     logical_operation_id=operation_id,
                     retry_reason=last if transport else None,
                     repair_reason="schema_invalid" if repairs else None,
@@ -491,9 +529,10 @@ class DebriefService:
                     await self.artifact_event(id, artifact_id, "retrying", reason=exc.code)
                 )
                 continue
+            resolved = canonical(result.output, source, ref)
             data = EvaluationData(
-                group=result.output if isinstance(result.output, QuestionGroupEvaluation) else None,
-                overall=result.output if isinstance(result.output, OverallEvaluation) else None,
+                group=resolved if isinstance(resolved, QuestionGroupEvaluation) else None,
+                overall=resolved if isinstance(resolved, OverallEvaluation) else None,
             )
             await queue.put(
                 await self.artifact_event(

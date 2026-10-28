@@ -229,11 +229,20 @@ async def case_index(
 
 @router.get("/feedback", response_model=Page[dict[str, Any]])
 async def feedback(
-    session: DB, subject_id: UUID | None = None, limit: Limit = 50, offset: Offset = 0
+    session: DB,
+    subject_id: UUID | None = None,
+    application_id: UUID | None = None,
+    task_type: str | None = None,
+    limit: Limit = 50,
+    offset: Offset = 0,
 ) -> Any:
     stmt = select(q.FeedbackRow).order_by(q.FeedbackRow.created_at.desc(), q.FeedbackRow.id)
     if subject_id is not None:
         stmt = stmt.where(q.FeedbackRow.subject_id == subject_id)
+    if application_id:
+        stmt = stmt.where(q.FeedbackRow.data["application_id"].astext == str(application_id))
+    if task_type:
+        stmt = stmt.where(q.FeedbackRow.data["subject"]["task_type"].astext == task_type)
     found, more = await rows(session, stmt, limit, offset)
     return Page(
         items=[
@@ -242,6 +251,74 @@ async def feedback(
                 "subject_id": r.subject_id,
                 "vote": r.data["vote"],
                 "reason": r.data.get("reason"),
+                "comment": r.data.get("comment"),
+                "application_id": r.data.get("application_id"),
+                "artifact_type": r.data.get("artifact_type"),
+                "task_type": r.data["subject"]["task_type"],
+                "generation_provenance": r.data.get("generation_provenance", {}),
+            }
+            for r in found
+        ],
+        limit=limit,
+        offset=offset,
+        has_more=more,
+    )
+
+
+@router.get("/refinements", response_model=Page[dict[str, Any]])
+async def refinements(
+    session: DB,
+    feedback_id: UUID | None = None,
+    source_artifact_id: UUID | None = None,
+    source_resume_revision_id: UUID | None = None,
+    source_workspace_id: UUID | None = None,
+    limit: Limit = 50,
+    offset: Offset = 0,
+) -> Any:
+    from career_agent.product.entities import ProductDraft
+
+    stmt = (
+        select(ProductDraft)
+        .where(
+            ProductDraft.task.in_(
+                ["resume_refinement", "greeting_refinement", "interview_preparation_refinement"]
+            )
+        )
+        .order_by(ProductDraft.created_at.desc(), ProductDraft.id)
+    )
+    if feedback_id:
+        stmt = stmt.where(ProductDraft.request["feedback_id"].astext == str(feedback_id))
+    if source_artifact_id:
+        stmt = stmt.where(
+            ProductDraft.request["source_artifact_id"].astext == str(source_artifact_id)
+        )
+    if source_resume_revision_id:
+        stmt = stmt.where(
+            ProductDraft.context["context"]["source_resume_revision_id"].astext
+            == str(source_resume_revision_id)
+        )
+    if source_workspace_id:
+        stmt = stmt.where(
+            ProductDraft.request["source_workspace_id"].astext == str(source_workspace_id)
+        )
+    found, more = await rows(session, stmt, limit, offset)
+    return Page(
+        items=[
+            {
+                **identity(r),
+                "task": r.task,
+                "status": r.status,
+                "source_artifact_id": r.request.get("source_artifact_id"),
+                "source_resume_revision_id": r.context.get("context", {}).get(
+                    "source_resume_revision_id"
+                ),
+                "source_workspace_id": r.request.get("source_workspace_id"),
+                "feedback_id": r.request.get("feedback_id"),
+                "application_id": r.request.get("application_id"),
+                "intent": r.request.get("intent", "refine"),
+                "adopted": r.adopted,
+                "run_id": r.run_id,
+                "accepted_model_call_id": r.accepted_model_call_id,
             }
             for r in found
         ],

@@ -6,6 +6,10 @@ import {
   evaluationNavigation,
 } from "../../src/lib/navigation";
 
+test.beforeEach(async ({ request }) => {
+  await request.get("http://127.0.0.1:3111/__reset");
+});
+
 test("all IA routes render; browser never calls backend APIs directly", async ({ page }) => {
   const errors: string[] = [];
   const apiCalls: string[] = [];
@@ -15,8 +19,8 @@ test("all IA routes render; browser never calls backend APIs directly", async ({
   });
   const id = "00000000-0000-4000-8000-000000000001";
   const pages = [
-    { href: "/applications", label: "Applications" },
-    { href: "/profile", label: "Profile" },
+    { href: "/applications", label: "申请" },
+    { href: "/profile", label: "个人资料" },
     ...applicationNavigation(id).slice(0, 2),
     ...sectionNavigation(id, "apply"),
     ...sectionNavigation(id, "interview"),
@@ -31,7 +35,9 @@ test("all IA routes render; browser never calls backend APIs directly", async ({
     ).toBeVisible();
   }
   expect(errors).toEqual([]);
-  expect(apiCalls.every((url) => url.startsWith("http://127.0.0.1:3100/api/product/"))).toBe(true);
+  expect(
+    apiCalls.every((url) => /^http:\/\/127\.0\.0\.1:3100\/api\/(product|internal)\//.test(url)),
+  ).toBe(true);
 });
 
 test("shell navigation, narrow viewport and keyboard access", async ({ page }, testInfo) => {
@@ -42,12 +48,16 @@ test("shell navigation, narrow viewport and keyboard access", async ({ page }, t
   await expect(page.getByRole("link", { name: "跳到主要内容" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();
-  await page.getByRole("link", { name: "Profile", exact: true }).click();
-  await expect(page.getByRole("link", { name: "Profile", exact: true })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  await page.getByRole("link", { name: "Internal", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "主导航", exact: true })
+    .getByRole("link", { name: "个人资料", exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole("navigation", { name: "主导航", exact: true })
+      .getByRole("link", { name: "个人资料", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await page.getByRole("link", { name: "系统管理", exact: true }).click();
   await expect(page).toHaveURL(/\/internal\/operations\/overview$/);
   await page.screenshot({ path: testInfo.outputPath("internal-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 375, height: 812 });

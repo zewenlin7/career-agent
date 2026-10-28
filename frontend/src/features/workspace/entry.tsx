@@ -7,16 +7,16 @@ import { ResumePage, SubmissionsPage } from "./materials";
 import { ActualPage, MockPage, HistoryPage } from "./interviews";
 import { DebriefsPage, KnowledgePage } from "./review";
 const titles = {
-  research: "Research & Fit",
-  resume: "Resume",
-  greeting: "Greeting",
-  submissions: "Submissions",
-  preparation: "Interview Prep",
-  mock: "Mock Interview",
-  actual: "Record Actual Interview",
-  history: "Previous Interviews",
-  debriefs: "Debriefs",
-  notes: "Knowledge Notes",
+  research: "研究与匹配",
+  resume: "简历",
+  greeting: "招呼语",
+  submissions: "投递记录",
+  preparation: "面试准备",
+  mock: "模拟面试",
+  actual: "记录真实面试",
+  history: "历史面试",
+  debriefs: "面试复盘",
+  notes: "求职笔记",
 };
 export type WorkspaceFeature = keyof typeof titles;
 export async function WorkspaceEntry({ id, feature }: { id: string; feature: WorkspaceFeature }) {

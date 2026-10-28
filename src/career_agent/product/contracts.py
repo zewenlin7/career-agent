@@ -4,11 +4,11 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from career_agent.domain.schemas import Contract
 from career_agent.evaluation.contracts import Subject
-from career_agent.preparation.contracts import WorkflowRequest
+from career_agent.preparation.contracts import CompanyResearchRequest, WorkflowRequest
 
 OperationKind = Literal["prepare_application", "prepare_interview", "company_research"]
 OperationStatus = Literal[
@@ -23,10 +23,32 @@ OperationStatus = Literal[
 ]
 
 
+class ApplicationBindingRef(Contract):
+    application_id: UUID
+    revision: int = Field(ge=1)
+
+
 class OperationCreate(Contract):
     request_id: UUID
     kind: OperationKind
-    request: WorkflowRequest
+    application_binding: ApplicationBindingRef | None = None
+    request: WorkflowRequest | CompanyResearchRequest
+
+    @model_validator(mode="before")
+    @classmethod
+    def request_contract(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "request" in value:
+            value = dict(value)
+            request = value["request"]
+            if isinstance(request, Contract):
+                request = request.model_dump(mode="json")
+            schema = (
+                CompanyResearchRequest
+                if value.get("kind") == "company_research"
+                else WorkflowRequest
+            )
+            value["request"] = schema.model_validate(request)
+        return value
 
 
 class OperationOut(Contract):
@@ -101,3 +123,29 @@ class Page[T](Contract):
     limit: int
     offset: int
     has_more: bool
+
+
+class ApplicationBindingWrite(Contract):
+    expected_revision: int = Field(ge=1)
+    profile_id: UUID | None
+    resume_revision_id: UUID | None = None
+    job_revision_id: UUID
+
+
+class ApplicationBindingOut(Contract):
+    application_id: UUID
+    revision: int
+    profile_id: UUID | None
+    resume_revision_id: UUID | None
+    job_revision_id: UUID
+    updated_at: datetime
+    profile_name: str | None = None
+    profile_revision: int | None = None
+    resume_name: str | None = None
+    resume_revision: int | None = None
+    job_revision: int
+
+
+class TaskHistoryItem(Contract):
+    created_at: datetime
+    result: ResultView

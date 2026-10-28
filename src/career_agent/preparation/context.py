@@ -168,7 +168,19 @@ class ContextLoader:
 
     async def interview(self) -> None:
         if not self.r.request.application_package_id:
-            raise ModelGatewayError("application_package_required")
+            if self.r.request.resume_revision_id is None:
+                raise ModelGatewayError("resume_selection_required")
+            base_variant = await self.resume(self.r.request.resume_revision_id, target_job=False)
+            if base_variant.job_revision_id:
+                source_job = await require(
+                    self.r.session, e.JobRevision, base_variant.job_revision_id
+                )
+                if source_job.job_id != self.r.job.job_id:
+                    raise ModelGatewayError("context_revision_mismatch")
+            self.r.variant = base_variant
+            self.r.state.resume_variant_id = base_variant.resume_variant_id
+            self.r.state.resume_variant_revision = base_variant.revision
+            return
         row = await require(
             self.r.session, e.PreparationArtifact, self.r.request.application_package_id
         )

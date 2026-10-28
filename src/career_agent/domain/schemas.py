@@ -15,18 +15,57 @@ class Contract(BaseModel):
 
 class Experience(Contract):
     organization: Label
-    role: Label
+    role: str = Field(default="", max_length=200)
     description: str = Field(default="", max_length=20000)
     fact_ids: list[UUID] = Field(default_factory=list)
+
+    entry_id: UUID | None = None
+    start_date: str = Field(default="", max_length=20)
+    end_date: str = Field(default="", max_length=20)
+    achievements: str = Field(default="", max_length=20000)
+    hidden_fields: list[
+        Literal[
+            "role",
+            "description",
+            "start_date",
+            "end_date",
+            "achievements",
+            "major",
+            "degree",
+            "technology_stack",
+        ]
+    ] = Field(default_factory=list)
+
+
+class Education(Experience):
+    degree: str = Field(default="", max_length=200)
+    major: str = Field(default="", max_length=200)
+
+
+class Project(Experience):
+    technology_stack: str = Field(default="", max_length=2000)
+
+
+class PersonalInformation(Contract):
+    phone: str = Field(default="", max_length=100)
+    email: str = Field(default="", max_length=200)
+    city: str = Field(default="", max_length=200)
+    github: str = Field(default="", max_length=500)
+    website: str = Field(default="", max_length=500)
+    other_contact: str = Field(default="", max_length=500)
+    photo_id: UUID | None = None
 
 
 class ProfileData(Contract):
     display_name: Label
-    education: list[Experience] = Field(default_factory=list)
+    education: list[Education] = Field(default_factory=list)
     experiences: list[Experience] = Field(default_factory=list)
-    projects: list[Experience] = Field(default_factory=list)
-    skills: list[Label] = Field(default_factory=list)
+    projects: list[Project] = Field(default_factory=list)
+    skills: list[Text] = Field(default_factory=list)
     preferences: dict[str, str] = Field(default_factory=dict)
+    personal: PersonalInformation = Field(default_factory=PersonalInformation)
+    skills_text: str = Field(default="", max_length=20000)
+    fact_ids: list[UUID] = Field(default_factory=list)
 
 
 class ProfileWrite(Contract):
@@ -99,6 +138,9 @@ class InterviewCreate(Contract):
     application_id: UUID
     round_name: Label
     occurred_at: AwareDatetime | None = None
+    status: Literal["draft", "completed"] = "completed"
+    round_number: int | None = Field(default=None, ge=1, le=50)
+    interview_type: Literal["technical", "hr", "mixed", "other"] | None = None
 
 
 class InterviewEntry(Contract):
@@ -108,6 +150,8 @@ class InterviewEntry(Contract):
     question: Text
     answer: Text | None = None
     primary_entry_id: UUID | None = None
+    main_question_number: int | None = Field(default=None, ge=1)
+    followup_index: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def parent(self) -> "InterviewEntry":
@@ -128,6 +172,10 @@ class InterviewUpdate(InterviewMutation):
     round_name: Label | None = None
     occurred_at: AwareDatetime | None = None
     entries: list[InterviewEntry] | None = Field(default=None, max_length=500)
+    status: Literal["draft", "completed"] | None = None
+    round_number: int | None = Field(default=None, ge=1, le=50)
+    interview_type: Literal["technical", "hr", "mixed", "other"] | None = None
+    notes_text: str | None = Field(default=None, max_length=20000)
 
 
 class InterviewNoteCreate(InterviewMutation):
@@ -145,3 +193,9 @@ class KnowledgeCreate(Contract):
 class InterviewNoteData(Contract):
     text: Text
     recorded_at: str
+
+
+class KnowledgeUpdate(Contract):
+    expected_revision: int = Field(ge=1)
+    title: Label
+    content: Text

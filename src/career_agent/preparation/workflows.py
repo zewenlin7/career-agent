@@ -36,7 +36,7 @@ from career_agent.preparation.contracts import (
     ResearchData,
     ResearchOutput,
     TaskType,
-    WorkflowRequest,
+    WorkflowInputs,
     WorkflowState,
 )
 from career_agent.preparation.guardrails import (
@@ -73,7 +73,7 @@ class PreparationWorkflow:
         settings: Settings,
         gateway: ModelGateway,
         research: ResearchAdapter,
-        request: WorkflowRequest,
+        request: WorkflowInputs,
         runtime_budget: "RuntimeBudget | None" = None,
     ) -> None:
         self.session, self.settings, self.gateway, self.research, self.request = (
@@ -104,7 +104,7 @@ class PreparationWorkflow:
     async def call(self, task_type: TaskType, blocks: dict[str, Any]) -> BaseModel:
         from career_agent.evaluation.captured import freeze_inputs
 
-        if self.capture_replay is None:
+        if self.capture_replay is None and self.state.workflow != "company_research":
             self.capture_replay = await freeze_inputs(
                 self.session,
                 self.profile.id,
@@ -112,6 +112,7 @@ class PreparationWorkflow:
                 self.request.resume_revision_id,
                 self.request.model_dump(mode="json"),
                 self.settings.data_dir,
+                additional_fact_ids=set(self.fact_rows),
             )
         # All task blocks pass the same copy-only privacy boundary, including resume data.
         blocks = self.model_view(blocks)
@@ -279,14 +280,24 @@ class PreparationWorkflow:
                     else None,
                     "requirements": self.requirements_context(),
                     "company": {"id": str(self.company.id), "name": self.company.name},
-                    "profile": self.profile.data,
-                    "profile_id": str(self.profile.id),
-                    "profile_revision": self.profile.revision,
+                    "profile": self.profile.data
+                    if self.state.workflow != "company_research"
+                    else None,
+                    "profile_id": str(self.profile.id)
+                    if self.state.workflow != "company_research"
+                    else None,
+                    "profile_revision": self.profile.revision
+                    if self.state.workflow != "company_research"
+                    else None,
                     "members": [
                         str(id) for id in sorted(resumes.profile_fact_ids(self.profile), key=str)
-                    ],
+                    ]
+                    if self.state.workflow != "company_research"
+                    else [],
                     "snapshot": {
-                        "display_name": self.profile.data["display_name"],
+                        "display_name": self.profile.data["display_name"]
+                        if self.state.workflow != "company_research"
+                        else "",
                         "facts": [
                             {"fact_id": str(f.id), "revision": f.revision}
                             for f in self.fact_rows.values()
@@ -337,6 +348,7 @@ class PreparationWorkflow:
         kind: Literal["fit", "greeting", "interview", "package"],
         output: FitOutput | GreetingOutput | InterviewOutput | WorkflowState,
     ) -> UUID:
+        assert self.request.profile_id is not None
         row = e.PreparationArtifact(
             run_id=self.run.id,
             job_revision_id=self.request.job_revision_id,
@@ -353,7 +365,15 @@ class PreparationWorkflow:
             )
         return row.id
 
+    async def validate_research_inputs(self) -> None:
+        self.job = await require(self.session, e.JobRevision, self.request.job_revision_id)
+        posting = await require(self.session, e.JobPosting, self.job.job_id)
+        self.company = await require(self.session, e.Company, posting.company_id)
+        self.state.job_id, self.state.job_revision = posting.id, self.job.revision
+
     async def validate_inputs(self) -> None:
+        if self.request.profile_id is None:
+            raise ModelGatewayError("profile_required")
         self.job = await require(self.session, e.JobRevision, self.request.job_revision_id)
         posting = await require(self.session, e.JobPosting, self.job.job_id)
         self.company = await require(self.session, e.Company, posting.company_id)
@@ -362,6 +382,34 @@ class PreparationWorkflow:
         self.state.job_id, self.state.job_revision = self.job.job_id, self.job.revision
         data = ProfileData.model_validate(self.profile.data)
         members = resumes.profile_fact_ids(self.profile)
+        if self.request.fit_input in {"profile", "both"}:
+            from career_agent.profile_area.evidence import profile_evidence
+
+            members = await profile_evidence(self.session, self.profile)
+        if self.request.fit_input in {"resume", "both"}:
+            assert self.request.resume_revision_id is not None
+            fit_resume = await require(
+                self.session, e.ResumeVariantRevision, self.request.resume_revision_id
+            )
+            document = ResumeDocument.model_validate(fit_resume.document)
+            source_profile = await require(self.session, e.PersonalProfile, fit_resume.profile_id)
+            if (
+                fit_resume.archived_at
+                or document.profile_id != source_profile.id
+                or document.profile_revision != source_profile.revision
+            ):
+                raise ModelGatewayError("context_revision_mismatch")
+            resume_members = {
+                ref
+                for section in document.sections
+                for item in section.items
+                for ref in item.fact_refs
+            }
+            if not resume_members <= resumes.profile_fact_ids(source_profile):
+                raise ModelGatewayError("grounding_failed")
+            members = (
+                resume_members if self.request.fit_input == "resume" else members | resume_members
+            )
         # Bounded verified-fact selection, stable ordering; never a full profile dump.
         rows = list(
             await self.session.scalars(
@@ -407,6 +455,8 @@ class PreparationWorkflow:
     def model_view(self, value: Any) -> Any:
         from career_agent.security.model_view import contact_values, model_view
 
+        if self.state.workflow == "company_research":
+            return model_view(value)
         data = ProfileData.model_validate(self.profile.data)
         return model_view(value, name=data.display_name, contacts=contact_values(data.preferences))
 
@@ -618,6 +668,15 @@ class PreparationWorkflow:
         self.state.evidence_refs = [x.id for x in evidence]
 
     async def analyze_fit(self) -> None:
+        selected_input: dict[str, Any] = {}
+        if self.request.fit_input:
+            selected_input = {"fit_input": {"source": self.request.fit_input}}
+            if self.request.fit_input in {"resume", "both"}:
+                assert self.request.resume_revision_id is not None
+                source = await require(
+                    self.session, e.ResumeVariantRevision, self.request.resume_revision_id
+                )
+                selected_input["fit_input"]["resume"] = source.document
         self.fit = cast(
             FitOutput,
             await self.call(
@@ -626,6 +685,7 @@ class PreparationWorkflow:
                     "requirements": self.requirements_context(),
                     "facts": list(self.facts.values()),
                     "profile_refs": self.profile_refs,
+                    **selected_input,
                 },
             ),
         )
@@ -667,7 +727,9 @@ class PreparationWorkflow:
         if not persist:
             return
         if self.variant is None:
-            self.variant = await resumes.create_variant(self.session, document)
+            self.variant = await resumes.create_variant(
+                self.session, document, library_visible=False
+            )
         else:
             self.variant = await resumes.revise_variant(
                 self.session, self.variant.resume_variant_id, self.variant.revision, document
@@ -822,6 +884,8 @@ class PreparationWorkflow:
         notes = []
         for id in self.request.knowledge_note_ids[:10]:
             note = await require(self.session, e.KnowledgeNote, id)
+            if note.deleted_at is not None:
+                raise DomainError("not_found", 404)
             notes.append(
                 {
                     "id": str(id),

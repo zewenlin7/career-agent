@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from career_agent.application.services import check_revision, require
 from career_agent.config import Settings
 from career_agent.domain.rules import DomainError, RunStatus
+from career_agent.domain.schemas import InterviewEntry
 from career_agent.infrastructure import entities as e
 from career_agent.interview.calls import InterviewCalls, validate_accepted_call
 from career_agent.interview.context import clean, digest, freeze
@@ -21,6 +22,7 @@ from career_agent.interview.contracts import (
     MockPolicy,
     TurnOutput,
 )
+from career_agent.interview.numbering import anchor, numbered
 from career_agent.interview.policy import InterviewPolicy
 from career_agent.interview.validation import validate_turn
 from career_agent.models.contracts import ModelGatewayError
@@ -108,6 +110,20 @@ class MockService:
 
     async def create(self, request: MockCreate) -> dict[str, Any]:
         async with self.sessions.begin() as session:
+            if request.application_binding:
+                from career_agent.product.bindings import read as read_binding
+                from career_agent.product.bindings import view as binding_view
+
+                binding = await binding_view(
+                    session, await read_binding(session, request.application_binding.application_id)
+                )
+                check_revision(binding.revision, request.application_binding.revision)
+                if (binding.profile_id, binding.resume_revision_id, binding.job_revision_id) != (
+                    request.context.profile_id,
+                    request.context.resume_revision_id,
+                    request.context.job_revision_id,
+                ):
+                    raise DomainError("context_revision_mismatch", 422)
             context = await freeze(session, self.settings, self.gateway, request.context)
             policy = frozen_policy(self.settings)
             limits = policy.mock_session.model_copy(deep=True)
@@ -147,6 +163,22 @@ class MockService:
         async with self.sessions() as session:
             row = await require(session, e.MockInterviewSession, id)
             history = await turns(session, id)
+            display = {
+                entry.entry_id: entry
+                for entry in numbered(
+                    [
+                        InterviewEntry(
+                            entry_id=t.id,
+                            order=t.sequence,
+                            kind=t.data["kind"],
+                            question=t.data["question"],
+                            answer=t.answer,
+                            primary_entry_id=t.data["primary_entry_id"],
+                        )
+                        for t in history
+                    ]
+                )
+            }
             return {
                 "id": id,
                 "run_id": row.run_id,
@@ -166,6 +198,9 @@ class MockService:
                     {
                         "id": t.id,
                         "sequence": t.sequence,
+                        "main_question_number": display[t.id].main_question_number,
+                        "followup_index": display[t.id].followup_index,
+                        "question_number": anchor(display[t.id]),
                         "logical_operation_id": t.logical_operation_id,
                         "accepted_model_call_id": t.accepted_model_call_id,
                         "question": t.data,
@@ -179,7 +214,11 @@ class MockService:
     async def continue_(
         self, id: UUID, request: Continuation, operation: Literal["answer", "generate", "end"]
     ) -> dict[str, Any]:
-        request_hash = digest({"operation": operation, **request.model_dump(mode="json")})
+        payload = request.model_dump(mode="json")
+        # Preserve receipts written before early-end-with-answer was supported.
+        if payload.get("end_early") is False:
+            payload.pop("end_early")
+        request_hash = digest({"operation": operation, **payload})
         generate = False
         async with self.sessions.begin() as session:
             row = await require(session, e.MockInterviewSession, id, lock=True)
@@ -215,7 +254,7 @@ class MockService:
                     row.status, row.pending_question_id = "ready_to_generate", None
                 elif operation == "generate" and row.status != "ready_to_generate":
                     raise DomainError("answer_required")
-                if operation == "end":
+                if operation == "end" or (isinstance(request, AnswerSubmit) and request.end_early):
                     row.status, row.completion_type = "completed", "user_ended_early"
                     row.pending_question_id = None
                 elif next_kind(row, history)[0] == "finish":

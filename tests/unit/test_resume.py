@@ -172,3 +172,82 @@ def test_positive_declared_hard_claim(resume_fixture):
         {"kind": "organization", "value": "Example Systems", "fact_ref": item["fact_refs"][0]}
     ]
     assert validate_grounding(*grounding_args(resume_fixture)) == []
+
+
+def test_short_forms_are_applied_one_at_a_time_in_priority_order(resume_fixture):
+    doc = ResumeDocument.model_validate(resume_fixture["document"])
+    for index, section in enumerate(doc.sections):
+        section.priority = 90 - index
+        for item in section.items:
+            item.short_text = "Short expression."
+    original = initial_selection(doc)
+    expected = sorted(
+        [(s, i) for s in original.sections for i in s.items],
+        key=lambda pair: (
+            pair[0].priority,
+            pair[1].priority,
+            pair[0].ordering,
+            pair[1].ordering,
+            str(pair[1].item_id),
+        ),
+    )
+    assert len(expected) > 1
+    first = compress(original)
+    assert first is not None and len(first.decisions) == 1
+    assert first.decisions[0].target_id == expected[0][1].item_id
+    assert sum(i.short_text is None for s in first.sections for i in s.items) == 1
+    second = compress(first)
+    assert second is not None and len(second.decisions) == 2
+    assert second.decisions[-1].target_id == expected[1][1].item_id
+    assert all(i.short_text for s in original.sections for i in s.items)
+
+
+def test_structured_layout_is_text_bound_and_retains_every_line():
+    from hashlib import sha256
+
+    from career_agent.resume.renderer import item_view
+    from career_agent.resume.schemas import EntryLayout, ResumeItem
+
+    text = "合成大学\n硕士\n计算机\n2023-09\n2026-06\n课程项目"
+    item = ResumeItem(
+        item_id=uuid4(),
+        kind="entry",
+        text=text,
+        fact_refs=[uuid4()],
+        priority=50,
+        ordering=0,
+        layout=EntryLayout(
+            text_sha256=sha256(text.encode()).hexdigest(), date_lines=[3, 4], subtitle_lines=[2, 1]
+        ),
+    )
+    view = item_view(item)
+    assert view["title"] == "合成大学"
+    assert view["period"] == "2023.09 – 2026.06"
+    assert view["subtitle"] == "计算机 · 硕士"
+    assert view["body"] == ["课程项目"]
+    item.text = "用户修改的表达"
+    assert "structured" not in item_view(item)
+    item.text = text
+    item.layout.date_lines = [0, 99]
+    assert "structured" not in item_view(item)
+
+
+def test_pdf_bullet_glyph_equivalence_does_not_remove_content():
+    from career_agent.resume.pdf import retained_text_present
+
+    assert retained_text_present("·实现测试", ["•实现测试"])
+    assert not retained_text_present("·实现", ["•实现测试"])
+
+
+def test_model_expression_schema_never_accepts_model_owned_order_or_refs():
+    from uuid import uuid4
+
+    import pytest
+    from pydantic import ValidationError
+
+    from career_agent.product.draft_contracts import ResumeExpressions
+
+    with pytest.raises(ValidationError):
+        ResumeExpressions.model_validate(
+            {"items": [{"source_item_id": str(uuid4()), "text": "内容", "ordering": 9}]}
+        )

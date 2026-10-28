@@ -21,26 +21,33 @@ def output(task: str, inputs: dict[str, Any]) -> dict[str, Any]:
         }
     if task == "interview_group_debrief":
         group = inputs["group"]
-        answered = [entry["entry_id"] for entry in group["entries"] if entry["answer"]]
+        answered = [
+            entry.get("number", entry.get("entry_id"))
+            for entry in group["entries"]
+            if entry["answer"]
+        ]
         return {
-            "group_ref": group["group_ref"],
             "strengths": [],
             "issues": [],
             "knowledge_gap_hypotheses": [],
             "improvement_suggestions": [
-                {"content": "建议补充可验证的具体例子。", "evidence_refs": answered}
+                {"content": "建议补充可验证的具体例子。", "evidence": answered}
             ]
             if answered
             else [],
             "example_answer": None,
         }
-    answered = [entry["entry_id"] for entry in inputs["source"]["entries"] if entry["answer"]]
+    answered = [
+        entry.get("number", entry.get("entry_id"))
+        for entry in inputs["source"]["entries"]
+        if entry["answer"]
+    ]
     return {
         "strengths": [],
         "recurring_issues": [],
         "knowledge_gap_hypotheses": [],
         "practice_recommendations": [
-            {"content": "建议结合项目练习具体表达。", "evidence_refs": answered}
+            {"content": "建议结合项目练习具体表达。", "evidence": answered}
         ]
         if answered
         else [],
