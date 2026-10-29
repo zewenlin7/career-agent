@@ -50,12 +50,12 @@ administrative access, not an untrusted API boundary.
 revision as current; Product uses named `ProfileRecord` heads instead. A PostgreSQL transaction-scoped advisory lock serializes single-user writes,
 including first insertion; clients supply the expected revision. This is not a distributed lock service.
 
-`PersonalFact` starts `proposed`. Only the explicit verify API/service performs user confirmation.
-The status means user-confirmed, not third-party certified. Verified content has no edit endpoint.
-Replacement locks the original row, marks it `superseded`, and creates a **proposed** fact with
-same lineage, next revision and `replaces_id`. The old content and verification time remain.
-A unique replacement link prevents multiple direct successors. Rejected/superseded facts cannot
-be verified again. Explicit rejection is available for proposed and verified facts.
+`PersonalFact` remains the internal source-evidence store. Resume source resolution and Profile-only
+Fit materialize trusted user/Profile statements and use the existing verification service after
+source checks; AI wording is not automatically verified. The manual Facts HTTP lifecycle and
+explicit extraction task are retired. Historical status, lineage, `replaces_id`, timestamps and
+source references remain readable and retain their constraints. No data or published migration is
+removed. Retired execution is rejected before dispatch; historical reads do not restore execution.
 
 `SourceDocument` stores opaque private-source references and optional hashes. File ingestion is
 not implemented. `StarStory` stores validated situation/task/action/result data with fact IDs;
@@ -86,7 +86,7 @@ Normal transitions:
 Direct user-recorded application/offer allows omitted preparatory/interview steps. Terminal
 states cannot progress normally. A correction may repair a prior state but requires a nonempty
 reason and a distinct event; unchanged-state operations are rejected. No model/material path
-can record `applied`. Fact confirmation and application mutations are local user API operations;
+can record `applied`. Application mutations are local user API operations;
 there is no authentication/authorization system in v0.1a.
 
 ### Interview knowledge
@@ -1096,10 +1096,9 @@ Operation creation validates binding revision and freezes its own inputs; later 
 
 `ProductDraft` owns a reviewable proposal and uses the existing `InterviewCalls` attempt boundary,
 financial ledger, controller, journal and accepted ModelCall linkage. Feature-local prompt specs
-register fact extraction, base drafting and three refinement tasks. Execution is idempotent and
+register base drafting, compression and active refinement tasks. Execution is idempotent and
 serialized per draft; interrupted in-flight work requires recovery rather than replay. Adoption is
-transactional and independently idempotent. Facts remain proposed; their literal source association
-is added with Profile CAS. Resume and text adoption creates new canonical artifacts. No generic chat,
+transactional and independently idempotent. Retired fact-extraction outputs remain readable but cannot be newly executed or adopted. Resume and text adoption creates new canonical artifacts. No generic chat,
 automatic verification or separate model routing/budget implementation is introduced.
 
 Resume library visibility distinguishes generated/persisted tailoring output from user adoption;
@@ -1131,8 +1130,7 @@ counters and original creation ordering persist. Deletion hides records without 
 bindings or PDFs, and active Application bindings prevent deletion. PDF generation validates frozen
 user/Profile sources and AI claims without requiring Product Fact review.
 
-Facts backend storage, extraction, cancellation and lifecycle remain available for compatibility;
-permanent dependency cleanup is deferred. See [Profile workspace contracts](profile-workspace.md)
+Facts storage and grounding remain for current consumers and historical compatibility; manual management and explicit extraction execution are removed. Shared Draft cancellation remains available for active tasks. See [Profile workspace contracts](profile-workspace.md)
 for current API semantics and migrations through `b905c1202601`.
 
 Profile manual acceptance is complete. Application/Internal integration is included in this checkpoint
@@ -1140,8 +1138,7 @@ but still awaits subsequent manual acceptance; offline test success is not that 
 
 ### Profile workspace closure and HITL
 
-Product now exposes only Profile and Resume library. Facts endpoints and lineage remain for
-compatibility; the retired Product route redirects. Named Profile creation accepts an idempotency
+Product now exposes only Profile and Resume library. Facts lineage remains for compatibility; manual management endpoints are retired; the retired Product route redirects. Named Profile creation accepts an idempotency
 UUID. Persisted editing sessions use section/item CAS; rename alone
 never changes the exact Profile snapshot. Quick/AI resume creation both persist and select a saved
 expression after a single explicit action.

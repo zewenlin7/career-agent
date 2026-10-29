@@ -19,7 +19,7 @@ async def draft(client, task, **kw):
     return result.json()
 
 
-async def test_profile_extract_proposed_review_then_base_draft(client):
+async def test_base_draft_without_manual_facts(client):
     profile = (
         await client.put(
             "/api/v1/profile",
@@ -38,37 +38,7 @@ async def test_profile_extract_proposed_review_then_base_draft(client):
             },
         )
     ).json()
-    proposal = await draft(client, "profile_fact_extraction", profile_id=profile["id"])
-    adopted = await client.post(
-        f"/api/v1/product-drafts/{proposal['id']}/adopt", json={"expected_profile_revision": 1}
-    )
-    assert adopted.status_code == 200, adopted.text
-    ids = adopted.json()["adopted"]["fact_ids"]
-    assert len(ids) == 1
-    facts = (await client.get("/api/v1/facts")).json()
-    assert facts[0]["status"] == "proposed"
-    current = (await client.get("/api/v1/profile")).json()
-    assert current["data"]["projects"][0]["fact_ids"] == ids
-    repeated = await draft(client, "profile_fact_extraction", profile_id=current["id"])
-    repeated_save = await client.post(
-        f"/api/v1/product-drafts/{repeated['id']}/adopt",
-        json={"expected_profile_revision": current["revision"]},
-    )
-    assert repeated_save.status_code == 200, repeated_save.text
-    assert repeated_save.json()["adopted"]["fact_ids"] == ids
-    assert len((await client.get("/api/v1/facts")).json()) == 1
-    assert (await client.get("/api/v1/profile")).json()["revision"] == current["revision"]
-    rejected = await client.post(
-        "/api/v1/product-drafts",
-        json={
-            "request_id": str(uuid4()),
-            "task": "base_resume_drafting",
-            "profile_id": current["id"],
-        },
-    )
-    assert rejected.status_code == 201  # Editable AI content no longer requires verified facts.
-    assert (await client.post(f"/api/v1/facts/{ids[0]}/verify")).status_code == 200
-    resume = await draft(client, "base_resume_drafting", profile_id=current["id"])
+    resume = await draft(client, "base_resume_drafting", profile_id=profile["id"])
     saved = await client.post(f"/api/v1/product-drafts/{resume['id']}/adopt", json={})
     assert saved.status_code == 200, saved.text
     again = await client.post(f"/api/v1/product-drafts/{resume['id']}/adopt", json={})

@@ -154,3 +154,16 @@ Invalid short expressions return allowlisted section/item indices and the
 The Product BFF forwards only that bounded contract. Frontend checks compare
 trimmed Unicode code-point lengths, show each error alongside its field, retain
 input after rejection, and focus the first invalid field after rendering.
+
+## Retired manual Facts workflow
+
+`/facts` management/lifecycle, `/fact-library`, and Resume workspace `/review` and `/publish`
+endpoints are removed, including Product BFF permissions. `/profile/facts` still redirects.
+Use the current source-aware resolve/render path; no manual Fact approval is required.
+
+New `profile_fact_extraction` requests fail validation. Existing draft execution/adoption returns
+`410 task_retired` before model dispatch or budget reservation, including direct service entry.
+Stored output, adopted references and call identity remain readable under existing access rules.
+An interrupted/unknown execution is not converted to a retryable failure. Shared generation
+cancellation, Resume tasks, evidence storage, grounding and Eval frozen evidence are retained.
+No schema migration or historical-data deletion accompanies this retirement.

@@ -115,7 +115,6 @@ test("resume creates once, saves without facts, rename and real PDF confirmation
   await profile(page);
   await newResume(page, request);
   const original = (await (await request.get(base + "/resume-workspaces")).json())[0];
-  expect((await (await request.get(base + "/facts")).json()).length).toBe(0);
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByRole("button", { name: "新建", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
@@ -133,7 +132,6 @@ test("resume creates once, saves without facts, rename and real PDF confirmation
     (await (await request.get(base + `/resume-workspaces/${original.id}`)).json()).document
       .sections[0].items[0].text,
   ).toContain("事务");
-  expect((await (await request.get(base + "/facts")).json()).length).toBe(0);
   await page.getByRole("heading", { name: /^我的简历/ }).dblclick();
   await page.getByRole("textbox", { name: "修改简历名称" }).fill("投递简历");
   await page.getByRole("textbox", { name: "修改简历名称" }).press("Enter");

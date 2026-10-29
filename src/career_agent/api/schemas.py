@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import model_validator
 
-from career_agent.domain.rules import ApplicationStatus, CallStatus, FactStatus, RunStatus
+from career_agent.domain.rules import ApplicationStatus, CallStatus, RunStatus
 from career_agent.domain.schemas import (
     Contract,
     InterviewEntry,
@@ -24,18 +24,6 @@ class RowOut(Contract):
 class ProfileOut(RowOut):
     revision: int
     data: ProfileData
-
-
-class FactOut(RowOut):
-    lineage_id: UUID
-    revision: int
-    statement: str
-    category: str
-    status: FactStatus
-    source_document_id: UUID | None
-    source_locator: str | None
-    replaces_id: UUID | None
-    verified_at: datetime | None
 
 
 class RequirementOut(RequirementInput):

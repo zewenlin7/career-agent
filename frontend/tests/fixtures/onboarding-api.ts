@@ -1,13 +1,8 @@
 /** Empty-store fixture. No authoritative Profile/Fact/Resume/Job exists until a UI write. */
 import { id, time } from "./product-api.ts";
 import { workspaceResponse, resetWorkspace, profileRow } from "./workspace-api.ts";
-import type {
-  Fact,
-  Profile,
-  Variant,
-  ResumeDocument,
-} from "../../src/features/onboarding/contracts.ts";
-import { linkedFacts, transitions } from "../../src/features/onboarding/contracts.ts";
+import type { Profile, Variant, ResumeDocument } from "../../src/features/onboarding/contracts.ts";
+import { transitions } from "../../src/features/onboarding/contracts.ts";
 import type { ApplicationStatus } from "../../src/features/applications/contracts.ts";
 type D = Record<string, unknown>;
 type Reply = { status: number; body: unknown; sse?: string; pdf?: boolean };
@@ -15,7 +10,6 @@ let blank = false,
   seq = 51000,
   researchReady = false;
 const profiles: Profile[] = [],
-  facts: Fact[] = [],
   variants: Variant[] = [],
   companies: D[] = [],
   jobs: D[] = [],
@@ -28,7 +22,6 @@ export function resetOnboarding(empty = false) {
   seq = 51000;
   researchReady = false;
   profiles.length = 0;
-  facts.length = 0;
   variants.length = 0;
   companies.length = 0;
   jobs.length = 0;
@@ -143,8 +136,6 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
     if (body.expected_revision !== current) return fail("revision_conflict");
     const data = body.data as Profile["data"];
     if (!data.display_name?.trim()) return fail("validation_error", 422);
-    if (linkedFacts(data).some((ref) => !facts.some((f) => f.id === ref)))
-      return fail("not_found", 404);
     if (JSON.stringify(profiles.at(-1)?.data) === JSON.stringify(data)) return ok(profiles.at(-1));
     const profile = {
       id: id(9001 + profiles.length),
@@ -164,54 +155,6 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
       : !blank && p.endsWith(profileRow.id)
         ? ok(profileRow)
         : fail("not_found", 404);
-  }
-  if (p === "facts" && method === "GET") return ok(slice(facts, q));
-  if (p === "facts" && method === "POST") {
-    const f: Fact = {
-      id: id(9010 + facts.length),
-      created_at: time(),
-      lineage_id: uid(),
-      revision: 1,
-      statement: String(body.statement),
-      category: String(body.category),
-      status: "proposed",
-      replaces_id: null,
-      verified_at: null,
-    };
-    facts.push(f);
-    return ok(f, 201);
-  }
-  let match = p.match(/^facts\/([^/]+)\/(verify|reject|supersede)$/);
-  if (match) {
-    const f = facts.find((f) => f.id === match![1]);
-    if (!f) return fail("not_found", 404);
-    const kind = match[2];
-    if (kind === "verify") {
-      if (f.status !== "proposed") return fail("invalid_fact_transition");
-      f.status = "verified";
-      f.verified_at = time();
-      return ok(f);
-    }
-    if (kind === "reject") {
-      if (!["proposed", "verified"].includes(f.status)) return fail("invalid_fact_transition");
-      f.status = "rejected";
-      return ok(f);
-    }
-    if (body.expected_revision !== f.revision) return fail("revision_conflict");
-    if (f.status !== "verified") return fail("invalid_fact_transition");
-    f.status = "superseded";
-    const replacement = {
-      ...f,
-      id: id(9010 + facts.length),
-      revision: f.revision + 1,
-      statement: String(body.statement),
-      category: String(body.category),
-      status: "proposed" as const,
-      replaces_id: f.id,
-      verified_at: null,
-    };
-    facts.push(replacement);
-    return ok(replacement, 201);
   }
   if (
     (p === "resume-variants" && method === "POST") ||
@@ -262,7 +205,7 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
         q,
       ),
     );
-  match = p.match(/^resume-variants\/([^/]+)(\/render)?$/);
+  let match = p.match(/^resume-variants\/([^/]+)(\/render)?$/);
   if (match && (blank || variants.some((v) => v.id === match![1]))) {
     const v = variants
       .filter((v) => v.id === match![1])
@@ -271,18 +214,7 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
       );
     if (!v) return fail("not_found", 404);
     if (!match[2]) return ok(v);
-    const profile = profiles.find((r) => r.id === v.document.profile_id)!;
-    const invalid = v.document.sections.some((s) =>
-      s.items.some(
-        (i) =>
-          !i.fact_refs.length ||
-          i.fact_refs.some(
-            (ref) =>
-              !linkedFacts(profile.data).includes(ref) ||
-              !facts.some((f) => f.id === ref && f.status === "verified"),
-          ),
-      ),
-    );
+    const invalid = v.document.sections.some((s) => s.items.some((i) => !i.fact_refs.length));
     return ok({
       id: id(8501),
       resume_variant_id: v.id,
@@ -430,14 +362,6 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
       req.job_revision_id !== job.job_revision_id
     )
       return fail("context_revision_mismatch");
-    if (
-      body.kind !== "company_research" &&
-      profile &&
-      linkedFacts(profile.data).some(
-        (ref) => !facts.some((f) => f.id === ref && f.status === "verified"),
-      )
-    )
-      return fail("missing_verified_fact");
     if (
       (req.targets as string[] | undefined)?.some((t) => t !== "fit_analysis") &&
       !variants.some((v) => v.resume_revision_id === req.resume_revision_id)

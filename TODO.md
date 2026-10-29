@@ -274,7 +274,7 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
 ### v0.5 Product refactor acceptance
 
 - [x] Application-owned default context with immutable historical operation/artifact bindings.
-- [x] Review-first Profile fact extraction, deterministic/model base drafts and three refinement tasks.
+- [x] Deterministic/model base drafts and active refinement tasks; explicit fact extraction retired.
 - [x] Task-specific histories, explicit resume-library adoption, concrete submission material selection.
 - [x] Actual drafts/grouped editing, stable question anchors and compact Debrief evidence resolution.
 - [x] Notes edit/delete, Chinese Product surface and local `cgstart` wrapper.
@@ -291,16 +291,16 @@ implemented/verified changes in CHANGELOG, and update README only to describe ac
 - [x] Profile workspace user manual acceptance.
 - [ ] Application workflow final manual acceptance.
 - [ ] Internal Dashboard final manual acceptance.
-- [ ] Separate Facts dependency audit after checkpoint; no permanent removal in this change.
+- [x] Facts dependency audit and minimal retired workflow/test cleanup; internal evidence retained.
 - [ ] Additional real-model quality evaluation remains distinct from completed Profile UX acceptance.
 
 ### v0.5 Profile workspace closure + HITL
 
 - [x] Selector-first named Profile homepage, creation intent idempotency and inline name editing.
 - [x] Unified quick/AI Resume creation with automatic persistence and selection.
-- [x] Product Facts entry removed; legacy route redirects and backend remains available.
+- [x] Product Facts entry removed; legacy route redirects; only shared evidence/history backend remains.
 - [x] User/Profile source evidence permits direct PDF without intermediate Fact review.
 - [x] Claim-level diagnostics and explicit source-bound AI correction create a new saved expression.
 - [x] Three artifact refinement tasks expose persistent feedback/comments and queryable lineage.
-- [ ] After milestone commit: separate Facts dependency audit and permanent cleanup.
+- [x] Retired manual Facts UI/API/task cleanup; historical output readable, execution fenced.
 - [ ] Additional paid-model quality evaluation; Profile manual product acceptance has already passed.

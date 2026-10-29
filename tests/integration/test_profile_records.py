@@ -34,18 +34,6 @@ async def test_named_profiles_independent_save_and_noop(client):
     assert len((await client.get("/api/v1/profile-library")).json()["items"]) == 1
 
 
-async def test_mixed_fact_batch_and_updated_time(client):
-    ids = []
-    for text in ["编写 Python 服务", "使用 SQL 分析"]:
-        r = await client.post("/api/v1/facts", json={"statement": text, "category": "skill"})
-        ids.append(r.json()["id"])
-    await client.post("/api/v1/facts/" + ids[0] + "/verify")
-    r = await client.post("/api/v1/fact-library/actions", json={"ids": ids, "action": "verify"})
-    assert r.status_code == 200, r.text
-    rows = (await client.get("/api/v1/fact-library")).json()["items"]
-    assert all(f["status"] == "verified" and f["updated_at"] for f in rows)
-
-
 async def named_source(client):
     row = (await client.post("/api/v1/profile-library")).json()
     for section, value in [
@@ -73,7 +61,7 @@ async def named_source(client):
     return row
 
 
-async def test_resume_source_idempotency_editions_and_no_fact_gate(client):
+async def test_resume_source_idempotency_editions_and_no_fact_gate(client, evidence_rows):
     import asyncio
     from uuid import uuid4
 
@@ -87,7 +75,7 @@ async def test_resume_source_idempotency_editions_and_no_fact_gate(client):
     assert original["id"] == responses[1].json()["id"]
     assert original["personal"]["email"] == "synthetic@example.test"
     assert "Python" in original["document"]["sections"][0]["items"][0]["text"]
-    assert (await client.get("/api/v1/facts")).json() == []
+    assert (await evidence_rows()) == []
     body = {
         "request_id": str(uuid4()),
         "expected_revision": original["revision"],
@@ -105,10 +93,10 @@ async def test_resume_source_idempotency_editions_and_no_fact_gate(client):
     assert (await client.get("/api/v1/resume-workspaces/" + original["id"])).json()[
         "document"
     ] != edited.json()["document"]
-    assert (await client.get("/api/v1/facts")).json() == []
+    assert (await evidence_rows()) == []
 
 
-async def test_ai_resume_without_facts_and_selected_extraction(client):
+async def test_ai_resume_without_manual_facts(client, evidence_rows):
     from test_product_drafts import draft
 
     source = await named_source(client)
@@ -116,22 +104,10 @@ async def test_ai_resume_without_facts_and_selected_extraction(client):
     adopted = await client.post(f"/api/v1/product-drafts/{ai['id']}/adopt", json={})
     assert adopted.status_code == 200, adopted.text
     assert adopted.json()["adopted"]["resume_workspace_id"]
-    assert (await client.get("/api/v1/facts")).json() == []
-    for _ in range(2):
-        extraction = await draft(client, "profile_fact_extraction", profile_id=source["profile_id"])
-        r = await client.post(
-            f"/api/v1/product-drafts/{extraction['id']}/adopt", json={"selected_indices": [0]}
-        )
-        assert r.status_code == 200, r.text
-    facts = (await client.get("/api/v1/fact-library")).json()["items"]
-    assert len(facts) == 1 and facts[0]["status"] == "proposed"
-    assert facts[0]["source_label"] == "个人资料提取"
-    assert (await client.get("/api/v1/profile-library/" + source["id"])).json()[
-        "profile_id"
-    ] == source["profile_id"]
+    assert (await evidence_rows()) == []
 
 
-async def test_cancel_interrupts_running_generation(client, monkeypatch):
+async def test_cancel_interrupts_running_generation(client, monkeypatch, evidence_rows):
     import asyncio
     from uuid import uuid4
 
@@ -152,7 +128,7 @@ async def test_cancel_interrupts_running_generation(client, monkeypatch):
         "/api/v1/product-drafts",
         json={
             "request_id": str(uuid4()),
-            "task": "profile_fact_extraction",
+            "task": "base_resume_drafting",
             "profile_id": source["profile_id"],
         },
     )
@@ -164,13 +140,11 @@ async def test_cancel_interrupts_running_generation(client, monkeypatch):
     assert cancelled.json()["status"] == "cancelled" and stopped.is_set()
     result = await asyncio.wait_for(running, 5)
     assert result.json()["status"] == "cancelled" and result.json()["output"] is None
-    assert (await client.get("/api/v1/facts")).json() == []
+    assert (await evidence_rows()) == []
 
 
-async def test_pdf_confirmation_and_resume_extraction_provenance(client):
+async def test_pdf_without_manual_fact_confirmation(client):
     from uuid import uuid4
-
-    from test_product_drafts import draft
 
     source = await named_source(client)
     row = (
@@ -186,14 +160,6 @@ async def test_pdf_confirmation_and_resume_extraction_provenance(client):
     result = r.json()
     assert result["claim_issues"] == []
     assert result["artifact"]["report"]["render_status"] == "accepted", result
-    resume_id = result["resume_revision_id"]
-    proposal = await draft(client, "profile_fact_extraction", source_resume_revision_id=resume_id)
-    adopted = await client.post(
-        f"/api/v1/product-drafts/{proposal['id']}/adopt", json={"selected_indices": [0]}
-    )
-    assert adopted.status_code == 200, adopted.text
-    assert len(adopted.json()["adopted"]["existing_fact_ids"]) == 1
-    assert len((await client.get("/api/v1/facts")).json()) == 1
 
 
 async def test_ai_compression_skips_existing_short_expression_without_model_call(client):
@@ -233,40 +199,6 @@ async def test_ai_compression_skips_existing_short_expression_without_model_call
     assert (await client.get("/api/v1/resume-workspaces/" + saved["id"])).json()[
         "document"
     ] == saved["document"]
-
-
-async def test_unrendered_resume_extraction_freezes_source_and_proposes_only(client):
-    from uuid import uuid4
-
-    source = await named_source(client)
-    resume = (
-        await client.post(
-            "/api/v1/resume-workspaces",
-            json={"request_id": str(uuid4()), "profile_id": source["profile_id"]},
-        )
-    ).json()
-    created = await client.post(
-        "/api/v1/product-drafts",
-        json={
-            "request_id": str(uuid4()),
-            "task": "profile_fact_extraction",
-            "source_workspace_id": resume["id"],
-        },
-    )
-    assert created.status_code == 201, created.text
-    id = created.json()["id"]
-    completed = await client.post(f"/api/v1/product-drafts/{id}/execute")
-    assert completed.json()["status"] == "completed", completed.text
-    adopted = await client.post(
-        f"/api/v1/product-drafts/{id}/adopt", json={"selected_indices": [0]}
-    )
-    assert adopted.status_code == 200, adopted.text
-    rows = (await client.get("/api/v1/fact-library")).json()["items"]
-    assert len(rows) == 1 and rows[0]["status"] == "proposed"
-    assert rows[0]["source_label"] == "简历提取"
-    assert rows[0]["source_locator"].startswith(
-        f"resume-draft:{resume['id']}:{resume['revision']}:"
-    )
 
 
 async def test_saved_resume_discovery_has_stable_pagination(client):
@@ -323,7 +255,7 @@ async def test_profile_create_intent_is_idempotent_and_name_edits_are_atomic(cli
     assert same.json()["profile_id"] == row["profile_id"]
 
 
-async def test_unsupported_ai_claim_is_specific_and_never_verified(client, sessions):
+async def test_unsupported_ai_claim_is_specific_and_never_verified(client, sessions, evidence_rows):
     from uuid import UUID, uuid4
 
     from career_agent.profile_area.entities import ResumeWorkspace
@@ -348,9 +280,7 @@ async def test_unsupported_ai_claim_is_specific_and_never_verified(client, sessi
     assert result.status_code == 200, result.text
     assert result.json()["artifact"] is None
     assert result.json()["claim_issues"][0]["text"] == "提升效率 99%"
-    assert not any(
-        f["statement"] == "提升效率 99%" for f in (await client.get("/api/v1/facts")).json()
-    )
+    assert not any(f["statement"] == "提升效率 99%" for f in (await evidence_rows()))
     from test_product_drafts import draft
 
     correction = await draft(

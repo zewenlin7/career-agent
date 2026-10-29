@@ -481,7 +481,7 @@ class EvalRunner:
                             )
                         refs = {}
                     else:
-                        refs = await bootstrap(client, case.source_snapshot["bootstrap"])
+                        refs = await bootstrap(client, case.source_snapshot["bootstrap"], sessions)
                     payload = replace_refs(case.source_snapshot["request"], refs)
                     if (
                         "captured" not in case.source_snapshot

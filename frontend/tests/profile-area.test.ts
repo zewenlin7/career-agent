@@ -28,7 +28,7 @@ test("education/work/project labels and required fields are distinct and optiona
   assert.equal(entryFields.experiences[0][1], "单位名称");
   assert.equal(entryFields.projects[0][1], "项目名称");
 });
-test("Profile editing/photo/fact/library BFF is bounded, no arbitrary file or internal authority", () => {
+test("Profile editing/photo/library BFF is bounded, no arbitrary file or internal authority", () => {
   for (const [path, method, body] of [
     [
       "profile-workspace/sections/skills",
@@ -36,7 +36,6 @@ test("Profile editing/photo/fact/library BFF is bounded, no arbitrary file or in
       { expected_revision: 1, value: "语言：Python\n\n工程：测试\n" },
     ],
     ["profile-workspace/restore", "POST", { expected_revision: 1, profile_id: id(1) }],
-    ["fact-library/actions", "POST", { ids: [id(1)], action: "verify" }],
     [`resume-library/versions/${id(1)}`, "PATCH", { expected_revision: 1, name: "求职简历" }],
   ] as const) {
     assert.doesNotThrow(() =>
@@ -110,4 +109,20 @@ test("Facts navigation is retired and route redirects; feedback accepts comment 
       productRule("evaluation/feedback", "POST", new URLSearchParams()).body,
     ),
   );
+});
+
+test("retired Facts and review/publish APIs are absent from the Product BFF", () => {
+  for (const [path, method] of [
+    ["facts", "GET"],
+    ["facts", "POST"],
+    [`facts/${id(1)}/verify`, "POST"],
+    [`facts/${id(1)}/reject`, "POST"],
+    [`facts/${id(1)}/supersede`, "POST"],
+    ["fact-library", "GET"],
+    ["fact-library/actions", "POST"],
+    [`fact-library/${id(1)}`, "PATCH"],
+    [`resume-workspaces/${id(1)}/review`, "POST"],
+    [`resume-workspaces/${id(1)}/publish`, "POST"],
+  ])
+    assert.throws(() => productRule(path, method, new URLSearchParams()));
 });

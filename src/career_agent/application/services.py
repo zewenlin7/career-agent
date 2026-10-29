@@ -8,8 +8,6 @@ from career_agent.domain import schemas as s
 from career_agent.domain.rules import (
     ApplicationStatus,
     DomainError,
-    reject_fact,
-    replace_fact,
     transition_application,
     verify_fact,
 )
@@ -131,20 +129,6 @@ async def verify_user_fact(session: AsyncSession, row_id: UUID) -> e.PersonalFac
     fact.verified_at = e.utcnow()
     await session.flush()
     return fact
-
-
-async def supersede_fact(
-    session: AsyncSession, row_id: UUID, payload: s.FactReplacement
-) -> e.PersonalFact:
-    old = await require(session, e.PersonalFact, row_id, lock=True)
-    check_revision(old.revision, payload.expected_revision)
-    old.status = replace_fact(old.status)
-    new = await create_fact(
-        session, s.FactCreate.model_validate(payload.model_dump(exclude={"expected_revision"}))
-    )
-    new.lineage_id, new.revision, new.replaces_id = old.lineage_id, old.revision + 1, old.id
-    await session.flush()
-    return new
 
 
 async def add_job_revision(
@@ -338,10 +322,3 @@ async def create_knowledge(session: AsyncSession, payload: s.KnowledgeCreate) ->
     session.add(note)
     await session.flush()
     return note
-
-
-async def reject_user_fact(session: AsyncSession, row_id: UUID) -> e.PersonalFact:
-    fact = await require(session, e.PersonalFact, row_id, lock=True)
-    fact.status = reject_fact(fact.status)
-    await session.flush()
-    return fact

@@ -6,7 +6,7 @@ Development and demonstrations use synthetic data; this is not a multi-user prod
 
 ## Implemented now
 
-- Versioned personal profile, user-confirmed facts and replacement history.
+- Named personal profiles, internal source evidence and preserved historical fact lineage.
 - Manual JD ingestion, explicit requirements, immutable JD revisions, company records.
 - Application tracker with optimistic revision checks, status/correction/note events.
 - Actual interview rounds with CAS-protected ordered primary/follow-up Q&A and legacy notes.
@@ -111,10 +111,6 @@ All endpoints are under `/api/v1`. Interactive request/response schemas are in O
 | --- | --- |
 | `GET /health` | Liveness, current milestone |
 | `GET/PUT /profile` | Latest profile; append revision (`expected_revision=0` initially) |
-| `GET/POST /facts` | List history; create **proposed** fact |
-| `POST /facts/{id}/verify` | Explicit user confirmation, not external certification |
-| `POST /facts/{id}/supersede` | Supersede verified fact; replacement starts proposed |
-| `POST /facts/{id}/reject` | Explicitly reject proposed/verified fact |
 | `POST/GET /jobs`, `GET /jobs/{id}` | Manual JD, requirements and linked tracking application |
 | `POST /jobs/{id}/revisions` | New JD revision, old content retained |
 | `GET/PATCH /applications/{id}` | Current state and history; explicit user update |
@@ -288,8 +284,7 @@ glyphs. This does not mean automatic checks can detect every aesthetic/visual de
 - `GET /api/v1/artifacts/{id}/download`: accepted artifacts only, verified SHA-256, `no-store`.
 
 These low-level canonical endpoints retain factual-reference validation. Product uses the source-aware workspace resolve/save path instead of asking users to maintain Fact links. For direct canonical API clients, use the synthetic fixture `document` as a payload shape, but replace its fixture IDs with actual
-Profile/Fact IDs created via your local API. Add each fact ID to an education/experience/project
-entry in the Profile before creating the Variant. Supply `profile_id` and `profile_revision`.
+existing exact Profile/evidence IDs. New Product content should use the workspace source-resolution path, not construct or confirm Facts through HTTP. Supply `profile_id` and `profile_revision` for low-level historical canonical inputs.
 The optional `job_revision_id` identifies an exact stored JD revision. Sections are predefined
 `summary/experience/projects/education/skills` with Chinese headings; factual items always need `fact_refs`.
 
@@ -942,7 +937,7 @@ New Application bindings select an exact Resume; execution derives its Profile s
 Changing this binding affects future work, never historical results. Company Research remains
 independent of personal data. Generated results are browsed by business task, not preparation package.
 
-Internal fact extraction retains proposed status and source associations. Product Quick creation maps the selected Profile deterministically; AI creation uses a separately governed task. Both save and select the new Resume without an intermediate Fact-review step. Resume/Greeting/Interview Prep adjustments preserve the
+Explicit fact extraction is retired; existing outputs and source associations remain readable. Product Quick creation maps the selected Profile deterministically; AI creation uses a separately governed task. Both save and select the new Resume without an intermediate Fact-review step. Resume/Greeting/Interview Prep adjustments preserve the
 original result and exact context. Saving an optimized resume adds its already-persisted revision to
 the resume library; changing the Application binding is a separate user choice.
 

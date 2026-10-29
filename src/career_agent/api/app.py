@@ -45,39 +45,6 @@ async def put_profile(payload: inp.ProfileWrite, session: DB) -> e.PersonalProfi
     return await svc.put_profile(session, payload)
 
 
-@router.get("/facts", response_model=list[out.FactOut])
-async def facts(session: DB, limit: Limit = 50, offset: Offset = 0) -> list[e.PersonalFact]:
-    return list(
-        await session.scalars(
-            select(e.PersonalFact)
-            .where(e.PersonalFact.archived_at.is_(None))
-            .order_by(e.PersonalFact.created_at, e.PersonalFact.id)
-            .limit(limit)
-            .offset(offset)
-        )
-    )
-
-
-@router.post("/facts", response_model=out.FactOut, status_code=201)
-async def create_fact(payload: inp.FactCreate, session: DB) -> e.PersonalFact:
-    return await svc.create_fact(session, payload)
-
-
-@router.post("/facts/{row_id}/verify", response_model=out.FactOut)
-async def verify_fact(row_id: UUID, session: DB) -> e.PersonalFact:
-    return await svc.verify_user_fact(session, row_id)
-
-
-@router.post("/facts/{row_id}/reject", response_model=out.FactOut)
-async def reject_fact(row_id: UUID, session: DB) -> e.PersonalFact:
-    return await svc.reject_user_fact(session, row_id)
-
-
-@router.post("/facts/{row_id}/supersede", response_model=out.FactOut, status_code=201)
-async def supersede_fact(row_id: UUID, payload: inp.FactReplacement, session: DB) -> e.PersonalFact:
-    return await svc.supersede_fact(session, row_id, payload)
-
-
 @router.post("/jobs", response_model=out.JobOut, status_code=201)
 async def create_job(payload: inp.JobCreate, session: DB) -> dict[str, Any]:
     return await svc.job_view(session, await svc.create_job(session, payload))

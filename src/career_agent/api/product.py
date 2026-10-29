@@ -31,7 +31,7 @@ from career_agent.product.contracts import (
     TaskHistoryItem,
 )
 from career_agent.product.draft_contracts import DraftAdopt, DraftCreate
-from career_agent.product.drafts import DraftService
+from career_agent.product.drafts import DraftService, ensure_active_task
 from career_agent.product.entities import MaterialSubmission, ProductDraft, ProductOperation
 from career_agent.product.results import package_view, populate_target
 
@@ -642,6 +642,7 @@ async def read_product_draft(id: UUID, session: DB) -> dict[str, Any]:
 async def execute_product_draft(id: UUID, request: Request) -> dict[str, Any]:
     async with request.app.state.sessions() as session:
         row = await require(session, ProductDraft, id)
+        ensure_active_task(row.task)
         mode = row.mode
     factory = getattr(request.app.state, "preparation_dependencies", None)
     context = (

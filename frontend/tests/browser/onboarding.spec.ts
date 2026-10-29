@@ -8,12 +8,8 @@ test.beforeEach(async ({ request }) => {
 });
 // Profile/Facts/Resume UI now has a separate real PostgreSQL/FastAPI browser suite.
 // Seed only these prerequisites here; paid workflows remain canonical offline fixtures.
-async function profileAndFact(page: Page) {
+async function profileSource(page: Page) {
   const api = "http://127.0.0.1:3111/api/v1";
-  const fact = await (
-    await page.request.post(`${api}/facts`, { data: { statement, category: "project" } })
-  ).json();
-  await page.request.post(`${api}/facts/${fact.id}/verify`);
   await page.request.put(`${api}/profile`, {
     data: {
       expected_revision: 0,
@@ -22,7 +18,7 @@ async function profileAndFact(page: Page) {
         education: [],
         experiences: [],
         projects: [
-          { organization: "个人项目", role: "开发者", description: statement, fact_ids: [fact.id] },
+          { organization: "个人项目", role: "开发者", description: statement, fact_ids: [] },
         ],
         skills: [],
         preferences: {},
@@ -113,7 +109,7 @@ test("empty account creates verified context/base, then reaches existing prepara
     if (["POST", "PUT", "PATCH"].includes(r.method()))
       writes.push({ path: new URL(r.url()).pathname, method: r.method(), body: r.postDataJSON() });
   });
-  await profileAndFact(page);
+  await profileSource(page);
   await baseResume(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await job(page);
@@ -172,7 +168,7 @@ test("empty account creates verified context/base, then reaches existing prepara
   await writeFile(info.outputPath("request-contracts.json"), JSON.stringify(writes, null, 2));
 });
 test("tracking conflict requires refresh and correction reason", async ({ page }) => {
-  await profileAndFact(page);
+  await profileSource(page);
   await baseResume(page);
   await job(page);
   const target = page.getByLabel("更新为");

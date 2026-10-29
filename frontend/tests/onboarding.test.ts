@@ -9,12 +9,6 @@ const call = (path: string, method = "GET", body: Record<string, unknown> = {}) 
 test("Product allowlist supports exact onboarding contracts, not arbitrary writes", () => {
   for (const [path, method, body] of [
     ["profile", "PUT", { expected_revision: 0, data: blankProfile() }],
-    ["facts", "POST", { statement: "合成事实", category: "project" }],
-    [
-      `facts/${id(1)}/supersede`,
-      "POST",
-      { expected_revision: 1, statement: "替代", category: "project" },
-    ],
     [
       "jobs",
       "POST",
@@ -41,43 +35,6 @@ test("Product allowlist supports exact onboarding contracts, not arbitrary write
   assert.throws(() =>
     validateBody({ status: "verified" }, productRule("facts", "POST", new URLSearchParams()).body),
   );
-});
-test("empty store enforces Profile CAS and replacement fact lifecycle without rewriting historical refs", () => {
-  resetOnboarding(true);
-  assert.equal(call("profile").status, 404);
-  assert.equal(
-    call("profile", "PUT", {
-      expected_revision: 0,
-      data: { ...blankProfile(), display_name: "合成用户" },
-    }).status,
-    200,
-  );
-  assert.equal(call("profile", "PUT", { expected_revision: 0, data: blankProfile() }).status, 409);
-  call("facts", "POST", { statement: "实现 Python 服务", category: "project" });
-  call(`facts/${id(9010)}/verify`, "POST");
-  const data = {
-    ...blankProfile(),
-    display_name: "合成用户",
-    projects: [{ organization: "个人项目", role: "开发者", description: "", fact_ids: [id(9010)] }],
-  };
-  call("profile", "PUT", { expected_revision: 1, data });
-  const history = structuredClone(call(`profile/revisions/${id(9002)}`).body);
-  const replacement = call(`facts/${id(9010)}/supersede`, "POST", {
-    expected_revision: 1,
-    statement: "实现并测试 Python 服务",
-    category: "project",
-  });
-  assert.equal(replacement.status, 201);
-  assert.deepEqual(call(`profile/revisions/${id(9002)}`).body, history);
-  const facts = call("facts").body as {
-    status: string;
-    revision: number;
-    replaces_id: string | null;
-  }[];
-  assert.equal(facts[0].status, "superseded");
-  assert.equal(facts[1].status, "proposed");
-  assert.equal(facts[1].revision, 2);
-  assert.equal(facts[1].replaces_id, id(9010));
 });
 test("existing Company is explicit; Application state CAS/correction and notes remain separate", () => {
   resetOnboarding(true);

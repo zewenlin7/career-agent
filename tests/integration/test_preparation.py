@@ -16,17 +16,14 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-async def prep_input(client, sessions):
+async def prep_input(client, sessions, seed_evidence):
     ids = []
     for statement in [
         "使用 Python 和 FastAPI 构建模拟服务。",
         "使用 PostgreSQL 验证事务回滚。",
         "完成 RAG / Agent 合成数据实验，保留验证记录。",
     ]:
-        fact = (
-            await client.post("/api/v1/facts", json={"statement": statement, "category": "project"})
-        ).json()
-        assert (await client.post(f"/api/v1/facts/{fact['id']}/verify")).status_code == 200
+        fact = await seed_evidence(statement)
         ids.append(fact["id"])
     profile = (
         await client.put(
@@ -365,11 +362,11 @@ async def test_interview_rechecks_superseded_facts(client, prep_input, sessions)
             for item in section["items"]
             for ref in item["fact_refs"]
         )
-    response = await client.post(
-        f"/api/v1/facts/{fact_id}/supersede",
-        json={"expected_revision": 1, "statement": "新的合成事实。", "category": "project"},
-    )
-    assert response.status_code == 201
+    from career_agent.domain.rules import FactStatus
+
+    async with sessions.begin() as session:
+        old = await session.get(e.PersonalFact, UUID(fact_id))
+        old.status = FactStatus.SUPERSEDED
     interview = await run(
         client, {**prep_input, "application_package_id": result["package_id"]}, "prepare_interview"
     )
@@ -517,15 +514,9 @@ async def test_greeting_explicit_old_or_tailored_binding(client, prep_input, new
 
 @pytest.mark.parametrize("gated", [False, True])
 @pytest.mark.parametrize("gap", ["no_evidence", "explicit_gap"])
-async def test_fit_gate_or_informational(client, prep_input, sessions, gated, gap):
+async def test_fit_gate_or_informational(client, prep_input, sessions, gated, gap, seed_evidence):
     if gap == "explicit_gap":
-        fact = (
-            await client.post(
-                "/api/v1/facts",
-                json={"statement": "尚未具备岗位明确要求的经验。", "category": "explicit_gap"},
-            )
-        ).json()
-        await client.post(f"/api/v1/facts/{fact['id']}/verify")
+        fact = await seed_evidence("尚未具备岗位明确要求的经验。", "explicit_gap")
         profile = (await client.get("/api/v1/profile")).json()
         profile["data"]["projects"][0]["fact_ids"].append(fact["id"])
         updated = (

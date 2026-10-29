@@ -6,8 +6,6 @@ from career_agent.domain.rules import (
 )
 from career_agent.domain.rules import (
     DomainError,
-    reject_fact,
-    replace_fact,
     transition_application,
     verify_fact,
 )
@@ -20,9 +18,6 @@ from career_agent.runtime.contracts import Usage, VersionMetadata
 
 def test_fact_lifecycle():
     assert verify_fact(F.PROPOSED, explicit_user_action=True) == F.VERIFIED
-    assert replace_fact(F.VERIFIED) == F.SUPERSEDED
-    assert reject_fact(F.PROPOSED) == F.REJECTED
-    assert reject_fact(F.VERIFIED) == F.REJECTED
 
 
 @pytest.mark.parametrize("status", [F.VERIFIED, F.SUPERSEDED, F.REJECTED])
@@ -36,12 +31,6 @@ def test_import_cannot_verify():
         verify_fact(F.PROPOSED, explicit_user_action=False)
     with pytest.raises(ValidationError):
         FactCreate(statement="Synthetic", category="project", status="verified")
-
-
-@pytest.mark.parametrize("status", [F.PROPOSED, F.SUPERSEDED, F.REJECTED])
-def test_invalid_replacement(status):
-    with pytest.raises(DomainError):
-        replace_fact(status)
 
 
 @pytest.mark.parametrize(

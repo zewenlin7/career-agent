@@ -7,11 +7,10 @@ from pydantic import ValidationError
 from sqlalchemy import DateTime, String, cast, func, select
 
 from career_agent.api.dependencies import DB
-from career_agent.api.schemas import FactOut, ProfileOut
+from career_agent.api.schemas import ProfileOut
 from career_agent.application import resumes
 from career_agent.application import services as svc
-from career_agent.domain.rules import DomainError, FactStatus
-from career_agent.domain.schemas import FactCreate, FactReplacement
+from career_agent.domain.rules import DomainError
 from career_agent.infrastructure import entities as e
 from career_agent.product.entities import ApplicationBinding
 from career_agent.profile_area import contracts as c
@@ -96,98 +95,6 @@ async def photo(id: UUID, request: Request, session: DB) -> Response:
     )
 
 
-@router.get("/fact-library")
-async def facts(session: DB, limit: Limit = 50, offset: Offset = 0) -> dict[str, Any]:
-    rows = list(
-        await session.scalars(
-            select(e.PersonalFact)
-            .where(
-                e.PersonalFact.archived_at.is_(None), e.PersonalFact.status != FactStatus.SUPERSEDED
-            )
-            .order_by(e.PersonalFact.created_at.desc(), e.PersonalFact.id)
-            .limit(limit + 1)
-            .offset(offset)
-        )
-    )
-    return {
-        "items": [
-            {
-                **FactOut.model_validate(f).model_dump(mode="json"),
-                "updated_at": f.updated_at,
-                "source_label": "个人资料提取"
-                if (f.source_locator or "").startswith("profile:")
-                else "简历提取"
-                if (f.source_locator or "").startswith(("resume-draft:", "resume:"))
-                else "资料文档"
-                if f.source_document_id
-                else "用户添加",
-            }
-            for f in rows[:limit]
-        ],
-        "has_more": len(rows) > limit,
-    }
-
-
-@router.post("/fact-library/actions")
-async def fact_actions(payload: c.FactAction, session: DB) -> dict[str, Any]:
-    # Ordered locks and one atomic batch; errors retain the whole selection.
-    if len(set(payload.ids)) != len(payload.ids):
-        raise DomainError("invalid_request", 422)
-    await s.workspace(session)  # Same lock order as Profile publication, before fact row locks.
-    for id in sorted(payload.ids, key=str):
-        fact = await svc.require(session, e.PersonalFact, id, lock=True)
-        if payload.action == "archive":
-            fact.archived_at = fact.archived_at or e.utcnow()
-        elif fact.archived_at:
-            raise DomainError("not_found", 404)
-        elif payload.action == "verify":
-            if fact.status == FactStatus.PROPOSED:
-                await svc.verify_user_fact(session, id)
-        else:
-            if fact.status in {FactStatus.PROPOSED, FactStatus.VERIFIED}:
-                await svc.reject_user_fact(session, id)
-    await s.refresh_current_fact_scope(session)
-    return {"completed": payload.ids}
-
-
-@router.patch("/fact-library/{id}", response_model=FactOut)
-async def edit_fact(id: UUID, payload: FactReplacement, session: DB) -> e.PersonalFact:
-    await s.workspace(session)
-    old = await svc.require(session, e.PersonalFact, id, lock=True)
-    svc.check_revision(old.revision, payload.expected_revision)
-    if old.archived_at or old.status not in {
-        FactStatus.PROPOSED,
-        FactStatus.VERIFIED,
-        FactStatus.REJECTED,
-    }:
-        raise DomainError("invalid_fact_transition")
-    if old.statement == payload.statement and old.category == payload.category:
-        return old
-    if old.status == FactStatus.VERIFIED:
-        result = await svc.supersede_fact(session, id, payload)
-    else:
-        old.status = FactStatus.REJECTED
-        result = await svc.create_fact(
-            session,
-            FactCreate(
-                statement=payload.statement,
-                category=payload.category,
-                source_document_id=old.source_document_id,
-                source_locator=old.source_locator,
-            ),
-        )
-        result.lineage_id, result.revision, result.replaces_id = (
-            old.lineage_id,
-            old.revision + 1,
-            old.id,
-        )
-    result.source_locator = old.source_locator
-    old.archived_at = e.utcnow()
-    await session.flush()
-    await s.refresh_current_fact_scope(session)
-    return result
-
-
 def draft_view(row: ResumeWorkspace) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -255,28 +162,6 @@ async def save_draft(id: UUID, payload: c.DraftWrite, session: DB) -> dict[str, 
         row.revision += 1
         row.saved_at = e.utcnow()
     return draft_view(row)
-
-
-@router.post("/resume-workspaces/{id}/review")
-async def review_draft(id: UUID, payload: c.Publish, session: DB) -> dict[str, Any]:
-    row = await svc.require(session, ResumeWorkspace, id, lock=True)
-    svc.check_revision(row.revision, payload.expected_revision)
-    facts = await s.review_draft(session, row)
-    return {"facts": [FactOut.model_validate(f) for f in facts]}
-
-
-@router.post("/resume-workspaces/{id}/publish")
-async def accept_draft(id: UUID, payload: c.Publish, session: DB) -> Any:
-    row = await svc.require(session, ResumeWorkspace, id, lock=True)
-    if row.accepted_revision_id:
-        return resumes.variant_view(
-            await svc.require(session, e.ResumeVariantRevision, row.accepted_revision_id)
-        )
-    svc.check_revision(row.revision, payload.expected_revision)
-    try:
-        return resumes.variant_view(await s.accept_draft(session, row))
-    except ValidationError:
-        raise DomainError("invalid_resume_draft", 422) from None
 
 
 @router.delete("/resume-workspaces/{id}")
@@ -552,7 +437,7 @@ async def resolve_edition(id: UUID, payload: c.Publish, session: DB) -> dict[str
 
 @router.post("/resume-workspaces/{id}/render")
 async def render_edition(
-    id: UUID, payload: c.ResumeConfirm, request: Request, session: DB
+    id: UUID, payload: c.Publish, request: Request, session: DB
 ) -> dict[str, Any]:
     from career_agent.resume.schemas import ArtifactOut
 

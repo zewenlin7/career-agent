@@ -146,7 +146,7 @@ async def test_photos_normalize_replace_remove_and_freeze(client):
     ).status_code == 422
 
 
-async def test_draft_without_facts_review_publish_names_and_archive(client):
+async def test_resume_resolve_names_and_archive_without_manual_facts(client):
     w = await section(client, await work(client), "personal", {"display_name": "合成用户"})
     await section(
         client,
@@ -156,25 +156,7 @@ async def test_draft_without_facts_review_publish_names_and_archive(client):
     )
     d = (await client.post("/api/v1/resume-workspaces", json={})).json()
     assert d["document"]["sections"][0]["items"][0]["fact_refs"] == []
-    r = await client.post(
-        f"/api/v1/resume-workspaces/{d['id']}/publish", json={"expected_revision": d["revision"]}
-    )
-    assert r.status_code == 422
-    review = (
-        await client.post(
-            f"/api/v1/resume-workspaces/{d['id']}/review", json={"expected_revision": d["revision"]}
-        )
-    ).json()
-    assert all(f["status"] == "proposed" for f in review["facts"])
-    ids = [f["id"] for f in review["facts"]]
-    assert (
-        await client.post("/api/v1/fact-library/actions", json={"ids": ids, "action": "verify"})
-    ).status_code == 200
-    r = await client.post(
-        f"/api/v1/resume-workspaces/{d['id']}/publish", json={"expected_revision": d["revision"]}
-    )
-    assert r.status_code == 200, r.text
-    saved = r.json()
+    saved = await resolve_document(client, d)
     # Saving a resume from a working draft doesn't publish it as the current personal profile.
     assert (await client.get("/api/v1/profile")).status_code == 404
     version = (await client.get("/api/v1/resume-library/versions")).json()["items"][0]
@@ -199,36 +181,7 @@ async def test_draft_without_facts_review_publish_names_and_archive(client):
     ).status_code == 200
 
 
-async def test_fact_edit_batch_atomic_and_binding_protection(client):
-    facts = []
-    for text in ["使用 Python", "实现离线测试"]:
-        facts.append(
-            (
-                await client.post("/api/v1/facts", json={"statement": text, "category": "skill"})
-            ).json()
-        )
-    assert (
-        await client.post(
-            "/api/v1/fact-library/actions",
-            json={"ids": [f["id"] for f in facts], "action": "verify"},
-        )
-    ).status_code == 200
-    r = await client.patch(
-        "/api/v1/fact-library/" + facts[0]["id"],
-        json={"expected_revision": 1, "statement": "使用 Python 和 SQL", "category": "skill"},
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "proposed" and r.json()["replaces_id"] == facts[0]["id"]
-    assert (
-        await client.post(
-            "/api/v1/fact-library/actions",
-            json={"ids": [r.json()["id"], facts[1]["id"]], "action": "verify"},
-        )
-    ).status_code == 200
-    assert all(
-        f["status"] == "verified"
-        for f in (await client.get("/api/v1/fact-library")).json()["items"]
-    )
+async def test_profile_binding_deletion_protection(client):
     w = await section(client, await work(client), "personal", {"display_name": "合成用户"})
     p = (
         await client.post(
@@ -268,21 +221,7 @@ async def test_resume_bound_archive_block_and_formal_snapshot_immutable(client, 
         )
     ).json()
     d = (await client.post("/api/v1/resume-workspaces", json={})).json()
-    review = (
-        await client.post(
-            f"/api/v1/resume-workspaces/{d['id']}/review", json={"expected_revision": d["revision"]}
-        )
-    ).json()
-    await client.post(
-        "/api/v1/fact-library/actions",
-        json={"ids": [f["id"] for f in review["facts"]], "action": "verify"},
-    )
-    saved = (
-        await client.post(
-            f"/api/v1/resume-workspaces/{d['id']}/publish",
-            json={"expected_revision": d["revision"]},
-        )
-    ).json()
+    saved = await resolve_document(client, d)
     assert saved["document"]["profile_id"] != p["id"]  # new verified scope, old snapshot unchanged
     j = (
         await client.post(
@@ -343,20 +282,7 @@ async def test_photo_and_contacts_render_from_exact_snapshot(client):
         client, w, "projects", [{"organization": "合成项目", "description": "开发离线工具"}]
     )
     draft = (await client.post("/api/v1/resume-workspaces", json={})).json()
-    review = (
-        await client.post(
-            f"/api/v1/resume-workspaces/{draft['id']}/review", json={"expected_revision": 1}
-        )
-    ).json()
-    await client.post(
-        "/api/v1/fact-library/actions",
-        json={"ids": [f["id"] for f in review["facts"]], "action": "verify"},
-    )
-    saved = (
-        await client.post(
-            f"/api/v1/resume-workspaces/{draft['id']}/publish", json={"expected_revision": 1}
-        )
-    ).json()
+    saved = await resolve_document(client, draft)
     w = await work(client)
     await section(client, w, "personal", {"display_name": "改后的资料", "photo_id": None})
     response = await client.post(
@@ -615,13 +541,13 @@ async def test_new_profile_fields_reach_structured_single_page_pdf(client, with_
         assert date["x0"] > heading["x1"]
 
 
-async def test_unrendered_resume_resolves_idempotently_without_manual_facts(client):
+async def test_unrendered_resume_resolves_idempotently_without_manual_facts(client, evidence_rows):
     w = await section(client, await work(client), "personal", {"display_name": "合成用户"})
     await section(
         client, w, "projects", [{"organization": "合成项目", "description": "实现测试工具"}]
     )
     d = (await client.post("/api/v1/resume-workspaces", json={})).json()
-    assert (await client.get("/api/v1/facts")).json() == []
+    assert (await evidence_rows()) == []
     path = f"/api/v1/resume-workspaces/{d['id']}/resolve"
     first = await client.post(path, json={"expected_revision": d["revision"]})
     assert first.status_code == 200, first.text
@@ -633,3 +559,20 @@ async def test_unrendered_resume_resolves_idempotently_without_manual_facts(clie
     assert len(versions) == 1
     renders = await client.get(f"/api/v1/resume-revisions/{versions[0]['id']}/renders")
     assert renders.json() == []
+
+
+async def resolve_document(client, row):
+    resolved = await client.post(
+        f"/api/v1/resume-workspaces/{row['id']}/resolve",
+        json={"expected_revision": row["revision"]},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["claim_issues"] == []
+    versions = (await client.get("/api/v1/resume-library/versions")).json()["items"]
+    version = next(v for v in versions if v["id"] == resolved.json()["resume_revision_id"])
+    return (
+        await client.get(
+            f"/api/v1/resume-variants/{version['variant_id']}",
+            params={"revision": version["revision"]},
+        )
+    ).json()

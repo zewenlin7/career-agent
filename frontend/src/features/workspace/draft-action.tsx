@@ -14,7 +14,6 @@ export function DraftAction({
   task,
   disabled = false,
   profileId,
-  profileRevision,
   sourceArtifactId,
   feedbackId,
   applicationId,
@@ -29,7 +28,6 @@ export function DraftAction({
   task: string;
   disabled?: boolean;
   profileId?: string;
-  profileRevision?: number;
   sourceArtifactId?: string;
   feedbackId?: string;
   applicationId?: string;
@@ -140,15 +138,13 @@ export function DraftAction({
               variant="primary"
               onClick={() =>
                 void action.run(async () => {
-                  const saved = await api<Draft>(`product-drafts/${draft.id}/adopt`, "POST", {
-                    expected_profile_revision: profileRevision ?? null,
-                  });
+                  const saved = await api<Draft>(`product-drafts/${draft.id}/adopt`, "POST", {});
                   setDraft(saved);
                   onSaved?.(saved);
                 })
               }
             >
-              {task === "profile_fact_extraction" ? "保存为待确认事实" : "保存"}
+              保存
             </Button>
           ) : (
             <p className="text-sm">已保存。</p>

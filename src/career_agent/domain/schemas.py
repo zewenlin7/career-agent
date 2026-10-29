@@ -80,10 +80,6 @@ class FactCreate(Contract):
     source_locator: str | None = Field(default=None, max_length=1000)
 
 
-class FactReplacement(FactCreate):
-    expected_revision: int = Field(ge=1)
-
-
 class StarStoryData(Contract):
     situation: Text
     task: Text

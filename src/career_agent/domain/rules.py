@@ -62,18 +62,6 @@ def verify_fact(status: FactStatus, *, explicit_user_action: bool) -> FactStatus
     return FactStatus.VERIFIED
 
 
-def replace_fact(status: FactStatus) -> FactStatus:
-    if status != FactStatus.VERIFIED:
-        raise DomainError("invalid_fact_transition")
-    return FactStatus.SUPERSEDED
-
-
-def reject_fact(status: FactStatus) -> FactStatus:
-    if status not in {FactStatus.PROPOSED, FactStatus.VERIFIED}:
-        raise DomainError("invalid_fact_transition")
-    return FactStatus.REJECTED
-
-
 def transition_application(
     current: ApplicationStatus,
     target: ApplicationStatus,

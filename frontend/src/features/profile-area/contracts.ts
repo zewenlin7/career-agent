@@ -127,7 +127,6 @@ export function errorMessage(code?: string) {
         profile_workspace_outdated: "资料已更新，请重新加载后继续编辑。",
         profile_in_use: "这份资料正被申请使用，请先在申请概览中更换资料。",
         resume_in_use: "这份简历正被申请使用，请先在申请概览中更换简历。",
-        invalid_fact_transition: "所选事实不能执行此操作，请检查审核状态。",
         resume_draft_needs_review: "部分内容需要确认，请检查后重试。",
         resume_content_required: "请先填写简历内容。",
         debrief_input_too_large: "资料内容较长，请缩短描述或分段优化。",

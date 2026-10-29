@@ -110,3 +110,45 @@ def offline_network_boundary(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
     monkeypatch.setattr(socket, "getaddrinfo", dns)
+
+
+@pytest.fixture
+async def evidence_rows(sessions):
+    """Inspect internal evidence in the isolated test DB, not through retired Product APIs."""
+    from sqlalchemy import select
+
+    from career_agent.infrastructure.entities import PersonalFact
+
+    async def read():
+        async with sessions() as session:
+            return [
+                {
+                    "id": str(row.id),
+                    "statement": row.statement,
+                    "status": row.status.value,
+                    "revision": row.revision,
+                }
+                for row in await session.scalars(select(PersonalFact))
+            ]
+
+    return read
+
+
+@pytest.fixture
+async def seed_evidence(sessions):
+    """Canonical legacy input fixture; Product onboarding tests use source resolution instead."""
+    from career_agent.application.services import create_fact, verify_user_fact
+    from career_agent.domain.schemas import FactCreate
+
+    async def create(statement, category="project"):
+        async with sessions.begin() as session:
+            row = await create_fact(session, FactCreate(statement=statement, category=category))
+            await verify_user_fact(session, row.id)
+            return {
+                "id": str(row.id),
+                "statement": row.statement,
+                "status": row.status.value,
+                "revision": row.revision,
+            }
+
+    return create

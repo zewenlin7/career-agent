@@ -8,7 +8,6 @@ from pydantic import Field
 from career_agent.domain.schemas import Contract, Text
 
 DraftTask = Literal[
-    "profile_fact_extraction",
     "base_resume_drafting",
     "resume_library_compression",
     "resume_claim_refinement",
@@ -16,17 +15,6 @@ DraftTask = Literal[
     "greeting_refinement",
     "interview_preparation_refinement",
 ]
-
-
-class FactProposal(Contract):
-    section: Literal["education", "experiences", "projects", "skills", "summary"]
-    entry_index: int = Field(ge=0, le=1000)
-    statement: Text
-    source_quote: Text
-
-
-class FactProposals(Contract):
-    facts: list[FactProposal] = Field(max_length=100)
 
 
 class DraftCreate(Contract):
@@ -45,8 +33,7 @@ class DraftCreate(Contract):
 
 
 class DraftAdopt(Contract):
-    selected_indices: list[int] | None = Field(default=None, max_length=100)
-    expected_profile_revision: int | None = None
+    pass
 
 
 class ResumeExpression(Contract):

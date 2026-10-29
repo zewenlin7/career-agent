@@ -482,7 +482,7 @@ async def test_frozen_dependencies_preserve_reuse_without_new_model_calls(
     gateway = ModelGateway(registry(settings, False), POLICY, {"fixture": FixtureTaskProvider()})
     research = FrozenResearch({}, FaultController(FaultPlan()))
     async with sandbox(settings, gateway, research) as (client, isolated_sessions):
-        refs = await bootstrap(client, case.source_snapshot["bootstrap"])
+        refs = await bootstrap(client, case.source_snapshot["bootstrap"], isolated_sessions)
         # Live is business/cache identity only: dependency injection still pins fixture adapters.
         request = replace_refs(case.source_snapshot["request"], refs)
         request.update(targets=[target], mode="live")

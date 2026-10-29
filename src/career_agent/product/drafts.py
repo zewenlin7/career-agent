@@ -10,10 +10,10 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from career_agent.application import resumes
-from career_agent.application.services import check_revision, create_fact, put_profile, require
+from career_agent.application.services import require
 from career_agent.config import Settings
 from career_agent.domain.rules import DomainError, FactStatus, RunStatus
-from career_agent.domain.schemas import FactCreate, ProfileData, ProfileWrite
+from career_agent.domain.schemas import ProfileData
 from career_agent.evaluation.recording import bind_artifact
 from career_agent.infrastructure import entities as e
 from career_agent.infrastructure.claims import claim
@@ -34,14 +34,13 @@ from career_agent.preparation.guardrails import validate_greeting, validate_inte
 from career_agent.product.draft_contracts import (
     DraftAdopt,
     DraftCreate,
-    FactProposals,
     ResumeExpressions,
 )
 from career_agent.product.entities import ProductDraft
 from career_agent.product.prompts import TASK_SCHEMAS
 from career_agent.profile_area.contracts import ResumeDraftData
 from career_agent.profile_area.entities import ResumeWorkspace
-from career_agent.profile_area.service import draft_document, publish_data
+from career_agent.profile_area.service import draft_document
 from career_agent.resume.grounding import FactEvidence, numbers, validate_grounding
 from career_agent.resume.presentation import Presentation, section_rank
 from career_agent.resume.schemas import FactSnapshot, InputSnapshot, ResumeDocument
@@ -78,40 +77,7 @@ def validate_output(value: BaseModel, context: dict[str, Any]) -> None:
     if isinstance(value, ResumeExpressions):
         value = expressions_document(value, context)
     facts = {UUID(f["id"]): f for f in context["facts"]}
-    if isinstance(value, FactProposals):
-        seen = set()
-        for proposal in value.facts:
-            entries = context.get("extraction_entries", context["profile"]).get(
-                proposal.section, []
-            )
-            if proposal.entry_index >= len(entries):
-                raise ModelGatewayError("invalid_fact_source")
-            entry = entries[proposal.entry_index]
-            if not isinstance(entry, dict):
-                raise ModelGatewayError("invalid_fact_source")
-            source = " · ".join(
-                str(entry[k])
-                for k in [
-                    "organization",
-                    "role",
-                    "degree",
-                    "major",
-                    "start_date",
-                    "end_date",
-                    "technology_stack",
-                    "description",
-                    "achievements",
-                ]
-                if entry.get(k)
-            )
-            if proposal.statement != proposal.source_quote or proposal.source_quote not in source:
-                raise ModelGatewayError("unsupported_fact_proposal")
-            key = (proposal.section, proposal.entry_index, proposal.statement)
-            if key in seen:
-                raise ModelGatewayError("duplicate_fact_proposal")
-            seen.add(key)
-            safe_prose(proposal.statement, require_chinese=False)
-    elif isinstance(value, ResumeDraftData):
+    if isinstance(value, ResumeDraftData):
         source_items = {
             i["item_id"]: i for sec in context["source_document"]["sections"] for i in sec["items"]
         }
@@ -217,23 +183,6 @@ def fixture_output(task: str, inputs: dict[str, Any]) -> dict[str, Any]:
         }
     if inputs["original"] is not None:
         return dict(inputs["original"])
-    if task == "profile_fact_extraction":
-        return {
-            "facts": [
-                {
-                    "section": section,
-                    "entry_index": i,
-                    "statement": entry["description"],
-                    "source_quote": entry["description"],
-                }
-                for section, entries in context.get(
-                    "extraction_entries",
-                    {k: context["profile"][k] for k in ("education", "experiences", "projects")},
-                ).items()
-                for i, entry in enumerate(entries)
-                if entry.get("description")
-            ]
-        }
     document = dict(context["document_template"])
     document["sections"] = [
         {
@@ -257,6 +206,12 @@ def fixture_output(task: str, inputs: dict[str, Any]) -> dict[str, Any]:
     return ResumeDocument.model_validate(document).model_dump(mode="json")
 
 
+def ensure_active_task(task: str) -> None:
+    # Historical rows remain readable, including unknown/interrupted outcomes.
+    if task == "profile_fact_extraction":
+        raise DomainError("task_retired", 410)
+
+
 class DraftService:
     def __init__(
         self, sessions: async_sessionmaker[AsyncSession], settings: Settings, gateway: ModelGateway
@@ -268,26 +223,11 @@ class DraftService:
         original = None
         source_resume = None
         extra: dict[str, Any] = {}
+        ensure_active_task(request.task)
         profile_id = request.profile_id
-        extraction_workspace = None
-        if request.source_workspace_id and request.task == "profile_fact_extraction":
-            if request.source_resume_revision_id:
-                raise DomainError("invalid_request", 422)
-            extraction_workspace = await require(
-                session, ResumeWorkspace, request.source_workspace_id
-            )
-            source_profile = extraction_workspace.profile_id
-            if source_profile is None:
-                source_profile = (
-                    await publish_data(session, extraction_workspace.source, update_current=False)
-                ).id
-            if profile_id and profile_id != source_profile:
-                raise DomainError("context_revision_mismatch", 422)
-            profile_id = source_profile
         extraction_resume = None
         if request.source_resume_revision_id:
             if request.task not in {
-                "profile_fact_extraction",
                 "resume_library_compression",
                 "resume_refinement",
             }:
@@ -431,29 +371,9 @@ class DraftService:
                 .order_by(e.PersonalFact.id)
             )
         )
-        extraction_source = extraction_workspace or extraction_resume
-        if extraction_source and request.task == "profile_fact_extraction":
-            # The same governed extraction task receives literal resume-source entries.
-            # It never sees a mutable/latest resume or infers a different profile binding.
-            extra["extraction_entries"] = {
-                {
-                    "experience": "experiences",
-                    "projects": "projects",
-                    "education": "education",
-                    "skills": "skills",
-                    "summary": "summary",
-                }[section["name"]]: [{"description": item["text"]} for item in section["items"]]
-                for section in extraction_source.document["sections"]
-            }
-            extra["extraction_source"] = {
-                "kind": "resume_workspace" if extraction_workspace else "resume",
-                "id": str(extraction_source.id),
-                "revision": extraction_source.revision,
-            }
         if (
             request.task
             not in {
-                "profile_fact_extraction",
                 "base_resume_drafting",
                 "resume_library_compression",
                 "resume_claim_refinement",
@@ -534,6 +454,7 @@ class DraftService:
         }
 
     async def create(self, request: DraftCreate) -> dict[str, Any]:
+        ensure_active_task(request.task)
         async with self.sessions.begin() as session:
             await claim(session, "product-draft:" + str(request.request_id))
             existing = await session.scalar(
@@ -609,6 +530,7 @@ class DraftService:
             try:
                 async with self.sessions.begin() as session:
                     row = await require(session, ProductDraft, id, lock=True)
+                    ensure_active_task(row.task)
                     if row.status == "running":
                         row.status, row.reason = "recovery_required", "execution_interrupted"
                     if row.status != "pending":
@@ -680,6 +602,7 @@ class DraftService:
     async def adopt(self, id: UUID, request: DraftAdopt) -> dict[str, Any]:
         async with self.sessions.begin() as session:
             row = await require(session, ProductDraft, id, lock=True)
+            ensure_active_task(row.task)
             if row.adopted is not None:
                 return self.view(row)
             if (
@@ -768,99 +691,7 @@ class DraftService:
                     }
                 }
                 return self.view(row)
-            if isinstance(output, FactProposals):
-                if request.expected_profile_revision is not None:
-                    check_revision(profile.revision, request.expected_profile_revision)
-                elif request.selected_indices is None:
-                    raise DomainError("profile_revision_required", 422)
-                data = ProfileData.model_validate(profile.data)
-                ids = []
-                if request.selected_indices is not None and (
-                    len(set(request.selected_indices)) != len(request.selected_indices)
-                    or any(i < 0 or i >= len(output.facts) for i in request.selected_indices)
-                ):
-                    raise DomainError("invalid_request", 422)
-                chosen = (
-                    range(len(output.facts))
-                    if request.selected_indices is None
-                    else request.selected_indices
-                )
-                duplicate_ids = []
-                await session.execute(text("SELECT pg_advisory_xact_lock(78420101)"))
-                for index in chosen:
-                    proposal = output.facts[index]
-                    entry = (
-                        getattr(data, proposal.section)[proposal.entry_index]
-                        if not (
-                            original_request.source_resume_revision_id
-                            or original_request.source_workspace_id
-                        )
-                        else None
-                    )
-                    category = {
-                        "experiences": "experience",
-                        "projects": "project",
-                        "education": "education",
-                        "skills": "skill",
-                        "summary": "general",
-                    }[proposal.section]
-                    fact = await session.scalar(
-                        select(e.PersonalFact)
-                        .where(
-                            e.PersonalFact.archived_at.is_(None),
-                            e.PersonalFact.statement == proposal.statement,
-                            e.PersonalFact.status.in_([FactStatus.PROPOSED, FactStatus.VERIFIED]),
-                        )
-                        .order_by(e.PersonalFact.id)
-                        .limit(1)
-                    )
-                    if fact is None:
-                        fact = await create_fact(
-                            session,
-                            FactCreate(
-                                statement=proposal.statement,
-                                category=category,
-                                source_locator=(
-                                    f"resume:{original_request.source_resume_revision_id}:{proposal.section}:{proposal.entry_index}"
-                                    if original_request.source_resume_revision_id
-                                    else (
-                                        f"resume-draft:{original_request.source_workspace_id}:"
-                                        f"{row.context['context']['extraction_source']['revision']}:"
-                                        f"{proposal.section}:{proposal.entry_index}"
-                                    )
-                                    if original_request.source_workspace_id
-                                    else (
-                                        f"profile:{profile.id}:"
-                                        f"{proposal.section}:{proposal.entry_index}"
-                                    )
-                                ),
-                            ),
-                        )
-                        if entry is not None:
-                            entry.fact_ids.append(fact.id)
-                    else:
-                        duplicate_ids.append(str(fact.id))
-                    ids.append(str(fact.id))
-                if (
-                    request.selected_indices is None
-                    and not original_request.source_resume_revision_id
-                    and not original_request.source_workspace_id
-                ):
-                    updated = await put_profile(
-                        session,
-                        ProfileWrite(
-                            expected_revision=request.expected_profile_revision, data=data
-                        ),
-                    )
-                    row.adopted = {"fact_ids": ids, "profile_id": str(updated.id)}
-                else:
-                    row.adopted = {
-                        "fact_ids": ids,
-                        "existing_fact_ids": duplicate_ids,
-                        "profile_id": str(profile.id),
-                    }
-                subject = row.id
-            elif isinstance(output, ResumeDraftData):
+            if isinstance(output, ResumeDraftData):
                 from career_agent.profile_area.service import next_resume_number
 
                 await session.execute(text("SELECT pg_advisory_xact_lock(78420101)"))

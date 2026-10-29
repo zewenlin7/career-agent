@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Removed — retired manual Facts workflow
+
+- Remove unreachable Facts/legacy onboarding UI, manual Facts HTTP/BFF endpoints, old Resume
+  review/publish and their dedicated tests/fixtures. The old Product URL still redirects.
+- Retire explicit fact-extraction generation/adoption and dedicated prompt/schema/fixture branches;
+  historical draft results remain readable, execution returns `task_retired` before dispatch.
+  Shared Product prompt versions advance after removing extraction-only instructions.
+- Preserve internal evidence materialization, source/claim checks, canonical PDF and frozen Eval
+  evidence. Eval bootstrap restores evidence through services in its isolated database. Migrate mixed tests to resolve/render and active-task cancellation; retain lineage and
+  historical reference coverage. No migration or business-data deletion.
+- Profile manual acceptance remains recorded; Application/Internal final manual acceptance remains pending.
+
 ### v0.5 checkpoint — Profile workspace manually accepted
 
 - Profile manual acceptance is complete. Accumulated Application and Internal implementations are

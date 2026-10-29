@@ -286,3 +286,10 @@ Profile workspace has passed user manual acceptance. Application and Internal im
 included, with offline regression coverage, but still await their subsequent manual acceptance.
 Use `./cgstart` from the repository root for the checked local supervisor; standalone commands above
 remain supported. No UI test here invokes paid providers.
+
+## Retired Facts surface
+
+The unused Facts and legacy Profile onboarding components are removed. The Product BFF no longer
+allows manual Facts management or Resume review/publish. The old Facts URL remains a redirect.
+Active Resume resolve/render, shared Draft actions and refinement keep their existing contracts.
+The actual source/grounding validators are exercised by the real-backend suite, not by HTTP fixtures.

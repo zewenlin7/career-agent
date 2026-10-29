@@ -1,15 +1,4 @@
 import type { ApplicationStatus } from "../applications/contracts";
-export type Fact = {
-  id: string;
-  created_at: string;
-  lineage_id: string;
-  revision: number;
-  statement: string;
-  category: string;
-  status: "proposed" | "verified" | "rejected" | "superseded";
-  replaces_id: string | null;
-  verified_at: string | null;
-};
 export type Experience = {
   organization: string;
   role: string;
@@ -94,15 +83,6 @@ export const blankProfile = (): ProfileData => ({
   skills: [],
   preferences: {},
 });
-export function linkedFacts(profile: ProfileData): string[] {
-  return [
-    ...new Set(
-      [...profile.education, ...profile.experiences, ...profile.projects].flatMap(
-        (e) => e.fact_ids,
-      ),
-    ),
-  ];
-}
 export const transitions: Record<ApplicationStatus, ApplicationStatus[]> = {
   tracking: ["preparing", "applied", "withdrawn", "closed"],
   preparing: ["applied", "withdrawn", "closed"],

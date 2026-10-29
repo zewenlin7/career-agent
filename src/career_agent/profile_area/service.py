@@ -301,39 +301,6 @@ async def create_draft(
     return row
 
 
-async def review_draft(session: AsyncSession, row: ResumeWorkspace) -> list[e.PersonalFact]:
-    result = []
-    for section in c.ResumeDraftData.model_validate(row.document).sections:
-        for item in section.items:
-            locator = f"resume-draft:{row.id}:{item.item_id}"
-            fact = await session.scalar(
-                select(e.PersonalFact)
-                .where(
-                    e.PersonalFact.statement == item.text,
-                    e.PersonalFact.status.in_([FactStatus.PROPOSED, FactStatus.VERIFIED]),
-                    e.PersonalFact.archived_at.is_(None),
-                )
-                .order_by(e.PersonalFact.created_at)
-                .limit(1)
-            )
-            if fact is None:
-                fact = e.PersonalFact(
-                    statement=item.text,
-                    category={
-                        "projects": "project",
-                        "skills": "skill",
-                        "experience": "experience",
-                        "education": "education",
-                        "summary": "general",
-                    }[section.name],
-                    source_locator=locator,
-                )
-                session.add(fact)
-                await session.flush()
-            result.append(fact)
-    return result
-
-
 async def accept_draft(session: AsyncSession, row: ResumeWorkspace) -> e.ResumeVariantRevision:
     if row.accepted_revision_id:
         return await require(session, e.ResumeVariantRevision, row.accepted_revision_id)
@@ -407,52 +374,6 @@ async def accept_draft(session: AsyncSession, row: ResumeWorkspace) -> e.ResumeV
     row.accepted_revision_id = saved.id
     row.revision += 1
     return saved
-
-
-async def refresh_current_fact_scope(session: AsyncSession) -> None:
-    """Explicit fact decisions freeze a new scope; old Application bindings stay exact."""
-    row = await workspace(session)
-    from career_agent.profile_area.entities import ProfileRecord, ProfileRecordSnapshot
-
-    records = await session.scalars(
-        select(ProfileRecord)
-        .where(ProfileRecord.archived_at.is_(None), ProfileRecord.profile_id.is_not(None))
-        .order_by(ProfileRecord.id)
-        .with_for_update()
-    )
-    for record in records:
-        assert record.profile_id is not None
-        old = await require(session, e.PersonalProfile, record.profile_id)
-        verified_ids = list(
-            await session.scalars(
-                select(e.PersonalFact.id)
-                .where(
-                    e.PersonalFact.status == FactStatus.VERIFIED,
-                    e.PersonalFact.archived_at.is_(None),
-                )
-                .order_by(e.PersonalFact.id)
-            )
-        )
-        if set(ProfileData.model_validate(old.data).fact_ids) == set(verified_ids):
-            continue
-        snapshot = await publish_data(session, record.data, update_current=False)
-        record.profile_id = snapshot.id
-        record.data = {**record.data, "fact_ids": snapshot.data["fact_ids"]}
-        record.revision += 1
-        if await session.get(ProfileRecordSnapshot, (record.id, snapshot.id)) is None:
-            session.add(ProfileRecordSnapshot(record_id=record.id, profile_id=snapshot.id))
-    if row.current_profile_id is None:
-        return
-    previous_id = row.current_profile_id
-    current = await require(session, e.PersonalProfile, previous_id)
-    result = await publish_data(session, current.data)
-    if result.id == previous_id:
-        return
-    row.current_profile_id = result.id
-    if row.base_profile_id == previous_id:
-        row.base_profile_id = result.id
-        row.data = {**row.data, "fact_ids": result.data["fact_ids"]}
-    row.revision += 1
 
 
 async def next_resume_number(session: AsyncSession) -> int:

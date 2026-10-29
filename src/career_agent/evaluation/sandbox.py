@@ -17,7 +17,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from career_agent.application.services import create_fact, verify_user_fact
 from career_agent.config import Settings
+from career_agent.domain.schemas import FactCreate
 from career_agent.models.contracts import ModelGatewayError
 from career_agent.models.gateway import ModelGateway
 from career_agent.preparation.research import ResearchAdapter
@@ -104,7 +106,9 @@ def replace_refs(value: Any, refs: dict[str, str]) -> Any:
     return value
 
 
-async def bootstrap(client: AsyncClient, source: dict[str, Any]) -> dict[str, str]:
+async def bootstrap(
+    client: AsyncClient, source: dict[str, Any], sessions: async_sessionmaker[AsyncSession]
+) -> dict[str, str]:
     # No ambient defaults: absence of an authoritative input is case_incompatible.
     required = {"facts", "profile", "job", "resume"}
     if not required <= source.keys():
@@ -118,15 +122,17 @@ async def bootstrap(client: AsyncClient, source: dict[str, Any]) -> dict[str, st
         result: dict[str, Any] = response.json()
         return result
 
-    for index, item in enumerate(source["facts"]):
-        fact = await post("facts", {"statement": item["statement"], "category": item["category"]})
-        if item["status"] == "verified":
-            response = await client.post(f"/api/v1/facts/{fact['id']}/verify")
-            if response.status_code != 200:
+    # Restore frozen evidence inside the isolated trial, not through retired Product APIs.
+    async with sessions.begin() as session:
+        for index, item in enumerate(source["facts"]):
+            if item["status"] not in {"verified", "proposed"}:
                 raise ModelGatewayError("case_incompatible")
-        elif item["status"] != "proposed":
-            raise ModelGatewayError("case_incompatible")
-        refs[f"$fact:{index}"] = fact["id"]
+            fact = await create_fact(
+                session, FactCreate(statement=item["statement"], category=item["category"])
+            )
+            if item["status"] == "verified":
+                await verify_user_fact(session, fact.id)
+            refs[f"$fact:{index}"] = str(fact.id)
     response = await client.put(
         "/api/v1/profile",
         json={"expected_revision": 0, "data": replace_refs(source["profile"], refs)},

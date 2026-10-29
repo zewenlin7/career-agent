@@ -54,11 +54,6 @@ class Rename(Publish):
     name: Label
 
 
-class FactAction(Contract):
-    ids: list[UUID] = Field(min_length=1, max_length=100)
-    action: Literal["verify", "reject", "archive"]
-
-
 class ResumeCreate(Contract):
     request_id: UUID | None = None
     profile_id: UUID | None = None
@@ -67,10 +62,6 @@ class ResumeCreate(Contract):
 class ResumeEdit(DraftWrite):
     request_id: UUID
     presentation: Presentation | None = None
-
-
-class ResumeConfirm(Publish):
-    confirmed_item_ids: list[UUID] = Field(default_factory=list, max_length=500)
 
 
 class ExpressionEdit(Contract):

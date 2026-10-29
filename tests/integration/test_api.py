@@ -8,7 +8,7 @@ from career_agent.infrastructure import entities as e
 pytestmark = pytest.mark.integration
 
 
-async def test_health_profile_and_fact_lifecycle(client, sessions, synthetic):
+async def test_health_profile_history(client, sessions, synthetic):
     assert (await client.get("/api/v1/health")).json()["milestone"] == "v0.1c"
     assert (await client.get("/api/v1/profile")).status_code == 404
     payload = {"expected_revision": 0, "data": synthetic["profile"]}
@@ -21,27 +21,6 @@ async def test_health_profile_and_fact_lifecycle(client, sessions, synthetic):
     payload["data"] = {**payload["data"], "display_name": "Updated synthetic profile"}
     assert (await client.put("/api/v1/profile", json=payload)).json()["revision"] == 2
     assert (await client.get("/api/v1/profile")).json()["revision"] == 2
-    fact = (await client.post("/api/v1/facts", json=synthetic["fact"])).json()
-    assert fact["status"] == "proposed"
-    verified = await client.post(f"/api/v1/facts/{fact['id']}/verify")
-    assert verified.status_code == 200 and verified.json()["verified_at"] is not None
-    assert (await client.post(f"/api/v1/facts/{fact['id']}/verify")).status_code == 409
-    replacement = {
-        **synthetic["fact"],
-        "statement": "Updated synthetic fact",
-        "expected_revision": 1,
-    }
-    response = await client.post(f"/api/v1/facts/{fact['id']}/supersede", json=replacement)
-    assert response.status_code == 201, response.text
-    new = response.json()
-    assert new["status"] == "proposed" and new["verified_at"] is None
-    assert new["revision"] == 2 and new["replaces_id"] == fact["id"]
-    assert new["lineage_id"] == fact["lineage_id"]
-    old = next(f for f in (await client.get("/api/v1/facts")).json() if f["id"] == fact["id"])
-    assert old["statement"] == synthetic["fact"]["statement"] and old["status"] == "superseded"
-    assert (
-        await client.post(f"/api/v1/facts/{fact['id']}/supersede", json=replacement)
-    ).status_code == 409
     async with sessions() as session:
         profiles = list(await session.scalars(select(e.PersonalProfile)))
         assert len(profiles) == 2
@@ -152,7 +131,6 @@ async def test_runtime_reads(client, sessions):
 @pytest.mark.parametrize(
     "path,payload,status",
     [
-        ("/facts", {"statement": "Synthetic", "category": "project", "status": "verified"}, 422),
         ("/jobs", {"company_name": "Synthetic"}, 422),
         ("/interviews", {"application_id": str(uuid4()), "round_name": "Synthetic"}, 404),
         (
@@ -175,14 +153,6 @@ async def test_missing_and_invalid_ids(client):
     assert (await client.get("/api/v1/jobs?limit=1000")).status_code == 422
 
 
-async def test_explicit_reject_fact(client, synthetic):
-    fact = (await client.post("/api/v1/facts", json=synthetic["fact"])).json()
-    url = f"/api/v1/facts/{fact['id']}"
-    assert (await client.post(url + "/reject")).json()["status"] == "rejected"
-    assert (await client.post(url + "/verify")).status_code == 409
-    assert (await client.post(url + "/reject")).status_code == 409
-
-
 async def test_concurrent_updates_use_revision_lock(client, synthetic):
     import asyncio
 
@@ -193,15 +163,3 @@ async def test_concurrent_updates_use_revision_lock(client, synthetic):
     )
     assert sorted(r.status_code for r in responses) == [200, 409]
     assert len((await client.get(url)).json()["events"]) == 2
-
-
-async def test_failed_fact_replacement_rolls_back(client, synthetic):
-    fact = (await client.post("/api/v1/facts", json=synthetic["fact"])).json()
-    await client.post(f"/api/v1/facts/{fact['id']}/verify")
-    response = await client.post(
-        f"/api/v1/facts/{fact['id']}/supersede",
-        json={**synthetic["fact"], "expected_revision": 1, "source_document_id": str(uuid4())},
-    )
-    assert response.status_code == 404
-    facts = (await client.get("/api/v1/facts")).json()
-    assert len(facts) == 1 and facts[0]["status"] == "verified"
