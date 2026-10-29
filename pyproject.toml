@@ -58,4 +58,9 @@ exclude = [
   "/frontend/next-env.d.ts",
   "/docs/ui-design-system.md",
   "/docs/web-backend-discovery.md",
+  "/AGENTS.md",
+  "/docs/change-impact-checklist.md",
+  "/docs/change-checks/contracts.md",
+  "/docs/change-checks/data-lifecycle.md",
+  "/docs/change-checks/product-ui.md",
 ]
