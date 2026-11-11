@@ -7,6 +7,18 @@ Undated related v0.5 entries are grouped with their feature history, without ass
 
 ## Unreleased
 
+### Post-milestone retired implementation cleanup
+
+- Remove the unused foundation placeholder and superseded single-type Interview picker. Current
+  combined selection, exact links and compatibility redirects remain unchanged.
+- Remove no-op Product debug-reference/mode wrappers and their unused prop/state plumbing; keep
+  source data, Internal diagnostics and the existing live-mode request value.
+- Remove the retired implicit Resume compression algorithm and its three exclusive policy tests.
+  Explicit presentation/compression, historical Decision decoding and overflow/PDF checks remain.
+- Exclude local `.Rhistory` from source distributions without reading or removing the file.
+- Preserve legacy Mock/Debrief output recovery, Eval fixtures, direct API compatibility and Facts
+  retirement fences. See [candidate and coverage decisions](docs/retired-code-cleanup.md).
+
 ### Documentation entrypoints and status reconciliation
 
 - Make English/Chinese root READMEs matching project entrypoints; move operational instructions and

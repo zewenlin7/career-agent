@@ -1,8 +1,8 @@
 # Career Agent work and acceptance map
 
-## Current stage and pre-commit work
+## Current stage and cleanup review
 
-**v0.5 Application/Interview closeout; accumulated changes are not yet authorized for submission.**
+**The Application/Interview milestone was committed and pushed; a separate cleanup is under review.**
 Profile Workspace has passed user manual acceptance. Application/Interview overall final confirmation
 and Internal final manual acceptance remain open. Implemented, offline-verified and user-observed are
 separate states; none by itself establishes broad model quality or a release.
@@ -17,8 +17,9 @@ separate states; none by itself establishes broad model quality or a release.
 - [x] Project README layering, matching Chinese entrypoint and current frontend-contract reconciliation.
 - [ ] User final confirmation of the accumulated Application/Interview milestone.
 - [ ] Internal final manual acceptance; do not infer it from fixture tests.
-- [ ] Explicit user authorization for staging/commit/push; after an authorized push, inspect the actual
-  remote CI outcome. Neither a local check nor an older stage's CI proves this accumulated change passed remotely.
+- [x] Milestone commit/push completed, as reported by the user and reflected in local history.
+- [ ] Separate cleanup review and explicit staging/commit/push authorization. This cleanup does not
+  query remote CI; local checks do not establish its latest status.
 - [ ] Confirm the target business database revision and separately authorize the necessary full migration
   path. The code includes Review/Notes migration `c205c2102601` followed by Job receipts `c305c2202601`;
   do not apply only the old Review reminder or infer deployment state. Consult the full files in
@@ -80,12 +81,13 @@ global atomicity. These limits do not negate the implemented task-specific recov
 
 ## Post-commit third round: retired code cleanup
 
-- [ ] Start only after the milestone commit and separate scope confirmation.
-- [ ] Identify actually unreachable/retired implementations and tests; do not remove compatibility merely
-  because Product no longer exposes a control. Retain old parsers, frozen provenance, Eval replay and
-  historical request/output recovery dependencies.
-- [ ] Keep regression coverage for active contracts; do not restore Facts approval gates, fixed Mock
-  scheduling or input-based Debrief generation reuse while cleaning historical paths.
+- [x] Scoped cleanup authorized after milestone commit; remove the superseded picker/placeholder,
+  no-op Product wrappers and retired automatic Resume compression policy.
+- [x] Classify compatibility and test coverage before removal; retain historical parsers, frozen
+  provenance, Eval replay, retirement fences and explicit API/URL compatibility.
+- [ ] Review the independent cleanup diff and final regression evidence before authorizing submission.
+  [Candidate and coverage decisions](docs/retired-code-cleanup.md) record the bounded scope;
+  this is not a claim that every unused symbol in the repository has been audited.
 
 ## Next function stage and Polish
 

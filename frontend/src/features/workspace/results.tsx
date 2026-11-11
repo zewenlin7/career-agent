@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import type { Context, PackageView, Result, Submission, Page } from "./contracts";
 import { api, endpoint, useRead } from "./client";
-import { ReadState, Refs, Status, ErrorNotice } from "./ui";
+import { ReadState, Status, ErrorNotice } from "./ui";
 import { collectSubmissionHistory } from "./submission-history";
 export const readSubmissions = (path: string, signal: AbortSignal) =>
   collectSubmissionHistory((offset) =>
@@ -50,12 +50,6 @@ export function ResumeContent({ content }: { content: Record<string, unknown> })
                 return (
                   <li key={j} className="whitespace-pre-wrap break-words">
                     {text(item.text)}
-                    <Refs
-                      values={{
-                        fact_refs: item.fact_refs,
-                        requirement_refs: item.requirement_refs,
-                      }}
-                    />
                   </li>
                 );
               })}
@@ -174,12 +168,6 @@ export function ResultContent({
                       <li key={j}>{text(s)}</li>
                     ))}
                   </ul>
-                  <Refs
-                    values={{
-                      fact_refs: q.related_fact_refs,
-                      requirement_refs: q.related_requirement_refs,
-                    }}
-                  />
                 </article>
               );
             })}
@@ -228,7 +216,6 @@ export function PdfLinks({ id, downloadFirst = false }: { id: string; downloadFi
 }
 export function ResultCard({
   result,
-  packageId,
   submissions = [],
   applicationId,
   onSaved,
@@ -242,7 +229,6 @@ export function ResultCard({
   result: Result;
   applicationId?: string;
   onSaved?: () => void;
-  packageId: string;
   submissions?: Submission[];
 }) {
   const jd = useRead<{ job_id: string; requirements: { id: string; text: string }[] }>(
@@ -276,29 +262,9 @@ export function ResultCard({
         disabled={disabled}
         onBusyChange={onBusyChange}
       />
-      {result.content && result.kind === "greeting_generation" && (
-        <Refs
-          values={{
-            fact_refs: result.content.fact_refs,
-            requirement_refs: result.content.requirement_refs,
-          }}
-        />
-      )}
       {result.download_url && result.render_artifact_id && (
         <PdfLinks id={result.render_artifact_id} />
       )}
-      <Refs
-        values={{
-          package_id: packageId,
-          result_id: result.result_id,
-          source_resume_revision_id: result.source_resume_revision_id,
-          resume_revision_id: result.resume_revision_id,
-          revision: result.revision,
-          render_artifact_id: result.render_artifact_id,
-          ...result.context,
-          versions: result.versions,
-        }}
-      />
     </article>
   );
 }
@@ -326,7 +292,7 @@ export function PackageDetail({
           {read.data.results
             .filter((r) => !target || r.kind === target)
             .map((r) => (
-              <ResultCard key={r.kind} result={r} packageId={id} submissions={submissions} />
+              <ResultCard key={r.kind} result={r} submissions={submissions} />
             ))}
           {target && !read.data.results.some((r) => r.kind === target) && (
             <p>这次准备没有生成此类结果。</p>

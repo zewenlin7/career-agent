@@ -19,14 +19,14 @@ import { SourceLinks } from "./source-links";
 import { formatTime } from "@/lib/date-time";
 import type { ApplicationBinding } from "./application-binding";
 import { readHistory } from "./history";
-import { actualLabel, ActualDetail, readActualHistory } from "./actual-interview";
+import { ActualDetail } from "./actual-interview";
 export { ActualPage, ActualDetail } from "./actual-interview";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useConfirmation } from "../profile-area/confirmation";
 import { Button } from "@/components/ui/button";
-import type { Actual, Context, Mock, Mode, Page, SessionRow } from "./contracts";
+import type { Context, Mock, Page, SessionRow } from "./contracts";
 import { api, useAction, useRead, useRequestId } from "./client";
-import { control, ErrorNotice, Field, ModeSelect, ReadState, Refs, Select } from "./ui";
+import { control, ErrorNotice, Field, ReadState, Select } from "./ui";
 export function MockPage({ ctx }: { ctx: Context }) {
   const search = useSearchParams();
   const binding = useRead<ApplicationBinding>(`applications/${ctx.application.id}/context`);
@@ -38,8 +38,7 @@ export function MockPage({ ctx }: { ctx: Context }) {
     readHistory,
   );
   const unfinished = sessions.data?.items.filter((row) => row.status !== "completed") || [];
-  const [mode, setMode] = useState<Mode>("live"),
-    [focus, setFocus] = useState("mixed"),
+  const [focus, setFocus] = useState("mixed"),
     [policy, setPolicy] = useState("quick"),
     [primary, setPrimary] = useState(3),
     [follow, setFollow] = useState(1);
@@ -81,7 +80,7 @@ export function MockPage({ ctx }: { ctx: Context }) {
                       ? { primary_target: primary, followup_max: follow }
                       : {}),
                   },
-                  mode,
+                  mode: "live",
                 };
                 // Retain creation identity through response loss and reload, without
                 // storing user text or replaying automatically on navigation.
@@ -224,7 +223,6 @@ export function MockPage({ ctx }: { ctx: Context }) {
                   </Field>
                 </>
               )}
-              <ModeSelect value={mode} onChange={setMode} />
               <div className="text-center">
                 <Button
                   type="submit"
@@ -635,9 +633,6 @@ export function MockDetail({
             </p>
           )}
 
-          <Refs
-            values={{ session_id: data.id, revision: data.revision, ...data.context.binding }}
-          />
           {data.stop_reason && <ErrorNotice code={data.stop_reason} />}
           <ol className="space-y-5">
             {groups.map((group) => (
@@ -814,63 +809,5 @@ export function HistoryPage({ ctx }: { ctx: Context }) {
           <ActualDetail key={selected} ctx={ctx} id={id} />
         ))}
     </section>
-  );
-}
-export function InterviewList({
-  ctx,
-  type,
-  onSelect,
-}: {
-  ctx: Context;
-  type: "mock" | "actual";
-  onSelect?: (id: string) => void;
-}) {
-  const search = useSearchParams();
-  const [selected, setSelected] = useState(
-    search.get(type === "actual" ? "actual" : "session") || "",
-  );
-  const mocks = useRead<Page<SessionRow>>(
-    type === "mock" ? `mock-interviews?application_id=${ctx.application.id}` : null,
-    readHistory,
-  );
-  const actuals = useRead<Actual[]>(
-    type === "actual" ? `interviews?application_id=${ctx.application.id}` : null,
-    readActualHistory,
-  );
-  const rows = type === "mock" ? mocks.data?.items : actuals.data;
-  return (
-    <div className={onSelect ? "min-w-0 space-y-5" : "contents"}>
-      <Select
-        inline
-        recordWidth="company"
-        label="面试记录"
-        value={selected}
-        onChange={(e) => {
-          setSelected(e.target.value);
-          onSelect?.(e.target.value);
-        }}
-      >
-        <option value="">请选择</option>
-        {rows?.map((row) => (
-          <option key={row.id} value={row.id}>
-            {"round_name" in row
-              ? actualLabel(row, ctx)
-              : row.display_number
-                ? `第 ${row.display_number} 次模拟面试`
-                : `模拟面试 · ${formatTime(row.created_at)}`}
-          </option>
-        ))}
-      </Select>
-      <div className="w-full min-w-0 [overflow-wrap:anywhere]">
-        <ReadState loaded={!!rows} error={mocks.error || actuals.error} />
-        {!onSelect &&
-          selected &&
-          (type === "mock" ? (
-            <MockDetail key={selected} ctx={ctx} id={selected} readOnly />
-          ) : (
-            <ActualDetail key={selected} ctx={ctx} id={selected} />
-          ))}
-      </div>
-    </div>
   );
 }

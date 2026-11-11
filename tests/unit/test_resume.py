@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from career_agent.domain.rules import FactStatus
 from career_agent.resume.grounding import FactEvidence, validate_grounding
-from career_agent.resume.policy import compress, initial_selection, selection_hash
 from career_agent.resume.renderer import CompileError
 from career_agent.resume.schemas import FactSnapshot, InputSnapshot, ResumeDocument
 from career_agent.resume.store import ArtifactStore
@@ -118,24 +117,6 @@ def test_invalid_variant(resume_fixture, mutation):
         ResumeDocument.model_validate(doc)
 
 
-def test_deterministic_policy_and_required(resume_fixture):
-    doc = ResumeDocument.model_validate(resume_fixture["document"])
-    item = doc.sections[0].items[0]
-    item.short_text = "Backend engineer."
-    optional = doc.sections[1].items[-1]
-    optional.required = False
-    original = initial_selection(doc)
-    shorter = compress(original)
-    assert shorter.decisions[0].action == "short_text"
-    assert original.sections[0].items[0].text != shorter.sections[0].items[0].text
-    selected = compress(shorter)
-    assert selected.decisions[-1].target_id == optional.item_id
-    required = {i.item_id for s in doc.sections for i in s.items if i.required}
-    assert required <= {i.item_id for s in selected.sections for i in s.items}
-    assert compress(selected) is None
-    assert selection_hash(compress(compress(initial_selection(doc)))) == selection_hash(selected)
-
-
 def test_store_no_traversal_symlink_or_tamper(tmp_path):
     store = ArtifactStore(tmp_path)
     ref = uuid4()
@@ -154,52 +135,12 @@ def test_store_no_traversal_symlink_or_tamper(tmp_path):
         store.write(other, b"x")
 
 
-def test_optional_sections_and_priority_order(resume_fixture):
-    doc = ResumeDocument.model_validate(resume_fixture["document"])
-    section = doc.sections[-1]
-    section.required = False
-    for item in section.items:
-        item.required = False
-        item.priority = 0
-    selected = compress(initial_selection(doc))
-    assert [d.action for d in selected.decisions] == ["remove_item", "remove_section"]
-    assert section.section_id not in [s.section_id for s in selected.sections]
-
-
 def test_positive_declared_hard_claim(resume_fixture):
     item = resume_fixture["document"]["sections"][1]["items"][0]
     item["hard_claims"] = [
         {"kind": "organization", "value": "Example Systems", "fact_ref": item["fact_refs"][0]}
     ]
     assert validate_grounding(*grounding_args(resume_fixture)) == []
-
-
-def test_short_forms_are_applied_one_at_a_time_in_priority_order(resume_fixture):
-    doc = ResumeDocument.model_validate(resume_fixture["document"])
-    for index, section in enumerate(doc.sections):
-        section.priority = 90 - index
-        for item in section.items:
-            item.short_text = "Short expression."
-    original = initial_selection(doc)
-    expected = sorted(
-        [(s, i) for s in original.sections for i in s.items],
-        key=lambda pair: (
-            pair[0].priority,
-            pair[1].priority,
-            pair[0].ordering,
-            pair[1].ordering,
-            str(pair[1].item_id),
-        ),
-    )
-    assert len(expected) > 1
-    first = compress(original)
-    assert first is not None and len(first.decisions) == 1
-    assert first.decisions[0].target_id == expected[0][1].item_id
-    assert sum(i.short_text is None for s in first.sections for i in s.items) == 1
-    second = compress(first)
-    assert second is not None and len(second.decisions) == 2
-    assert second.decisions[-1].target_id == expected[1][1].item_id
-    assert all(i.short_text for s in original.sections for i in s.items)
 
 
 def test_structured_layout_is_text_bound_and_retains_every_line():

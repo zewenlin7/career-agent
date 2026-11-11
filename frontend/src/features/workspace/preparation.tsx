@@ -623,7 +623,6 @@ export function OperationPanel({
               )
             }
             result={item.result}
-            packageId=""
             applicationId={ctx.application.id}
             onSaved={reloadHistory}
             disabled={busy}

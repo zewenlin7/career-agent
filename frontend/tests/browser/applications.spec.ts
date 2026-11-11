@@ -24,7 +24,7 @@ test("Applications filters, company discovery, URL pagination and refresh", asyn
   await expect(page.getByRole("link", { name: /后端工程师/ })).toBeVisible();
 });
 
-test("workspace exact context, same-company switch and inherited placeholder", async ({
+test("workspace exact context, same-company switch and resume optimization", async ({
   page,
 }, info) => {
   await page.goto(`/applications/${id(1)}/summary`);

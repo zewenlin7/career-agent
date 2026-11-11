@@ -46,6 +46,7 @@ markers = ["integration: requires real PostgreSQL and creates a temporary databa
 # Hatch does not apply all nested Git/local excludes to source archives.
 [tool.hatch.build.targets.sdist]
 exclude = [
+  "/.Rhistory",
   "/frontend/node_modules",
   "/frontend/.next",
   "/frontend/out",

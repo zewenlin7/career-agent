@@ -4,7 +4,6 @@ import { cloneElement, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { errorText, statusText } from "./contracts";
-import type { Mode } from "./contracts";
 export const control =
   "w-full min-h-11 rounded-control border border-line bg-paper px-3 py-2 text-sm font-normal";
 export function Field({
@@ -107,11 +106,6 @@ export function ReadState({
     <p className="text-sm text-secondary">暂无记录。</p>
   ) : null;
 }
-/** Operational identifiers belong in Internal, never in Product rendering. */
-export function Refs(_props: { values: Record<string, unknown> }) {
-  void _props;
-  return null;
-}
 export function Pages({
   offset,
   setOffset,
@@ -134,9 +128,4 @@ export function Pages({
       </Button>
     </nav>
   );
-}
-/** Test mode is injected by test providers, not a Product control. */
-export function ModeSelect(_props: { value: Mode; onChange: (v: Mode) => void }) {
-  void _props;
-  return null;
 }
