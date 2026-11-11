@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request
 from sqlalchemy import or_, select
 
 from career_agent.api.dependencies import DB
-from career_agent.application.services import require
+from career_agent.application.services import active_jd, require
 from career_agent.domain.rules import DomainError
 from career_agent.infrastructure import entities as e
 from career_agent.models.contracts import ModelGatewayError
@@ -25,6 +25,7 @@ async def prepare(
     request: Request,
     session: DB,
 ) -> dict[str, Any]:
+    await active_jd(session, payload.job_revision_id)
     try:
         factory = getattr(request.app.state, "preparation_dependencies", dependencies)
         async with factory(request.app.state.settings, payload.mode) as (gateway, research):

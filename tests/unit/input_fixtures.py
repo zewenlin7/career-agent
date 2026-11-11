@@ -15,6 +15,24 @@ def valid_inputs(spec: PromptSpec):
         "null": None,
     }
     result = {key: defaults[kinds[0]] for key, kinds in contract.required.items()}
+    if spec.task_type == "mock_interview_turn_generation":
+        result["policy"] = {
+            "decision_contract_version": "mock-decision-v1",
+            "focus": "mixed",
+            "primary_question_count": 0,
+            "followup_count": 0,
+            "interviewer_turn_count": 0,
+            "remaining_primary": 3,
+            "remaining_followup": 1,
+            "all_answered": True,
+            "current_primary_id": None,
+            "current_question_id": None,
+            "legal_actions": ["ask_primary"],
+            "mode": "quick",
+            "primary_target": 3,
+            "followup_max": 1,
+        }
+        result["current_group"] = {"primary_entry_id": None, "entries": []}
     result.update(contract.constants)
     if contract.context_required:
         result["context"] = {

@@ -172,8 +172,18 @@ def initial_cases() -> list[EvalCase]:
             EvalCase.model_validate(
                 {
                     "case_id": key,
-                    "case_version": 2
-                    if key.startswith(("interview_group_debrief.", "interview_overall_debrief."))
+                    "case_version": 3
+                    if key.startswith(
+                        ("mock_interview_turn_generation.", "interview_overall_debrief.")
+                    )
+                    else 2
+                    if key.startswith(
+                        (
+                            "interview_group_debrief.",
+                            "interview_overall_debrief.",
+                            "mock_interview_turn_generation.",
+                        )
+                    )
                     else 1,
                     "entrypoint": entry,
                     "source_snapshot": copy.deepcopy(snapshot),
@@ -195,10 +205,44 @@ def initial_cases() -> list[EvalCase]:
         )
 
     for task in application_prompts().specs:
-        if task == "quality_judgement" or task in TASK_SCHEMAS:
-            continue
         extra: dict[str, Any] = {}
-        if task in {t.value for t in TaskType}:
+        inputs: dict[str, Any]
+        if task in TASK_SCHEMAS:
+            context = {
+                **identity,
+                "facts": [fact],
+                "requirements": [requirement],
+                "profile_refs": profile_refs,
+                "source_document": {"sections": copy.deepcopy(document["sections"])},
+                "compression": task == "resume_library_compression",
+            }
+            original = document if task == "resume_refinement" else None
+            if task == "greeting_refinement":
+                original = {
+                    "locale": "zh-CN",
+                    "greeting_text": "希望交流合成岗位。",
+                    "fact_refs": [id(1)],
+                    "requirement_refs": [id(2)],
+                }
+            elif task == "interview_preparation_refinement":
+                original = {
+                    "locale": "zh-CN",
+                    "likely_topics": [],
+                    "technical_questions": [],
+                    "project_deep_dive_questions": [],
+                    "behavioral_questions": [],
+                    "company_specific_questions": [],
+                    "knowledge_gaps": [],
+                    "questions_to_ask_interviewer": [],
+                }
+            inputs = {"context": context, "original": original, "feedback": "精炼表达"}
+        elif task == "quality_judgement":
+            inputs = {
+                "subject": {"task": "synthetic"},
+                "rubric": {"criteria": ["clarity"]},
+                "evidence": ["output"],
+            }
+        elif task in {t.value for t in TaskType}:
             enum = TaskType(task)
             from career_agent.preparation.prompts import ALLOWLIST
 
@@ -230,9 +274,24 @@ def initial_cases() -> list[EvalCase]:
             inputs = {
                 "stable_context": frozen["data"],
                 "question_history": [],
-                "current_question": None,
-                "current_answer": None,
-                "policy": {"next_kind": "primary", "parent": None, "focus": "technical"},
+                "current_group": {"primary_entry_id": None, "entries": []},
+                "policy": {
+                    "decision_contract_version": "mock-decision-v1",
+                    "legal_actions": ["ask_primary"],
+                    "current_primary_id": None,
+                    "current_question_id": None,
+                    "focus": "technical",
+                    "primary_question_count": 0,
+                    "followup_count": 0,
+                    "interviewer_turn_count": 0,
+                    "remaining_primary": 3,
+                    "remaining_followup": 1,
+                    "all_answered": True,
+                    "mode": "quick",
+                    "primary_target": 3,
+                    "followup_max": 1,
+                    "policy_version": "mock-policy-v1",
+                },
             }
             extra = {"context": frozen}
         elif task == "interview_group_debrief":
@@ -256,6 +315,66 @@ def initial_cases() -> list[EvalCase]:
             },
             fault={"operation": task, "attempt": 1, "kind": "malformed_output"},
             tags=["model_task", "known_risk", "schema"],
+        )
+
+    mock_case = next(c for c in cases if c.case_id == "mock_interview_turn_generation.normal")
+    assert mock_case.model_input is not None
+    for name, complete in [("finish", True), ("continuous_followup", False)]:
+        decision_input = copy.deepcopy(mock_case.model_input)
+        decision_input["current_group"] = {
+            "primary_entry_id": id(9),
+            "entries": [
+                {
+                    "entry_id": id(9),
+                    "kind": "primary",
+                    "question": "如何验证？",
+                    "answer": "使用合成测试验证。",
+                    "primary_entry_id": None,
+                },
+                *(
+                    []
+                    if complete
+                    else [
+                        {
+                            "entry_id": id(10),
+                            "kind": "follow_up",
+                            "question": "如何覆盖失败？",
+                            "answer": "注入隔离故障。",
+                            "primary_entry_id": id(9),
+                        }
+                    ]
+                ),
+            ],
+        }
+        decision_input["policy"].update(
+            mode="custom",
+            primary_target=1 if complete else 2,
+            followup_max=0 if complete else 2,
+            primary_question_count=1,
+            followup_count=0 if complete else 1,
+            interviewer_turn_count=1 if complete else 2,
+            remaining_primary=0 if complete else 1,
+            remaining_followup=0 if complete else 1,
+            current_primary_id=id(9),
+            current_question_id=id(9) if complete else id(10),
+            legal_actions=["finish"] if complete else ["ask_primary", "ask_follow_up"],
+        )
+        add(
+            "mock_interview_turn_generation." + name,
+            {
+                "kind": "component",
+                "component_kind": "model_task",
+                "name": "mock_interview_turn_generation",
+            },
+            mock_case.source_snapshot,
+            decision_input,
+            expect={
+                "check_id": name,
+                "operator": "equals",
+                "path": "output.action" if complete else "output.turn.kind",
+                "value": "finish" if complete else "follow_up",
+            },
+            tags=["model_task", "decision"],
         )
 
     def deterministic(key: str, name: str, data: dict[str, Any], path: str, value: Any) -> None:

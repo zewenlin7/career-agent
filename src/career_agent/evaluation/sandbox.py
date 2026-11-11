@@ -160,6 +160,7 @@ async def actual_cas_recovery(client: AsyncClient, application_id: str) -> dict[
         json={
             "application_id": application_id,
             "round_name": "合成技术面试",
+            "status": "draft",
         },
     )
     if created.status_code != 201:

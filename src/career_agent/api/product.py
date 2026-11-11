@@ -4,40 +4,57 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import String, cast, or_, select, text
+from sqlalchemy import String, cast, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from career_agent.api.dependencies import DB
 from career_agent.api.schemas import ApplicationOut, KnowledgeOut, ProfileOut
 from career_agent.application.compatibility import compatible, execution_versions
-from career_agent.application.services import application_events, check_revision, require
-from career_agent.domain.rules import ApplicationStatus, DomainError, RunStatus
-from career_agent.domain.schemas import KnowledgeUpdate
+from career_agent.application.services import (
+    application_events,
+    check_revision,
+    read_application,
+    require,
+)
+from career_agent.domain.rules import ApplicationStatus, DomainError, RunStatus, application_status
+from career_agent.domain.schemas import ApplicationEntryWrite, KnowledgeUpdate
 from career_agent.infrastructure import entities as e
 from career_agent.preparation.providers import dependencies
 from career_agent.product import bindings, materials, operations
 from career_agent.product.contracts import (
     ApplicationBindingOut,
     ApplicationBindingWrite,
-    ContextSummary,
     OperationCreate,
     OperationOut,
     PackageView,
     Page,
-    ResultView,
+    ResultDelete,
     SubmissionCreate,
+    SubmissionEdit,
     SubmissionOut,
     TaskHistoryItem,
 )
 from career_agent.product.draft_contracts import DraftAdopt, DraftCreate
 from career_agent.product.drafts import DraftService, ensure_active_task
 from career_agent.product.entities import MaterialSubmission, ProductDraft, ProductOperation
-from career_agent.product.results import package_view, populate_target
+from career_agent.product.results import package_view
 
 router = APIRouter(prefix="/api/v1", tags=["product"])
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
+
+
+@router.get("/task-status/{family}/{id}")
+async def task_status(
+    family: Literal["operations", "product-drafts", "mock-interviews", "interview-debriefs"],
+    id: UUID,
+    session: DB,
+    request_id: UUID | None = None,
+) -> dict[str, Any]:
+    from career_agent.product.task_status import status
+
+    return await status(session, family, id, request_id)
 
 
 async def rows(
@@ -85,6 +102,9 @@ def research_view(row: e.CompanyResearch) -> dict[str, Any]:
         "expires_at": row.expires_at,
         "historical_readable": True,
         "reusable_for_current_execution": reusable,
+        "compatible_for_interview": compatible(
+            row.data.get("compatibility_versions"), execution_versions("company_research")
+        ).reusable_for_current_execution,
         "data": row.data,
     }
 
@@ -100,8 +120,9 @@ async def research_list(
     await require(session, e.Company, id)
     stmt = (
         select(e.CompanyResearch)
+        .where(e.CompanyResearch.deleted_at.is_(None))
         .where(e.CompanyResearch.company_id == id)
-        .order_by(e.CompanyResearch.research_version.desc(), e.CompanyResearch.id)
+        .order_by(e.CompanyResearch.fetched_at.desc(), e.CompanyResearch.id)
     )
     if mode:
         stmt = stmt.where(e.CompanyResearch.data["mode"].astext == mode)
@@ -116,6 +137,7 @@ async def current_research(
     await require(session, e.Company, id)
     candidates = await session.scalars(
         select(e.CompanyResearch)
+        .where(e.CompanyResearch.deleted_at.is_(None))
         .where(
             e.CompanyResearch.company_id == id,
             e.CompanyResearch.data["mode"].astext == mode,
@@ -204,6 +226,7 @@ async def applications(
     session: DB,
     job_id: UUID | None = None,
     company_id: UUID | None = None,
+    company_ids: Annotated[list[UUID] | None, Query(max_length=50)] = None,
     company_q: Annotated[str | None, Query(max_length=200)] = None,
     status: ApplicationStatus | None = None,
     limit: Limit = 50,
@@ -211,19 +234,25 @@ async def applications(
 ) -> Any:
     stmt = (
         select(e.Application)
+        .where(e.Application.deleted_at.is_(None))
         .join(e.JobPosting)
         .order_by(e.Application.created_at.desc(), e.Application.id)
     )
     if job_id:
         stmt = stmt.where(e.Application.job_id == job_id)
+    selected_companies = set(company_ids or [])
     if company_id:
-        stmt = stmt.where(e.JobPosting.company_id == company_id)
+        selected_companies.add(company_id)
+    if selected_companies:
+        stmt = stmt.where(e.JobPosting.company_id.in_(selected_companies))
     if company_q and company_q.strip():
         stmt = stmt.join(e.Company).where(
             e.Company.name.contains(company_q.strip(), autoescape=True)
         )
     if status:
-        stmt = stmt.where(e.Application.status == status)
+        canonical = application_status(status)
+        aliases = [s for s in ApplicationStatus if application_status(s) == canonical]
+        stmt = stmt.where(e.Application.status.in_(aliases))
     found, more = await rows(session, stmt, limit, offset)
     return Page(
         items=[
@@ -252,16 +281,35 @@ async def submit(
 
 @router.get("/applications/{id}/submissions", response_model=Page[SubmissionOut])
 async def submissions(id: UUID, session: DB, limit: Limit = 50, offset: Offset = 0) -> Any:
-    await require(session, e.Application, id)
+    await read_application(session, id)
     found, more = await rows(
         session,
         select(MaterialSubmission)
-        .where(MaterialSubmission.application_id == id)
+        .where(MaterialSubmission.application_id == id, MaterialSubmission.deleted_at.is_(None))
         .order_by(MaterialSubmission.created_at.desc(), MaterialSubmission.id),
         limit,
         offset,
     )
-    return Page(items=[materials.view(r) for r in found], limit=limit, offset=offset, has_more=more)
+    return Page(
+        items=[await materials.view(session, r) for r in found],
+        limit=limit,
+        offset=offset,
+        has_more=more,
+    )
+
+
+@router.patch("/applications/{id}/submissions/{submission_id}", response_model=SubmissionOut)
+async def edit_submission(
+    id: UUID, submission_id: UUID, payload: SubmissionEdit, session: DB
+) -> SubmissionOut:
+    return await materials.edit(session, id, submission_id, payload)
+
+
+@router.delete("/applications/{id}/submissions/{submission_id}", response_model=SubmissionOut)
+async def delete_submission(
+    id: UUID, submission_id: UUID, payload: SubmissionEdit, session: DB
+) -> SubmissionOut:
+    return await materials.edit(session, id, submission_id, payload, remove=True)
 
 
 @router.get("/profile/revisions", response_model=Page[ProfileOut])
@@ -317,7 +365,13 @@ async def jd_view(session: AsyncSession, row: e.JobRevision) -> dict[str, Any]:
         "jd_text": row.jd_text,
         "created_at": row.created_at,
         "requirements": [
-            {"id": r.id, "text": r.text, "source_quote": r.source_quote, "category": r.category}
+            {
+                "id": r.id,
+                "text": r.text,
+                "source_quote": r.source_quote,
+                "category": r.category,
+                "importance": r.importance,
+            }
             for r in requirements
         ],
     }
@@ -332,7 +386,7 @@ async def selected_job(
     session: AsyncSession, job_id: UUID | None, application_id: UUID | None
 ) -> UUID | None:
     if application_id:
-        app = await require(session, e.Application, application_id)
+        app = await read_application(session, application_id)
         if job_id and job_id != app.job_id:
             raise DomainError("context_revision_mismatch", 422)
         return app.job_id
@@ -353,21 +407,47 @@ async def mocks(
     stmt = select(e.MockInterviewSession).order_by(
         e.MockInterviewSession.created_at.desc(), e.MockInterviewSession.id
     )
+    if application_id:
+        # NULL legacy owners must also pass exact frozen-source verification below.
+        stmt = stmt.where(
+            (e.MockInterviewSession.application_id == application_id)
+            | e.MockInterviewSession.application_id.is_(None)
+        )
     if job_id:
         stmt = stmt.where(e.MockInterviewSession.context["job_id"].astext == str(job_id))
-    found, more = await rows(session, stmt, limit, offset)
+    from career_agent.interview.ownership import mock_owner
+
+    candidates = list(await session.scalars(stmt))
+    owned = [(r, await mock_owner(session, r)) for r in candidates]
+    owned = [(r, owner) for r, owner in owned if not application_id or owner == application_id]
+    more = len(owned) > offset + limit
+    from career_agent.interview.execution import available
+
+    orphaned = {
+        r.id: r.generation_active and await available(session, r.id)
+        for r, _ in owned[offset : offset + limit]
+    }
     return Page(
         items=[
             {
                 "id": r.id,
                 "run_id": r.run_id,
+                "application_id": owner,
+                "display_number": r.display_number,
                 "status": r.status,
                 "revision": r.revision,
                 "job_id": r.context["job_id"],
                 "created_at": r.created_at,
                 "pending_question_id": r.pending_question_id,
+                "creation_request_id": r.request_id,
+                "focus": r.focus,
+                "policy": r.policy,
+                "primary_question_count": r.primary_question_count,
+                "followup_count": r.followup_count,
+                "generation_active": r.generation_active and not orphaned[r.id],
+                "stop_reason": "execution_outcome_unknown" if orphaned[r.id] else r.stop_reason,
             }
-            for r in found
+            for r, owner in owned[offset : offset + limit]
         ],
         limit=limit,
         offset=offset,
@@ -386,7 +466,11 @@ async def debriefs(
     offset: Offset = 0,
 ) -> Any:
     job_id = await selected_job(session, job_id, application_id)
-    stmt = select(e.DebriefRun).order_by(e.DebriefRun.created_at.desc(), e.DebriefRun.id)
+    stmt = (
+        select(e.DebriefRun)
+        .where(e.DebriefRun.deleted_at.is_(None))
+        .order_by(e.DebriefRun.created_at.desc(), e.DebriefRun.id)
+    )
     if source_kind:
         stmt = stmt.where(e.DebriefRun.snapshot["source_kind"].astext == source_kind)
     if source_id:
@@ -404,7 +488,14 @@ async def debriefs(
                 & e.DebriefRun.snapshot["interview_id"].astext.in_(actual_ids),
             )
         )
-    found, more = await rows(session, stmt, limit, offset)
+    from career_agent.interview.review_state import owner, source_name
+
+    candidates = list(await session.scalars(stmt))
+    found_all = [
+        r for r in candidates if not application_id or await owner(session, r) == application_id
+    ]
+    found, more = found_all[offset : offset + limit], len(found_all) > offset + limit
+    names = {r.id: await source_name(session, r.snapshot) for r in found}
     roots = {
         r.id: r
         for r in await session.scalars(
@@ -418,6 +509,7 @@ async def debriefs(
         items=[
             {
                 "id": r.id,
+                "source_name": names[r.id],
                 "generation_id": r.id,
                 "is_selected": selected[r.id] == r.id,
                 "detail_url": f"/api/v1/interview-debriefs/{r.root_run_id or r.id}",
@@ -479,7 +571,7 @@ async def runs(
 async def application_knowledge(
     id: UUID, session: DB, limit: Limit = 50, offset: Offset = 0
 ) -> Any:
-    await require(session, e.Application, id)
+    await read_application(session, id)
     # Include legacy notes through their authoritative actual-interview association.
     stmt = (
         select(e.KnowledgeNote)
@@ -492,7 +584,10 @@ async def application_knowledge(
                 ),
             )
         )
-        .order_by(e.KnowledgeNote.created_at.desc(), e.KnowledgeNote.id)
+        .order_by(
+            func.coalesce(e.KnowledgeNote.updated_at, e.KnowledgeNote.created_at).desc(),
+            e.KnowledgeNote.id,
+        )
     )
     found, more = await rows(session, stmt, limit, offset)
     return Page(
@@ -536,7 +631,7 @@ async def resume_renders(id: UUID, session: DB) -> list[dict[str, Any]]:
 
 @router.get("/applications/{id}/context", response_model=ApplicationBindingOut)
 async def application_binding(id: UUID, session: DB) -> ApplicationBindingOut:
-    return await bindings.view(session, await bindings.read(session, id))
+    return await bindings.view(session, await bindings.read(session, id, readonly=True))
 
 
 @router.put("/applications/{id}/context", response_model=ApplicationBindingOut)
@@ -556,60 +651,52 @@ async def task_history(
     limit: Limit = 20,
     offset: Offset = 0,
 ) -> Page[TaskHistoryItem]:
-    application = await require(session, e.Application, id)
-    job = await require(session, e.JobPosting, application.job_id)
-    stmt = (
-        select(e.PreparationArtifact)
-        .join(e.JobRevision, e.JobRevision.id == e.PreparationArtifact.job_revision_id)
-        .where(
-            e.JobRevision.job_id == job.id,
-            e.PreparationArtifact.data["kind"].astext == "target",
-            e.PreparationArtifact.data["output"]["target"].astext == target,
-        )
-        .order_by(e.PreparationArtifact.created_at.desc(), e.PreparationArtifact.id)
-    )
-    found, more = await rows(session, stmt, limit, offset)
-    items = []
-    for row in found:
-        profile = await require(session, e.PersonalProfile, row.profile_id)
-        jd = await require(session, e.JobRevision, row.job_revision_id)
-        item = ResultView(
-            kind=target,
-            status="success",
-            reused=False,
-            context=ContextSummary(
-                profile_id=profile.id,
-                profile_revision=profile.revision,
-                job_id=job.id,
-                job_revision_id=jd.id,
-                job_revision=jd.revision,
-                job_title=jd.title,
-                company_id=job.company_id,
-            ),
-        )
-        await populate_target(session, row.id, item)
-        items.append(TaskHistoryItem(created_at=row.created_at, result=item))
-    return Page(items=items, limit=limit, offset=offset, has_more=more)
+    from career_agent.product.results import history
+
+    return await history(session, id, target, limit, offset)
 
 
 @router.patch("/knowledge-notes/{id}", response_model=KnowledgeOut)
 async def update_knowledge(id: UUID, payload: KnowledgeUpdate, session: DB) -> e.KnowledgeNote:
     note = await require(session, e.KnowledgeNote, id, lock=True)
+    from career_agent.application.services import active_interview_target
+
+    await active_interview_target(session, note)
+    await knowledge_scope(session, note, payload.application_id)
     if note.deleted_at is not None:
         raise DomainError("not_found", 404)
     check_revision(note.revision, payload.expected_revision)
     if (note.title, note.content) != (payload.title, payload.content):
         note.title, note.content = payload.title, payload.content
         note.revision += 1
+        note.updated_at = e.utcnow()
     return note
 
 
 @router.delete("/knowledge-notes/{id}")
-async def delete_knowledge(id: UUID, expected_revision: int, session: DB) -> dict[str, bool]:
+async def delete_knowledge(
+    id: UUID, expected_revision: int, session: DB, application_id: UUID | None = None
+) -> dict[str, bool]:
     note = await require(session, e.KnowledgeNote, id, lock=True)
+    from career_agent.application.services import active_interview_target
+
+    await active_interview_target(session, note)
+    await knowledge_scope(session, note, application_id)
     check_revision(note.revision, expected_revision)
     note.deleted_at = note.deleted_at or e.utcnow()
     return {"deleted": True}
+
+
+async def knowledge_scope(
+    session: AsyncSession, note: e.KnowledgeNote, application_id: UUID | None
+) -> None:
+    if application_id is None:
+        return
+    owner = note.application_id
+    if owner is None and note.interview_id:
+        owner = (await require(session, e.InterviewSession, note.interview_id)).application_id
+    if owner != application_id:
+        raise DomainError("knowledge_application_mismatch", 409)
 
 
 @router.post("/product-drafts", status_code=201)
@@ -707,3 +794,94 @@ async def cancel_product_draft(id: UUID, request: Request) -> dict[str, Any]:
     from career_agent.profile_area.cancellation import cancel
 
     return await cancel(request.app.state.sessions, id)
+
+
+@router.get("/applications/{id}/summary")
+async def application_summary(id: UUID, session: DB) -> dict[str, Any]:
+    from career_agent.product.summary import read
+
+    return await read(session, id)
+
+
+@router.patch("/applications/{id}/entries/{entry_id}")
+async def edit_application_entry(
+    id: UUID, entry_id: UUID, payload: ApplicationEntryWrite, session: DB
+) -> dict[str, Any]:
+    from career_agent.product.summary import edit_entry
+
+    return await edit_entry(session, id, entry_id, payload)
+
+
+@router.delete("/applications/{id}/entries/{entry_id}")
+async def remove_application_entry(
+    id: UUID, entry_id: UUID, payload: ApplicationEntryWrite, session: DB
+) -> dict[str, Any]:
+    from career_agent.product.summary import edit_entry
+
+    return await edit_entry(session, id, entry_id, payload, remove=True)
+
+
+@router.get("/resume-revisions/{id}/snapshot")
+async def resume_snapshot(id: UUID, session: DB, pdf: UUID | None = None) -> dict[str, Any]:
+    row = await require(session, e.ResumeVariantRevision, id)
+    artifact = await require(session, e.RenderArtifact, pdf) if pdf else None
+    if artifact and (
+        artifact.resume_variant_id != row.resume_variant_id
+        or artifact.resume_variant_revision != row.revision
+    ):
+        raise DomainError("context_revision_mismatch", 422)
+    return {
+        "name": row.display_name or "简历",
+        "document": row.document,
+        "input_snapshot": row.input_snapshot,
+        "created_at": row.created_at,
+        "presentation": artifact.report.get("presentation") if artifact else row.presentation,
+        "pdf_id": artifact.id if artifact else None,
+    }
+
+
+@router.get("/preparation-artifacts/{id}/result")
+async def exact_target(id: UUID, session: DB, application_id: UUID) -> Any:
+    from career_agent.product.results import exact
+
+    return await exact(session, application_id, id)
+
+
+@router.get("/companies/{id}/research/{research_id}")
+async def exact_research(id: UUID, research_id: UUID, session: DB) -> dict[str, Any]:
+    row = await require(session, e.CompanyResearch, research_id)
+    if row.company_id != id:
+        raise DomainError("not_found", 404)
+    return research_view(row)
+
+
+@router.get("/applications/{application_id}/greetings/{id}")
+async def greeting_delete_check(application_id: UUID, id: UUID, session: DB) -> dict[str, object]:
+    from career_agent.product.results import greeting_removal
+
+    return await greeting_removal(session, application_id, id)
+
+
+@router.delete("/applications/{application_id}/greetings/{id}")
+async def greeting_delete(
+    application_id: UUID, id: UUID, payload: ResultDelete, session: DB
+) -> dict[str, object]:
+    from career_agent.product.results import greeting_removal
+
+    return await greeting_removal(session, application_id, id, payload.request_id)
+
+
+@router.delete("/applications/{application_id}/results/{id}")
+async def remove_preparation_result(
+    application_id: UUID, id: UUID, payload: ResultDelete, session: DB
+) -> dict[str, Any]:
+    from career_agent.product.result_lifecycle import remove_target
+
+    return await remove_target(session, application_id, id, payload.request_id)
+
+
+@router.delete("/companies/{company_id}/research/{id}")
+async def remove_research_result(company_id: UUID, id: UUID, session: DB) -> dict[str, Any]:
+    from career_agent.product.result_lifecycle import remove_research
+
+    return await remove_research(session, company_id, id)

@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from career_agent.application.services import check_revision, get_profile, require
+from career_agent.application.services import check_revision, get_profile, read_application, require
 from career_agent.domain.rules import DomainError
 from career_agent.infrastructure import entities as e
 from career_agent.product.contracts import (
@@ -51,7 +51,13 @@ async def initialize(
     return binding
 
 
-async def read(session: AsyncSession, id: UUID) -> ApplicationBinding:
+async def read(session: AsyncSession, id: UUID, *, readonly: bool = False) -> ApplicationBinding:
+    if readonly:
+        await read_application(session, id)
+        binding = await session.get(ApplicationBinding, id)
+        if binding is not None:
+            return binding
+        # Legacy initialization is still serialized, never an unlocked insert.
     application = await require(session, e.Application, id, lock=True)
     return await initialize(session, application)
 
@@ -67,7 +73,18 @@ async def update(
         raise DomainError("context_revision_mismatch", 422)
     if payload.profile_id:
         profile = await require(session, e.PersonalProfile, payload.profile_id, lock=True)
-        if profile.archived_at:
+        from career_agent.profile_area.entities import ProfileRecord, ProfileRecordSnapshot
+
+        archived_record = await session.scalar(
+            select(ProfileRecord.id)
+            .join(ProfileRecordSnapshot, ProfileRecordSnapshot.record_id == ProfileRecord.id)
+            .where(
+                ProfileRecordSnapshot.profile_id == profile.id,
+                ProfileRecord.archived_at.is_not(None),
+            )
+            .limit(1)
+        )
+        if profile.archived_at or archived_record is not None:
             raise DomainError("profile_archived")
     if payload.resume_revision_id:
         resume = await require(

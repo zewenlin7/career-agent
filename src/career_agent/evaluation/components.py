@@ -108,7 +108,30 @@ def deterministic(name: str, data: dict[str, Any]) -> dict[str, Any]:
 def validate_task(
     task: str, output: dict[str, Any], inputs: dict[str, Any], source: dict[str, Any]
 ) -> None:
+    from career_agent.product.drafts import validate_output
+    from career_agent.product.prompts import TASK_SCHEMAS
+
     blocks = inputs.get("context", inputs)
+    if task in TASK_SCHEMAS:
+        validate_output(TASK_SCHEMAS[task].model_validate(output), blocks)
+        return
+    if task == "quality_judgement":
+        from career_agent.evaluation.contracts import JudgeOutput, JudgeSpec
+        from career_agent.evaluation.judge import validate_judge
+
+        prompt = application_prompts().resolve(task)
+        validate_judge(
+            JudgeOutput.model_validate(output),
+            JudgeSpec(
+                target="evaluation",
+                criteria=inputs["rubric"]["criteria"],
+                prompt_version=prompt.prompt_version,
+                prompt_hash=prompt.prompt_hash,
+                model_policy_version="evaluation",
+            ),
+            set(inputs["evidence"]),
+        )
+        return
     facts = {UUID(x["id"]): x for x in blocks.get("facts", [])}
     requirements = {UUID(x["id"]) for x in blocks.get("requirements", [])}
     if task == "job_requirement_extraction":
@@ -120,11 +143,11 @@ def validate_task(
 
     elif task == "company_research_synthesis":
         from career_agent.preparation.contracts import ResearchOutput
-        from career_agent.preparation.guardrails import validate_research
+        from career_agent.preparation.guardrails import validate_company_scope, validate_research
 
-        validate_research(
-            ResearchOutput.model_validate(output), {UUID(x["id"]) for x in blocks["evidence"]}
-        )
+        report = ResearchOutput.model_validate(output)
+        validate_research(report, {UUID(x["id"]) for x in blocks["evidence"]})
+        validate_company_scope(report)
     elif task == "interview_preparation":
         from career_agent.preparation.contracts import InterviewOutput
         from career_agent.preparation.guardrails import validate_interview
@@ -151,7 +174,7 @@ def validate_task(
         if not check["valid"]:
             raise ModelGatewayError("grounding_failed")
     elif task in {"interview_group_debrief", "interview_overall_debrief"}:
-        from career_agent.interview.compact import CompactGroup, CompactOverall, canonical
+        from career_agent.interview.compact import CompactGroup, CompactOverallV3, canonical
 
         snapshot = SourceSnapshot.model_validate(source.get("source", source))
         ref = source.get("group_ref")
@@ -168,20 +191,19 @@ def validate_task(
                 raise ModelGatewayError("case_incompatible")
             ref = str(matches[0].entry_id)
         resolved = canonical(
-            CompactGroup.model_validate(output) if ref else CompactOverall.model_validate(output),
+            CompactGroup.model_validate(output) if ref else CompactOverallV3.model_validate(output),
             snapshot,
             UUID(ref) if ref else None,
         )
         validate_evaluation(resolved, snapshot, UUID(ref) if ref else None)
     elif task == "mock_interview_turn_generation":
-        from career_agent.interview.contracts import FrozenContext, TurnOutput
-        from career_agent.interview.validation import validate_turn
+        from career_agent.interview.contracts import DecisionOutput, FrozenContext
+        from career_agent.interview.decisions import validate
 
-        validate_turn(
-            TurnOutput.model_validate(output),
+        validate(
+            DecisionOutput.model_validate(output),
             FrozenContext.model_validate(source.get("context", source)),
-            inputs["policy"]["next_kind"],
-            UUID(inputs["policy"]["parent"]) if inputs["policy"].get("parent") else None,
+            inputs,
         )
     elif task in {"goal_planning", "goal_replanning"}:
         from career_agent.runtime.agent_contracts import AgentState, PlanProposal

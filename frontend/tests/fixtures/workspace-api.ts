@@ -1,6 +1,7 @@
 import { id, time, fixtureResponse } from "./product-api.ts";
 import type {
   Actual,
+  Entry,
   Debrief,
   Mock,
   Operation,
@@ -171,7 +172,6 @@ function packageFor(kind: string, packageId: string): PackageView {
               status: "no_evidence",
               fact_refs: [],
               explanation: "暂无相关事实证据。",
-              missing_evidence: "需要补充项目经历",
             },
           ],
           strong_matches: [],
@@ -191,11 +191,47 @@ function packageFor(kind: string, packageId: string): PackageView {
           : {
               locale: "zh-CN",
               likely_topics: ["Python"],
-              technical_questions: [],
-              project_deep_dive_questions: [],
-              behavioral_questions: [],
-              company_specific_questions: [],
-              knowledge_gaps: [],
+              technical_questions: [
+                {
+                  question: "如何保证事务原子性？",
+                  why_likely: "与岗位要求相关",
+                  what_is_being_tested: "说明思考过程与实践依据",
+                  answer_outline: ["描述具体场景", "说明操作与结果"],
+                  related_fact_refs: [],
+                  related_requirement_refs: [],
+                },
+              ],
+              project_deep_dive_questions: [
+                {
+                  question: "怎样验证项目结果？",
+                  why_likely: "与岗位要求相关",
+                  what_is_being_tested: "说明思考过程与实践依据",
+                  answer_outline: ["描述具体场景", "说明操作与结果"],
+                  related_fact_refs: [],
+                  related_requirement_refs: [],
+                },
+              ],
+              behavioral_questions: [
+                {
+                  question: "如何处理协作分歧？",
+                  why_likely: "与岗位要求相关",
+                  what_is_being_tested: "说明思考过程与实践依据",
+                  answer_outline: ["描述具体场景", "说明操作与结果"],
+                  related_fact_refs: [],
+                  related_requirement_refs: [],
+                },
+              ],
+              company_specific_questions: [
+                {
+                  question: "如何理解公司的业务？",
+                  why_likely: "与岗位要求相关",
+                  what_is_being_tested: "说明思考过程与实践依据",
+                  answer_outline: ["描述具体场景", "说明操作与结果"],
+                  related_fact_refs: [],
+                  related_requirement_refs: [],
+                },
+              ],
+              knowledge_gaps: ["补充事务隔离级别知识"],
               questions_to_ask_interviewer: ["团队如何合作？"],
             };
   return {
@@ -211,6 +247,7 @@ function packageFor(kind: string, packageId: string): PackageView {
           ? {
               result_id: null,
               resume_revision_id: resume,
+              resume_name: "合成简历",
               resume_variant_id: variant,
               revision: 1,
               render_artifact_id: pdf,
@@ -261,6 +298,14 @@ export function workspaceResponse(
         q,
       ),
     );
+  if (/^preparation-artifacts\/[^/]+\/result$/.test(p)) {
+    const result = [...packages.values()]
+      .flatMap((p) => p.results)
+      .find((r) => r.target_artifact_id === p.split("/")[1] || r.result_id === p.split("/")[1]);
+    return result ? ok({ created_at: time(), result }) : fail("not_found", 404);
+  }
+  if (p.startsWith(`companies/${id(1001)}/research/`) && p.split("/")[3] !== "current")
+    return ok({ ...research, id: p.split("/")[3] });
   if (/^resume-revisions\/[^/]+\/save$/.test(p)) return ok({ saved: true });
   if (/^resume-revisions\/[^/]+\/renders$/.test(p))
     return ok([{ id: pdf, created_at: time(), download_url: `/api/v1/artifacts/${pdf}/download` }]);
@@ -305,6 +350,7 @@ export function workspaceResponse(
       job_id: id(2001),
       job_revision_id: jd,
       revision: 2,
+      created_at: time(),
       requirements: [{ id: id(7001), text: "熟悉 Python" }],
     });
   if (p === "profile/revisions") return ok(page([profileRow], q));
@@ -436,6 +482,12 @@ export function workspaceResponse(
       if (body.expected_revision !== revision) return fail("revision_conflict");
       const r = {
         ...body,
+        display_number: submissions.length + 1,
+        revision: 1,
+        resume_name: "合成简历",
+        greeting_name: null,
+        greeting_target_id: null,
+        status_changed: revision === 2,
         id: newId(),
         application_id: id(1),
         event_id: newId(),
@@ -453,6 +505,8 @@ export function workspaceResponse(
   }
   if (p === "mock-interviews" && method === "POST") {
     const r: Mock = {
+      application_id:
+        (body.application_binding as { application_id?: string })?.application_id || id(1),
       id: newId(),
       revision: 1,
       status: "ready_to_generate",
@@ -491,6 +545,7 @@ export function workspaceResponse(
       if (body.expected_revision !== r.revision) return fail("revision_conflict");
       r.revision++;
       if (m[2] === "end") {
+        r.pending_question_id = null;
         r.status = "completed";
         r.completion_type = "user_ended_early";
       } else if (m[2] === "answers") {
@@ -517,9 +572,8 @@ export function workspaceResponse(
             main_question_number: r.primary_question_count + 1,
             followup_index: null,
             question: {
-              kind: "primary",
+              kind: "primary" as const,
               question: "请介绍你的验证方法。",
-              topic: "项目",
               primary_entry_id: null,
             },
             answer: null,
@@ -540,9 +594,8 @@ export function workspaceResponse(
           main_question_number: r.primary_question_count + 1,
           followup_index: null,
           question: {
-            kind: "primary",
+            kind: "primary" as const,
             question: "请介绍你的 Python 项目。",
-            topic: "项目",
             primary_entry_id: null,
           },
           answer: null,
@@ -566,11 +619,11 @@ export function workspaceResponse(
       status: (body.status as "draft" | "completed") || "completed",
       round_number: Number(body.round_number || 1),
       interview_type: String(body.interview_type || "technical"),
-      round_name: String(body.round_name),
+      round_name: String(body.round_name || `合成公司 · 工程师 · 第${body.round_number}轮 · 技术`),
       occurred_at: body.occurred_at as string | null,
       created_at: time(),
-      entries: [],
-      notes: [],
+      entries: (body.entries as Entry[]) || [],
+      notes: body.notes_text ? [{ text: String(body.notes_text), recorded_at: time() }] : [],
     };
     actuals.set(r.id, r);
     return ok(r);
@@ -602,7 +655,7 @@ export function workspaceResponse(
           {
             entry_id: id(8702),
             order: 1,
-            kind: "primary",
+            kind: "primary" as const,
             question: "介绍项目",
             answer: "Python 服务",
             primary_entry_id: null,
@@ -662,6 +715,7 @@ export function workspaceResponse(
         title: body.title,
         content: body.content,
         revision: Number(note.revision) + 1,
+        updated_at: time(),
       });
     return ok(note);
   }
@@ -671,6 +725,7 @@ export function workspaceResponse(
       revision: 1,
       id: newId(),
       created_at: time(),
+      updated_at: time(),
       interview_id: null,
       source_document_id: null,
     };
@@ -685,6 +740,8 @@ export function workspaceResponse(
       root_run_id: "",
       run_id: newId(),
       status: "ready",
+      source_name: `真实面试 · ${source.round_name}`,
+      created_at: time(),
       source_hash: "b".repeat(64),
       event_sequence: 0,
       snapshot: {
@@ -711,6 +768,7 @@ export function workspaceResponse(
           is_selected: selected.get(d.root_run_id) === d.id,
           status: d.status,
           source_kind: d.snapshot.source_kind,
+          source_name: d.source_name,
           source_id: d.snapshot.interview_id,
           created_at: time(),
         })),
@@ -721,6 +779,10 @@ export function workspaceResponse(
   if (m) {
     let r = debriefs.get(m[1]);
     if (!r) return fail("not_found", 404);
+    if (method === "DELETE") {
+      debriefs.delete(r.id);
+      return ok({ deleted: true, used_by: [] });
+    }
     if (m[2] === "regenerate") {
       r = {
         ...structuredClone(r),
@@ -752,7 +814,12 @@ export function workspaceResponse(
                 {
                   content: "能提供实例",
                   evidence: [
-                    { question_number: 1, label: "主问题", preview: entries[0]?.question },
+                    {
+                      question_number: "1",
+                      entry_id: entries[0]?.entry_id,
+                      label: "主问题",
+                      preview: entries[0]?.question,
+                    },
                   ],
                 },
               ],
@@ -762,6 +829,7 @@ export function workspaceResponse(
         {
           id: newId(),
           kind: "group",
+          group_ref: entries[0]?.entry_id,
           group_index: 1,
           status: "completed",
           error_code: null,
@@ -779,7 +847,12 @@ export function workspaceResponse(
                 {
                   content: "回答具有具体依据",
                   evidence: [
-                    { question_number: 1, label: "来自追问", preview: entries[1]?.question },
+                    {
+                      question_number: "1.1",
+                      entry_id: entries[1]?.entry_id,
+                      label: "来自追问",
+                      preview: entries[1]?.question,
+                    },
                   ],
                 },
               ],

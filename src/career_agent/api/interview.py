@@ -21,6 +21,7 @@ from career_agent.interview.contracts import (
     Continuation,
     DebriefCreate,
     DebriefRegenerate,
+    DebriefRetry,
     MockCreate,
 )
 from career_agent.interview.debrief import DebriefService
@@ -96,7 +97,7 @@ async def mock_continue(
     id: UUID,
     payload: Continuation,
     request: Request,
-    operation: Literal["answer", "generate", "end"],
+    operation: Literal["answer", "generate", "end", "recover"],
 ) -> dict[str, Any]:
     async with request.app.state.sessions() as session:
         row = await require(session, e.MockInterviewSession, id)
@@ -119,6 +120,11 @@ async def mock_answer(id: UUID, payload: AnswerSubmit, request: Request) -> dict
 @router.post("/mock-interviews/{id}/generate")
 async def mock_generate(id: UUID, payload: Continuation, request: Request) -> dict[str, Any]:
     return await mock_continue(id, payload, request, "generate")
+
+
+@router.post("/mock-interviews/{id}/recover")
+async def mock_recover(id: UUID, payload: Continuation, request: Request) -> dict[str, Any]:
+    return await mock_continue(id, payload, request, "recover")
 
 
 @router.post("/mock-interviews/{id}/end")
@@ -162,8 +168,8 @@ async def execute_debrief(id: UUID, request: Request) -> StreamingResponse:
 
     async with request.app.state.sessions() as session:
         run = await require(session, e.DebriefRun, id)
-        if run.status != "ready":
-            raise DomainError("debrief_already_started")
+        if run.deleted_at:
+            raise DomainError("debrief_removed", 410)
         mode = run.mode
     factory = getattr(request.app.state, "preparation_dependencies", dependencies)
 
@@ -181,7 +187,10 @@ async def execute_debrief(id: UUID, request: Request) -> StreamingResponse:
                             f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                         )
                 finally:
-                    await iterator.aclose()
+                    from anyio import CancelScope
+
+                    with CancelScope(shield=True):
+                        await iterator.aclose()
         except (DomainError, ModelGatewayError) as exc:
             yield f"event: error\ndata: {json.dumps({'error_code': exc.code})}\n\n"
 
@@ -202,3 +211,22 @@ async def debrief_regenerate(
         return await DebriefService(
             request.app.state.sessions, request.app.state.settings, gateway
         ).regenerate(id, payload)
+
+
+@router.post("/interview-debriefs/{id}/retry")
+async def debrief_retry(id: UUID, payload: DebriefRetry, request: Request) -> dict[str, Any]:
+    async with request.app.state.sessions() as session:
+        row = await require(session, e.DebriefRun, id)
+        mode = row.mode
+    factory = getattr(request.app.state, "preparation_dependencies", dependencies)
+    async with factory(request.app.state.settings, mode) as (gateway, _):
+        return await DebriefService(
+            request.app.state.sessions, request.app.state.settings, gateway
+        ).retry(id, payload)
+
+
+@router.delete("/interview-debriefs/{id}")
+async def debrief_remove(id: UUID, session: DB) -> dict[str, Any]:
+    from career_agent.interview.review_state import remove
+
+    return await remove(session, id)

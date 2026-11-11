@@ -64,10 +64,13 @@ class PromptSpec:
             raise ModelGatewayError("prompt_input_contract_unavailable")
         self.executable_input.validate_input(inputs)
 
+    def instruction_for(self, inputs: dict[str, Any]) -> str:
+        return self.instruction
+
     def task(self, inputs: dict[str, Any]) -> TaskSpec:
         self.validate_input(inputs)
         return TaskSpec(
-            instruction=self.instruction,
+            instruction=self.instruction_for(inputs),
             inputs=self.composition.compose(inputs) if self.composition else inputs,
             **self.metadata,
         )
@@ -100,7 +103,7 @@ class PromptRegistry:
         spec = self.resolve(context.task_type)
         if (
             context.output_schema is not spec.output_schema
-            or task.instruction != spec.instruction
+            or task.instruction != spec.instruction_for(task.inputs)
             or any(
                 getattr(context, key) != value or getattr(task, key) != value
                 for key, value in spec.metadata.items()

@@ -124,8 +124,25 @@ class Orchestrator:
             await self.node("extract_requirements")
             r.requirements = await self.loader.requirements(r.state.requirement_refs)
         # Research is opportunistic existing context only, never a hidden paid prerequisite.
+        if r.state.workflow == "prepare_interview":
+            if not r.request.use_company_research:
+                return
+            if r.request.research_report_id is not None:
+                selected = await require(r.session, e.CompanyResearch, r.request.research_report_id)
+                if not compatible(
+                    selected.data.get("compatibility_versions"),
+                    execution_versions("company_research"),
+                ).reusable_for_current_execution:
+                    raise ModelGatewayError("research_contract_incompatible")
+                data = await self.loader.research(selected.id, allow_stale=True)
+                r.research_output = data.report
+                r.state.research_report_id = selected.id
+                r.state.evidence_refs = [x.id for x in data.evidence]
+                self.record("research_company", "reused")
+                return
         candidates = await r.session.scalars(
             select(e.CompanyResearch)
+            .where(e.CompanyResearch.deleted_at.is_(None))
             .where(
                 e.CompanyResearch.company_id == r.company.id,
                 e.CompanyResearch.expires_at > e.utcnow(),
@@ -254,9 +271,29 @@ class Orchestrator:
             .order_by(e.PreparationArtifact.created_at.desc())
         )
         for row in candidates:
+            row = await require(r.session, e.PreparationArtifact, row.id)
+            from career_agent.product.entities import ResultRemoval
+
+            if await r.session.scalar(
+                select(ResultRemoval.id).where(ResultRemoval.target_id == row.id)
+            ):
+                continue
             stored = PrivateResult.model_validate(row.data).output
             if not isinstance(stored, TargetArtifact) or stored.target != target:
                 continue
+            if stored.resume_revision_id:
+                visible = await require(
+                    r.session, e.ResumeVariantRevision, stored.resume_revision_id
+                )
+                seen = {visible.id}
+                while (visible.library_state or {}).get("replaced_by_id"):
+                    next_id = UUID(visible.library_state["replaced_by_id"])
+                    if next_id in seen:
+                        break
+                    seen.add(next_id)
+                    visible = await require(r.session, e.ResumeVariantRevision, next_id)
+                if visible.archived_at:
+                    continue
             if not compatible(
                 stored.compatibility_versions, execution_versions(target)
             ).reusable_for_current_execution:
@@ -328,6 +365,10 @@ class Orchestrator:
                 if r.report.render_status != "accepted":
                     raise ModelGatewayError(r.report.error_code or "layout_failed")
                 assert r.variant is not None
+                library_variant = await require(
+                    r.session, e.ResumeVariant, r.variant.resume_variant_id
+                )
+                library_variant.library_visible = True
                 output = TargetArtifact(
                     target=target,
                     fingerprint=key,
@@ -356,6 +397,7 @@ class Orchestrator:
                     target=target,
                     fingerprint=key,
                     result_id=r.state.interview_prep_id,
+                    interview_context=r.interview_context,
                     source_resume_revision_id=source,
                 )
         except ERRORS:

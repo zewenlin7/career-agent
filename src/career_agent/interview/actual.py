@@ -2,9 +2,10 @@
 
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from career_agent.application.services import check_revision, require
+from career_agent.application.services import active_interview_target, check_revision, require
 from career_agent.domain import schemas as s
 from career_agent.domain.rules import DomainError
 from career_agent.infrastructure import entities as e
@@ -22,9 +23,44 @@ def validate_entries(entries: list[s.InterviewEntry]) -> None:
                 raise DomainError("invalid_primary_reference", 422)
 
 
+async def check_round(
+    session: AsyncSession,
+    application_id: UUID,
+    round_number: int | None,
+    exclude: UUID | None = None,
+) -> None:
+    # All intake writers hold the Application lock. Legacy duplicates remain readable/editable
+    # when their round is unchanged; new assignments cannot collide with them.
+    if round_number is None:
+        return
+    query = select(e.InterviewSession.id).where(
+        e.InterviewSession.application_id == application_id,
+        e.InterviewSession.round_number == round_number,
+    )
+    if exclude is not None:
+        query = query.where(e.InterviewSession.id != exclude)
+    if await session.scalar(query.limit(1)):
+        raise DomainError("interview_round_conflict")
+
+
 async def update(session: AsyncSession, id: UUID, payload: s.InterviewUpdate) -> e.InterviewSession:
     row = await require(session, e.InterviewSession, id, lock=True)
+    await active_interview_target(session, row)
     check_revision(row.content_revision, payload.expected_revision)
+    if payload.round_number is not None and payload.round_number != row.round_number:
+        await check_round(session, row.application_id, payload.round_number, row.id)
+    before = {
+        key: getattr(row, key)
+        for key in (
+            "round_name",
+            "occurred_at",
+            "entries",
+            "status",
+            "round_number",
+            "interview_type",
+            "notes",
+        )
+    }
     if payload.round_name is not None:
         row.round_name = payload.round_name
     if "occurred_at" in payload.model_fields_set:
@@ -48,12 +84,17 @@ async def update(session: AsyncSession, id: UUID, payload: s.InterviewUpdate) ->
             setattr(row, name, getattr(payload, name))
     if payload.notes_text is not None:
         text = payload.notes_text.strip()
-        row.notes = (
-            [s.InterviewNoteData(text=text, recorded_at=e.utcnow().isoformat()).model_dump()]
-            if text
-            else []
-        )
+        # A flattened editor value is not permission to erase historical note boundaries/times.
+        if payload.notes_text != "\n".join(note["text"] for note in row.notes):
+            row.notes = (
+                [s.InterviewNoteData(text=text, recorded_at=e.utcnow().isoformat()).model_dump()]
+                if text
+                else []
+            )
+    if all(getattr(row, key) == value for key, value in before.items()):
+        return row
     row.content_revision += 1
+    row.saved_at = e.utcnow()
     await session.flush()
     return row
 
@@ -62,6 +103,7 @@ async def append(
     session: AsyncSession, id: UUID, payload: s.InterviewEntryCreate
 ) -> e.InterviewSession:
     row = await require(session, e.InterviewSession, id, lock=True)
+    await active_interview_target(session, row)
     check_revision(row.content_revision, payload.expected_revision)
     entries = [s.InterviewEntry.model_validate(v) for v in row.entries] + [payload.entry]
     if len(entries) > 500:

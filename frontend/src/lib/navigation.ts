@@ -1,4 +1,9 @@
-export type NavigationItem = { href: string; label: string; exact?: boolean };
+export type NavigationItem = {
+  href: string;
+  label: string;
+  exact?: boolean;
+  children?: NavigationItem[];
+};
 
 export function isActivePath(pathname: string, item: NavigationItem): boolean {
   return pathname === item.href || (!item.exact && pathname.startsWith(`${item.href}/`));
@@ -28,15 +33,23 @@ export function applicationNavigation(id: string): NavigationItem[] {
   const root = `/applications/${encodeURIComponent(id)}`;
   return [
     { href: `${root}/summary`, label: "概览" },
-    { href: `${root}/research-fit`, label: "研究与匹配" },
-    { href: `${root}/apply`, label: "投递材料" },
-    { href: `${root}/interview`, label: "面试" },
-    { href: `${root}/review`, label: "复盘" },
+    {
+      href: `${root}/research-fit`,
+      label: "研究与匹配",
+      children: [
+        { href: `${root}/research-fit/description`, label: "职位描述" },
+        { href: `${root}/research-fit/company`, label: "公司研究" },
+        { href: `${root}/research-fit/fit`, label: "岗位匹配" },
+      ],
+    },
+    { href: `${root}/apply`, label: "投递材料", children: sectionNavigation(id, "apply") },
+    { href: `${root}/interview`, label: "面试", children: sectionNavigation(id, "interview") },
+    { href: `${root}/review`, label: "复盘", children: sectionNavigation(id, "review") },
   ];
 }
 export const applicationSections = {
   apply: [
-    ["resume", "简历"],
+    ["resume", "简历优化"],
     ["greeting", "招呼语"],
     ["submissions", "投递记录"],
   ],

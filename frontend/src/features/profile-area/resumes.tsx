@@ -62,14 +62,14 @@ async function allVersions(_path: string, signal: AbortSignal) {
     if (!page.has_more) return { items, has_more: false };
   }
 }
-export function ResumeLibrary() {
+export function ResumeLibrary({ initialWorkspace }: { initialWorkspace?: string } = {}) {
   const list = useRead<{ items: Version[]; has_more: boolean }>(
       "resume-library/versions?limit=100",
       allVersions,
     ),
     drafts = useRead<Draft[]>("resume-workspaces", savedResumes),
     profiles = useRead<{ items: NamedProfile[] }>("profile-library");
-  const [selected, setSelected] = useState(""),
+  const [selection, setSelected] = useState<string>(),
     [created, setCreated] = useState<Draft>(),
     [creating, setCreating] = useState(false),
     [creationIntent, setCreationIntent] = useState(0),
@@ -77,6 +77,11 @@ export function ResumeLibrary() {
     [mode, setMode] = useState("quick"),
     [editing, setEditing] = useState(false),
     [notice, setNotice] = useState("");
+  const selected =
+    selection ??
+    drafts.data?.find((d) => d.id === initialWorkspace)?.entry_id ??
+    drafts.data?.find((d) => d.id === initialWorkspace)?.id ??
+    "";
   const action = useAction(),
     requestId = useRequestId(),
     latch = useRef(false);

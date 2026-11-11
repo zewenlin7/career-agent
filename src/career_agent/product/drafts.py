@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from career_agent.application import resumes
@@ -304,6 +305,15 @@ class DraftService:
             if not request.source_artifact_id or not request.feedback:
                 raise DomainError("refinement_source_required", 422)
             source = await require(session, e.PreparationArtifact, request.source_artifact_id)
+            from career_agent.product.entities import ResultRemoval
+
+            if await session.scalar(
+                select(ResultRemoval.id).where(ResultRemoval.target_id == source.id)
+            ):
+                raise DomainError("greeting_deleted")
+            from career_agent.application.services import active_jd
+
+            await active_jd(session, source.job_revision_id)
             target = PrivateResult.model_validate(source.data).output
             if not isinstance(target, TargetArtifact) or target.target != TARGETS[request.task]:
                 raise DomainError("context_revision_mismatch", 422)
@@ -322,6 +332,17 @@ class DraftService:
             source_resume = target.resume_revision_id or target.source_resume_revision_id
             if source_resume is None:
                 raise DomainError("resume_selection_required", 422)
+            if request.task == "interview_preparation_refinement":
+                if target.interview_context is None or target.result_id is None:
+                    raise DomainError("interview_source_contract_incompatible", 422)
+                original = (await require(session, e.PreparationArtifact, target.result_id)).data[
+                    "output"
+                ]
+                return {
+                    "context": {**target.interview_context, "source_artifact_id": str(source.id)},
+                    "original": original,
+                    "feedback": request.feedback,
+                }
             frozen = await freeze(
                 session,
                 self.settings,
@@ -586,7 +607,28 @@ class DraftService:
                     row.status = "completed"
                     run = await require(session, e.AgentRun, row.run_id)
                     run.status, run.finished_at = RunStatus.COMPLETED, e.utcnow()
-                    return self.view(row)
+                    result = self.view(row)
+                    auto_save = row.task in {
+                        "resume_refinement",
+                        "greeting_refinement",
+                        "interview_preparation_refinement",
+                    } and bool(row.request.get("source_artifact_id"))
+                if auto_save:
+                    try:
+                        return await self.adopt(id, DraftAdopt())
+                    except (DomainError, SQLAlchemyError):
+                        # Keep accepted output durable for an adoption-only retry.
+                        async with self.sessions.begin() as session:
+                            row = await require(session, ProductDraft, id, lock=True)
+                            if row.adopted is not None:
+                                return self.view(row)
+                            row.reason = (
+                                "artifact_save_failed"
+                                if row.task != "resume_refinement"
+                                else "resume_library_save_failed"
+                            )
+                            result = self.view(row)
+                return result
             except asyncio.CancelledError:
                 from career_agent.profile_area.cancellation import mark_cancelled
 
@@ -810,46 +852,56 @@ class DraftService:
                         .limit(1)
                     )
                     assert root is not None
-                    from career_agent.profile_area.naming import branch
-
-                    naming = await branch(session, previous)
-                    branch_id = naming["branch_id"]
-                    ordinal = 1 + (
-                        await session.scalar(
-                            select(func.count())
-                            .select_from(ProductDraft)
-                            .where(
-                                ProductDraft.task == "resume_refinement",
-                                or_(
-                                    ProductDraft.adopted["refinement_branch_id"].astext
-                                    == branch_id,
-                                    (
-                                        ProductDraft.adopted["refinement_branch_id"].astext.is_(
-                                            None
-                                        )
-                                        & (
-                                            ProductDraft.adopted[
-                                                "refinement_root_revision_id"
-                                            ].astext
-                                            == branch_id
-                                        )
-                                    ),
-                                ),
-                            )
-                        )
-                        or 0
-                    )
-                    saved.library_state = naming
-                    saved.display_name = f"{naming['branch_name'][:175]} · AI优化版{ordinal}"
                     refinement_metadata = {
                         "refinement_root_revision_id": str(root.id),
                         "refinement_root_name": root.display_name or "简历",
-                        "refinement_branch_id": branch_id,
-                        "refinement_branch_name": naming["branch_name"],
-                        "refinement_number": ordinal,
                     }
+                    if original_request.source_artifact_id:
+                        # All Application actions keep the shared optimization sequence.
+                        refinement_metadata.update(saved.library_state)
+                    else:
+                        from career_agent.profile_area.naming import branch
+
+                        naming = await branch(session, previous)
+                        branch_id = naming["branch_id"]
+                        ordinal = 1 + (
+                            await session.scalar(
+                                select(func.count())
+                                .select_from(ProductDraft)
+                                .where(
+                                    ProductDraft.task == "resume_refinement",
+                                    or_(
+                                        ProductDraft.adopted["refinement_branch_id"].astext
+                                        == branch_id,
+                                        (
+                                            ProductDraft.adopted["refinement_branch_id"].astext.is_(
+                                                None
+                                            )
+                                            & (
+                                                ProductDraft.adopted[
+                                                    "refinement_root_revision_id"
+                                                ].astext
+                                                == branch_id
+                                            )
+                                        ),
+                                    ),
+                                )
+                            )
+                            or 0
+                        )
+                        saved.library_state = naming
+                        saved.display_name = f"{naming['branch_name'][:175]} · AI优化版{ordinal}"
+                        refinement_metadata = {
+                            "refinement_root_revision_id": str(root.id),
+                            "refinement_root_name": root.display_name or "简历",
+                            "refinement_branch_id": branch_id,
+                            "refinement_branch_name": naming["branch_name"],
+                            "refinement_number": ordinal,
+                        }
                 else:
                     saved = await resumes.create_variant(session, output)
+                variant = await require(session, e.ResumeVariant, saved.resume_variant_id)
+                variant.library_visible = True
                 subject = saved.id
                 row.adopted = {
                     "resume_revision_id": str(saved.id),
@@ -876,6 +928,11 @@ class DraftService:
 
                 target_name = cast(Target, TARGETS[row.task])
                 target = TargetArtifact(
+                    interview_context={
+                        k: v for k, v in row.context["context"].items() if k != "source_artifact_id"
+                    }
+                    if row.task == "interview_preparation_refinement"
+                    else None,
                     target=target_name,
                     fingerprint=digest({"draft": str(row.id)}),
                     result_id=subject if not isinstance(output, ResumeDocument) else None,
@@ -897,4 +954,5 @@ class DraftService:
             await bind_artifact(
                 session, row.accepted_model_call_id, subject, self.settings.judge_sampling
             )
+            row.reason = None
             return self.view(row)

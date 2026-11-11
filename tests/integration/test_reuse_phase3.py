@@ -3,7 +3,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from test_interview_loop import actual_session, append
 from test_preparation import prep_input as prep_fixture
 from test_preparation import run
@@ -86,10 +86,11 @@ async def test_concurrent_identical_target_only_one_generation(
     assert sum(x["state"]["usage"]["search_calls"] for x in [a, b]) == 0
 
 
-async def test_debrief_duplicate_create_and_explicit_regenerate(client):
+async def test_debrief_duplicate_request_and_explicit_regenerate(client):
     row, _ = await actual_session(client)
     row = await append(client, row, 1)
     payload = {
+        "request_id": str(uuid4()),
         "source_kind": "actual",
         "interview_id": row["id"],
         "expected_source_revision": row["content_revision"],
@@ -326,6 +327,9 @@ async def test_phase3_history_upgrade_preserves_old_debrief_without_invented_ide
     old = (await client.post("/api/v1/interview-debriefs", json=payload)).json()
     cfg = Config("alembic.ini")
     cfg.attributes["database_url"] = migrated_url
+    # Model an old record, before saved_at was introduced; never erase production metadata.
+    async with sessions.begin() as session:
+        await session.execute(text("UPDATE interview_sessions SET saved_at = NULL"))
     await asyncio.to_thread(command.downgrade, cfg, "ab04c0202601")
     await asyncio.to_thread(command.upgrade, cfg, "head")
     async with sessions() as session:

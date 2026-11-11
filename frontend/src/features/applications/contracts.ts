@@ -3,23 +3,19 @@
  */
 export const applicationStatuses = [
   "tracking",
-  "preparing",
   "applied",
   "interviewing",
   "offer",
   "rejected",
-  "withdrawn",
   "closed",
 ] as const;
 export type ApplicationStatus = (typeof applicationStatuses)[number];
 export const statusLabels: Record<ApplicationStatus, string> = {
   tracking: "关注中",
-  preparing: "准备中",
   applied: "已投递",
   interviewing: "面试中",
-  offer: "已获 Offer",
-  rejected: "已拒绝",
-  withdrawn: "已撤回",
+  offer: "已获录用",
+  rejected: "未通过",
   closed: "已关闭",
 };
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -89,7 +85,10 @@ export function decodeApplication(value: unknown) {
   const result = {
     ...row(v),
     job_id: uuid(v.job_id),
-    status: choice(v.status, applicationStatuses),
+    status: choice(
+      v.status === "preparing" ? "tracking" : v.status === "withdrawn" ? "closed" : v.status,
+      applicationStatuses,
+    ),
     revision: integer(v.revision, 1),
     events: array(v.events, (event) => {
       const e = object(event);
@@ -98,8 +97,18 @@ export function decodeApplication(value: unknown) {
         application_id: uuid(e.application_id),
         sequence: integer(e.sequence, 1),
         kind: text(e.kind),
-        from_status: nullable(e.from_status, (x) => choice(x, applicationStatuses)),
-        to_status: nullable(e.to_status, (x) => choice(x, applicationStatuses)),
+        from_status: nullable(e.from_status, (x) =>
+          choice(
+            x === "preparing" ? "tracking" : x === "withdrawn" ? "closed" : x,
+            applicationStatuses,
+          ),
+        ),
+        to_status: nullable(e.to_status, (x) =>
+          choice(
+            x === "preparing" ? "tracking" : x === "withdrawn" ? "closed" : x,
+            applicationStatuses,
+          ),
+        ),
         note: nullable(e.note, text),
       };
     }),
@@ -114,7 +123,7 @@ export function decodeJob(value: unknown) {
     ...row(v),
     company_id: uuid(v.company_id),
     company_name: text(v.company_name),
-    application_id: uuid(v.application_id),
+    application_id: nullable(v.application_id, uuid),
     job_revision_id: uuid(v.job_revision_id),
     revision: integer(v.revision, 1),
     title: text(v.title),

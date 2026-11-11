@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,6 +50,11 @@ class MaterialSubmission(Row, Base):
         ForeignKey("preparation_artifacts.id", ondelete="RESTRICT")
     )
     payload: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(SubmissionCreate))
+    display_number: Mapped[int] = mapped_column(Integer)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    note_override: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    edits: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
 
 
 class ApplicationBinding(Base):
@@ -92,3 +97,14 @@ class ProductDraft(Row, Base):
         ForeignKey("model_calls.id", ondelete="RESTRICT")
     )
     adopted: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+
+class ResultRemoval(Row, Base):
+    """Visibility tombstone; immutable generation and frozen references remain intact."""
+
+    __tablename__ = "product_result_removals"
+    application_id: Mapped[UUID] = mapped_column(ForeignKey("applications.id", ondelete="RESTRICT"))
+    target_id: Mapped[UUID] = mapped_column(
+        ForeignKey("preparation_artifacts.id", ondelete="RESTRICT"), unique=True
+    )
+    request_id: Mapped[UUID] = mapped_column(unique=True)

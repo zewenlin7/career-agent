@@ -158,3 +158,45 @@ def test_trace_metadata_does_not_consume_model_input_budget():
     assert input_bound(
         ctx, spec.task({**valid_inputs(spec), "goal": "更长的合成目标"})
     ) > input_bound(ctx, task)
+
+
+@pytest.mark.parametrize("task_type", sorted(application_prompts().specs))
+def test_every_active_task_has_distinct_execution_provenance(task_type):
+    from career_agent.application.compatibility import model_execution_versions
+
+    versions = model_execution_versions(task_type)
+    spec = application_prompts().resolve(task_type)
+    assert versions["task"] == task_type
+    assert versions["prompt_hash"] == spec.prompt_hash
+    assert versions["output_schema_version"] == spec.output_schema_version
+    if task_type == "company_research_synthesis":
+        assert "research_prompt" in versions
+        assert "compiler" not in versions
+    if task_type == "fit_analysis":
+        assert "fit_prompt" in versions
+        assert "compiler" not in versions
+
+
+@pytest.mark.parametrize("task_type", sorted(application_prompts().specs))
+def test_registry_covers_all_active_task_input_and_trace_contracts(task_type):
+    spec = application_prompts().resolve(task_type)
+    context = ModelRequestContext(
+        task_type=task_type, output_schema=spec.output_schema, **spec.metadata
+    )
+    task = spec.task(valid_inputs(spec))
+    assert application_prompts().trace_metadata(context, task).prompt_hash == spec.prompt_hash
+    assert task_type in POLICY.task_tiers
+
+
+@pytest.mark.parametrize(
+    "target", ["resume_tailoring", "greeting_generation", "interview_preparation"]
+)
+def test_material_reuse_requires_current_generation_contract(target):
+    from career_agent.application.compatibility import compatible, execution_versions
+
+    current = execution_versions(target)
+    old = {key: value for key, value in current.items() if key != "generation_prompt"}
+    decision = compatible(old, current)
+    assert decision.historical_readable
+    assert not decision.reusable_for_current_execution
+    assert current["generation_prompt"] == application_prompts().resolve(target).prompt_hash

@@ -79,6 +79,67 @@ function paged<T>(items: T[], search: URLSearchParams) {
 function numberId(s: string | undefined) {
   return Number(s?.slice(-12));
 }
+export function summaryFixture(
+  app: { id: unknown; revision: unknown; status: unknown; events: unknown },
+  jd: { jd_text: unknown; job_revision_id: unknown; created_at: unknown },
+) {
+  const events = app.events as {
+    id: string;
+    kind: string;
+    note: string | null;
+    to_status: string | null;
+    created_at: string;
+    removed?: boolean;
+    entry_revision?: number;
+  }[];
+  const base = `/applications/${app.id}`;
+  return {
+    revision: app.revision,
+    status: app.status,
+    jd: { text: jd.jd_text, id: jd.job_revision_id, saved_at: jd.created_at },
+    resume: null,
+    submission: null,
+    mock: null,
+    actual: { count: 0, latest: null },
+    debrief: { count: 0, latest: null },
+    preparation: [
+      ["company_research", "公司研究", "research-fit/company"],
+      ["fit_analysis", "岗位匹配", "research-fit/fit"],
+      ["resume_tailoring", "简历优化", "apply/resume"],
+      ["greeting_generation", "招呼语", "apply/greeting"],
+      ["interview_preparation", "面试准备", "interview/preparation"],
+    ].map(([kind, label, page]) => ({
+      kind,
+      label,
+      href: base + "/" + page,
+      created_at: null,
+      available: false,
+      stale: false,
+    })),
+    notes: events
+      .filter((e) => e.kind === "note" && !e.removed)
+      .reverse()
+      .map((e) => ({
+        ...e,
+        text: e.note,
+        kind: "note",
+        status: null,
+        revision: e.entry_revision || 1,
+        editable: true,
+      })),
+    records: events
+      .filter((e) => e.kind !== "note" && !e.removed)
+      .reverse()
+      .map((e) => ({
+        ...e,
+        text: e.note,
+        kind: e.kind === "created" ? "created" : "status",
+        status: e.to_status,
+        revision: e.entry_revision || 1,
+        editable: e.kind !== "created",
+      })),
+  };
+}
 export function fixtureResponse(url: URL): { status: number; body: unknown } {
   const p = url.pathname,
     q = url.searchParams;
@@ -101,10 +162,24 @@ export function fixtureResponse(url: URL): { status: number; body: unknown } {
               companies
                 .find((c) => c.id === job(numberId(a.id)).company_id)
                 ?.name.includes(q.get("company_q")!)) &&
-            (!q.get("company_id") || job(numberId(a.id)).company_id === q.get("company_id")),
+            (!q.get("company_id") || job(numberId(a.id)).company_id === q.get("company_id")) &&
+            (!q.getAll("company_ids").length ||
+              q.getAll("company_ids").includes(job(numberId(a.id)).company_id)),
         ),
         q,
       ),
+    );
+  const contextMatch = p.match(/^\/api\/v1\/applications\/([^/]+)\/context$/);
+  if (contextMatch)
+    return ok({
+      application_id: contextMatch[1],
+      job_revision_id: job(numberId(contextMatch[1])).job_revision_id,
+      revision: 1,
+    });
+  const summaryMatch = p.match(/^\/api\/v1\/applications\/([^/]+)\/summary$/);
+  if (summaryMatch)
+    return ok(
+      summaryFixture(application(numberId(summaryMatch[1])), job(numberId(summaryMatch[1]))),
     );
   let m = p.match(/^\/api\/v1\/applications\/([^/]+)$/);
   if (m)
@@ -222,6 +297,7 @@ export function fixtureResponse(url: URL): { status: number; body: unknown } {
               id: id(8701),
               application_id: id(1),
               round_name: "技术一面",
+              status: "completed",
               created_at: time(10),
               occurred_at: time(20),
               content_revision: 2,

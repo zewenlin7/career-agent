@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from career_agent.application.services import require
+from career_agent.application.services import active_jd, require
 from career_agent.config import Settings
 from career_agent.domain.rules import CallStatus, DomainError, ObservationStatus, RunStatus
 from career_agent.infrastructure import entities as e
@@ -176,7 +176,7 @@ class AgentEngine:
     async def create(self, payload: AgentCreate) -> dict[str, Any]:
         async with self.sessions.begin() as session:
             await require(session, e.PersonalProfile, payload.bindings.profile_id)
-            await require(session, e.JobRevision, payload.bindings.job_revision_id)
+            await active_jd(session, payload.bindings.job_revision_id)
             limits = payload.limits.model_copy(deep=True)
             limits.max_estimated_cost = min(limits.max_estimated_cost, self.settings.max_run_cost)
             run = e.AgentRun(
@@ -271,6 +271,7 @@ class AgentEngine:
         duplicate = False
         async with self.sessions.begin() as session:
             run, state = await self.load(session, id, lock=True)
+            await active_jd(session, state.bindings.job_revision_id)
             receipt = await session.scalar(
                 select(e.AgentResumeReceipt).where(
                     e.AgentResumeReceipt.run_id == id,
@@ -752,6 +753,7 @@ class AgentEngine:
             # Claim exactly one unit of work; persist its conservative reservation before dispatch.
             async with self.sessions.begin() as session:
                 run, state = await self.load(session, id, lock=True)
+                await active_jd(session, state.bindings.job_revision_id)
                 if state.phase != "ready":
                     break
                 try:

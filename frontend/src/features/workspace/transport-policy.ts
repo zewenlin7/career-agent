@@ -9,6 +9,11 @@ const rule = (path: string, methods: string[], query: string[] = [], body?: stri
 });
 const paging = ["limit", "offset"];
 export const rules: Rule[] = [
+  rule(`applications/${id}/results/${id}`, ["DELETE"], [], ["request_id"]),
+  rule(`companies/${id}/research/${id}`, ["DELETE"], [], ["request_id"]),
+  rule(`task-status/(?:operations|product-drafts|interview-debriefs)/${id}`, ["GET"]),
+  rule(`task-status/mock-interviews/${id}`, ["GET"], ["request_id"]),
+  rule(`applications/${id}/greetings/${id}`, ["GET", "DELETE"], [], ["request_id"]),
   rule(`resume-library/subjects/${id}`, ["GET"]),
   rule("profile-library", ["GET", "POST"], [], ["request_id"]),
   rule(`profile-library/${id}`, ["GET", "PATCH", "DELETE"], [], ["expected_revision", "name"]),
@@ -140,8 +145,13 @@ export const rules: Rule[] = [
   rule(`product-drafts/${id}/adopt`, ["POST"], [], []),
   rule(`resume-revisions/${id}/save`, ["POST"]),
   rule(`resume-revisions/${id}/renders`, ["GET"]),
-  rule(`knowledge-notes/${id}`, ["PATCH"], [], ["expected_revision", "title", "content"]),
-  rule(`knowledge-notes/${id}`, ["DELETE"], ["expected_revision"]),
+  rule(
+    `knowledge-notes/${id}`,
+    ["PATCH"],
+    [],
+    ["expected_revision", "title", "content", "application_id"],
+  ),
+  rule(`knowledge-notes/${id}`, ["DELETE"], ["expected_revision", "application_id"]),
   rule(
     `applications/${id}/context`,
     ["GET", "PUT"],
@@ -152,7 +162,15 @@ export const rules: Rule[] = [
   rule("profile", ["GET", "PUT"], [], ["expected_revision", "data"]),
   rule(`profile/revisions/${id}`, ["GET"]),
   rule("companies", ["GET"], [...paging, "q"]),
-  rule("jobs", ["POST"], [], ["company_id", "company_name", "title", "jd_text", "requirements"]),
+  rule("jobs", ["POST"], [], ["request_id", "company_id", "company_name", "title", "jd_text"]),
+  rule(`job-create-requests/${id}`, ["GET"]),
+  rule(
+    `applications/${id}/jd`,
+    ["PUT"],
+    [],
+    ["expected_revision", "expected_binding_revision", "jd_text"],
+  ),
+  rule(`applications/${id}`, ["DELETE"]),
   rule(
     "resume-variants",
     ["POST"],
@@ -176,12 +194,28 @@ export const rules: Rule[] = [
     [],
     ["expected_revision", "status", "correction", "reason"],
   ),
-  rule(`applications/${id}/notes`, ["POST"], [], ["text"]),
+  rule(`applications/${id}/notes`, ["POST"], [], ["text", "request_id", "expected_revision"]),
+  rule(`applications/${id}/summary`, ["GET"]),
+  rule(
+    `applications/${id}/entries/${id}`,
+    ["PATCH", "DELETE"],
+    [],
+    ["text", "request_id", "expected_revision", "expected_entry_revision"],
+  ),
+  rule(`resume-revisions/${id}/snapshot`, ["GET"], ["pdf"]),
+  rule(`preparation-artifacts/${id}/result`, ["GET"], ["application_id"]),
+  rule(`companies/${id}/research/${id}`, ["GET"]),
   rule("profile/revisions", ["GET"], paging),
   rule(`job-revisions/${id}`, ["GET"]),
   rule(`applications/${id}`, ["GET"]),
   rule(`applications/${id}/preparation-packages`, ["GET"], paging),
   rule(`applications/${id}/knowledge-notes`, ["GET"], paging),
+  rule(
+    `applications/${id}/submissions/${id}`,
+    ["PATCH", "DELETE"],
+    [],
+    ["request_id", "expected_revision", "note"],
+  ),
   rule(`applications/${id}/submissions`, ["GET", "POST"], paging, [
     "request_id",
     "expected_revision",
@@ -196,14 +230,14 @@ export const rules: Rule[] = [
     `companies/${id}/research`,
     ["POST"],
     [],
-    ["request_id", "kind", "request", "application_binding"],
+    ["request_id", "kind", "request", "application_binding", "application_id"],
   ),
   rule(`company-research/${id}`, ["GET"]),
   rule(
     "operations",
     ["GET", "POST"],
     [...paging, "job_revision_id", "status"],
-    ["request_id", "kind", "request", "application_binding"],
+    ["request_id", "kind", "request", "application_binding", "application_id"],
   ),
   rule(`operations/${id}`, ["GET"]),
   rule(`operations/${id}/execute`, ["POST"]),
@@ -218,7 +252,7 @@ export const rules: Rule[] = [
     "mock-interviews",
     ["GET", "POST"],
     [...paging, "application_id", "job_id"],
-    ["context", "focus", "policy", "mode", "application_binding"],
+    ["context", "focus", "policy", "mode", "application_binding", "request_id"],
   ),
   rule(`mock-interviews/${id}`, ["GET"]),
   rule(
@@ -227,13 +261,21 @@ export const rules: Rule[] = [
     [],
     ["expected_revision", "request_id", "pending_question_id", "answer", "end_early"],
   ),
-  rule(`mock-interviews/${id}/(?:generate|end)`, ["POST"], [], ["expected_revision", "request_id"]),
+  rule(
+    `mock-interviews/${id}/(?:generate|end|recover)`,
+    ["POST"],
+    [],
+    ["expected_revision", "request_id"],
+  ),
   rule(
     "interviews",
     ["GET", "POST"],
     [...paging, "application_id", "status"],
     [
       "expected_revision",
+      "request_id",
+      "entries",
+      "notes_text",
       "application_id",
       "round_name",
       "occurred_at",
@@ -265,16 +307,25 @@ export const rules: Rule[] = [
     [...paging, "application_id", "job_id", "source_kind", "source_id"],
     [
       "source_kind",
+      "request_id",
+      "application_id",
       "interview_id",
       "expected_source_revision",
       "question_analysis",
       "overall_analysis",
       "primary_entry_id",
+      "primary_entry_ids",
       "context",
       "mode",
     ],
   ),
-  rule(`interview-debriefs/${id}`, ["GET"], ["historical"]),
+  rule(`interview-debriefs/${id}`, ["GET", "DELETE"], ["historical"], ["request_id"]),
+  rule(
+    `interview-debriefs/${id}/retry`,
+    ["POST"],
+    [],
+    ["request_id", "expected_execution_revision"],
+  ),
   rule(`interview-debriefs/${id}/events`, ["GET"], ["after"]),
   rule(`interview-debriefs/${id}/execute`, ["POST"]),
   rule(
@@ -287,7 +338,7 @@ export const rules: Rule[] = [
     "knowledge-notes",
     ["POST"],
     [],
-    ["application_id", "title", "content", "interview_id", "source_document_id"],
+    ["application_id", "request_id", "title", "content", "interview_id", "source_document_id"],
   ),
 ];
 export function productRule(path: string, method: string, query: URLSearchParams) {
@@ -299,12 +350,17 @@ export function productRule(path: string, method: string, query: URLSearchParams
     throw new Error("unsupported_product_request");
   return found;
 }
-export function validateBody(body: unknown, allowed: string[] = []) {
+export function validateBody(body: unknown, allowed: string[] = [], path?: string) {
   if (
     !body ||
     typeof body !== "object" ||
     Array.isArray(body) ||
     Object.keys(body).some((k) => !allowed.includes(k))
+  )
+    throw new Error("invalid_request");
+  if (
+    path === "jobs" &&
+    !new RegExp(`^${id}$`).test(String((body as Record<string, unknown>).request_id || ""))
   )
     throw new Error("invalid_request");
   return body;

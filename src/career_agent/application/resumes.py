@@ -1,7 +1,7 @@
 import asyncio
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from career_agent.application.services import check_revision, require
@@ -66,25 +66,43 @@ async def save_revision(
         else None
     )
     label = f"简历 {number}" if number is not None else "简历"
+    library_state: dict[str, str | int] = {}
     if document.job_revision_id:
         job = await require(session, e.JobRevision, document.job_revision_id)
-        posting = await require(session, e.JobPosting, job.job_id)
+        # Serialize the shared optimization sequence across variants and actions.
+        posting = await require(session, e.JobPosting, job.job_id, lock=True)
         company = await require(session, e.Company, posting.company_id)
-        ordinal = (
-            await session.scalar(
-                select(func.count())
-                .select_from(e.ResumeVariantRevision)
+        states = list(
+            await session.scalars(
+                select(e.ResumeVariantRevision.library_state)
                 .join(e.JobRevision, e.JobRevision.id == e.ResumeVariantRevision.job_revision_id)
                 .where(e.JobRevision.job_id == job.job_id)
             )
-            or 0
-        ) + 1
+        )
+        # Legacy rows predate explicit sequence metadata. Keep their allocated slots;
+        # subsequent ordinary edits carry the same number instead of consuming one.
+        legacy_count = sum("optimization_number" not in state for state in states)
+        ordinal = (
+            max(
+                [
+                    legacy_count,
+                    *(
+                        int(state["optimization_number"])
+                        for state in states
+                        if "optimization_number" in state
+                    ),
+                ]
+            )
+            + 1
+        )
+        library_state = {"optimization_job_id": str(job.job_id), "optimization_number": ordinal}
         label = f"{company.name} · {job.title} · 优化版 {ordinal}"
     row = e.ResumeVariantRevision(
         resume_variant_id=variant.id,
         revision=variant.current_revision,
         library_number=number,
         display_name=label[:200],
+        library_state=library_state,
         profile_id=document.profile_id,
         job_revision_id=document.job_revision_id,
         document=document.model_dump(mode="json"),

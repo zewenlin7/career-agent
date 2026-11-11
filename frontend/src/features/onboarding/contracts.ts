@@ -83,13 +83,9 @@ export const blankProfile = (): ProfileData => ({
   skills: [],
   preferences: {},
 });
-export const transitions: Record<ApplicationStatus, ApplicationStatus[]> = {
-  tracking: ["preparing", "applied", "withdrawn", "closed"],
-  preparing: ["applied", "withdrawn", "closed"],
-  applied: ["interviewing", "offer", "rejected", "withdrawn", "closed"],
-  interviewing: ["offer", "rejected", "withdrawn", "closed"],
-  offer: ["withdrawn", "closed"],
-  rejected: [],
-  withdrawn: [],
-  closed: [],
-};
+export const transitions: Record<ApplicationStatus, ApplicationStatus[]> = Object.fromEntries(
+  ["tracking", "applied", "interviewing", "offer", "rejected", "closed"].map((s) => [
+    s,
+    ["tracking", "applied", "interviewing", "offer", "rejected", "closed"].filter((t) => t !== s),
+  ]),
+) as Record<ApplicationStatus, ApplicationStatus[]>;

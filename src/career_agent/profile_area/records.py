@@ -10,7 +10,7 @@ from career_agent.api.dependencies import DB
 from career_agent.application.services import check_revision, require
 from career_agent.domain.rules import DomainError
 from career_agent.infrastructure import entities as e
-from career_agent.product.entities import ApplicationBinding
+from career_agent.product.active_bindings import in_use
 from career_agent.profile_area import contracts as c
 from career_agent.profile_area import service as s
 from career_agent.profile_area.entities import ProfileRecord, ProfileRecordSnapshot
@@ -134,12 +134,17 @@ async def history(id: UUID, session: DB) -> dict[str, Any]:
 async def delete(id: UUID, payload: c.Publish, session: DB) -> dict[str, bool]:
     row = await record(session, id)
     check_revision(row.revision, payload.expected_revision)
-    ids = select(ProfileRecordSnapshot.profile_id).where(ProfileRecordSnapshot.record_id == id)
-    if await session.scalar(
-        select(ApplicationBinding.application_id)
-        .where(ApplicationBinding.profile_id.in_(ids))
-        .limit(1)
-    ):
+    # Lock the same snapshots as binding admission before checking active owners.
+    ids = list(
+        await session.scalars(
+            select(e.PersonalProfile.id)
+            .join(ProfileRecordSnapshot, ProfileRecordSnapshot.profile_id == e.PersonalProfile.id)
+            .where(ProfileRecordSnapshot.record_id == id)
+            .order_by(e.PersonalProfile.id)
+            .with_for_update(of=e.PersonalProfile)
+        )
+    )
+    if await in_use(session, profiles=ids):
         raise DomainError("profile_in_use")
     row.archived_at = e.utcnow()
     row.revision += 1

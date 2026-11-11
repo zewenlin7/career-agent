@@ -53,6 +53,25 @@ def validate_research(output: ResearchOutput, evidence: set[UUID]) -> None:
         chinese(unknown)
 
 
+def validate_company_scope(output: ResearchOutput) -> None:
+    """Bounded relation checks supplement the company-only prompt/input/ref boundary.
+
+    This is not a semantic judge: legitimate company unknowns remain allowed, and
+    neither this check nor a passing offline fixture proves universal scope adherence.
+    Historical reads deliberately use validate_research only.
+    """
+    texts = [x.text for x in output.conclusions + output.inference] + output.unknowns
+    personal = r"个人(?:资料|经历|背景)|候选人|求职者|你的|您的|目标职位|目标岗位|\bJD\b|简历"
+    assessment = r"未提供|缺少|缺乏|无法|不能|匹配|适合|胜任"
+    advice = r"建议|可以|应当|应该|可在|可向"
+    preparation = r"面试|投递|求职|准备回答|询问"
+    for text in texts:
+        if (re.search(personal, text, re.I) and re.search(assessment, text)) or (
+            re.search(advice, text) and re.search(preparation, text)
+        ):
+            raise ModelGatewayError("research_scope_invalid")
+
+
 def validate_fit(
     output: FitOutput, requirements: set[UUID], facts: dict[UUID, dict[str, Any]]
 ) -> None:

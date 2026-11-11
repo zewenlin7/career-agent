@@ -98,6 +98,7 @@ class RequirementInput(Contract):
 
 
 class JobCreate(Contract):
+    request_id: UUID | None = None
     company_id: UUID | None = None
     company_name: Label
     title: Label
@@ -110,6 +111,12 @@ class JobRevisionWrite(Contract):
     title: Label
     jd_text: Text
     requirements: list[RequirementInput] = Field(default_factory=list, max_length=200)
+
+
+class ApplicationJDWrite(Contract):
+    expected_revision: int = Field(ge=1)
+    expected_binding_revision: int = Field(ge=1)
+    jd_text: Text
 
 
 class ApplicationChange(Contract):
@@ -127,16 +134,15 @@ class ApplicationChange(Contract):
 
 class NoteCreate(Contract):
     text: Text
+    request_id: UUID | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
-class InterviewCreate(Contract):
-    expected_revision: Literal[0] = 0
-    application_id: UUID
-    round_name: Label
-    occurred_at: AwareDatetime | None = None
-    status: Literal["draft", "completed"] = "completed"
-    round_number: int | None = Field(default=None, ge=1, le=50)
-    interview_type: Literal["technical", "hr", "mixed", "other"] | None = None
+class ApplicationEntryWrite(Contract):
+    request_id: UUID
+    expected_revision: int = Field(ge=1)
+    expected_entry_revision: int = Field(ge=1)
+    text: str | None = Field(default=None, max_length=20000)
 
 
 class InterviewEntry(Contract):
@@ -154,6 +160,19 @@ class InterviewEntry(Contract):
         if (self.kind == "follow_up") != (self.primary_entry_id is not None):
             raise ValueError("invalid_primary_binding")
         return self
+
+
+class InterviewCreate(Contract):
+    expected_revision: Literal[0] = 0
+    application_id: UUID
+    request_id: UUID | None = None
+    round_name: Label | None = None
+    entries: list[InterviewEntry] = Field(default_factory=list, max_length=500)
+    notes_text: str | None = Field(default=None, max_length=20000)
+    occurred_at: AwareDatetime | None = None
+    status: Literal["draft", "completed"] = "completed"
+    round_number: int | None = Field(default=None, ge=1, le=50)
+    interview_type: Literal["technical", "hr", "mixed", "other"] | None = None
 
 
 class InterviewMutation(Contract):
@@ -179,6 +198,7 @@ class InterviewNoteCreate(InterviewMutation):
 
 
 class KnowledgeCreate(Contract):
+    request_id: UUID | None = None
     application_id: UUID | None = None
     title: Label
     content: Text
@@ -192,6 +212,7 @@ class InterviewNoteData(Contract):
 
 
 class KnowledgeUpdate(Contract):
+    application_id: UUID | None = None
     expected_revision: int = Field(ge=1)
     title: Label
     content: Text

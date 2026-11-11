@@ -8,6 +8,7 @@ from career_agent.domain import schemas as s
 from career_agent.domain.rules import (
     ApplicationStatus,
     DomainError,
+    application_status,
     transition_application,
     verify_fact,
 )
@@ -19,10 +20,20 @@ async def require[T: Base](
     session: AsyncSession, cls: type[T], row_id: UUID, *, lock: bool = False
 ) -> T:
     statement = select(cls).where(cls.id == row_id)  # type: ignore[attr-defined]
-    if lock:
-        statement = statement.with_for_update()
+    if cls in (e.PreparationArtifact, e.CompanyResearch) and not lock:
+        statement = statement.with_for_update(read=True).execution_options(populate_existing=True)
+    if lock or cls is e.Application:
+        statement = statement.with_for_update().execution_options(populate_existing=True)
     row = await session.scalar(statement)
-    if row is None:
+    if row is None or (isinstance(row, e.Application) and row.deleted_at is not None):
+        raise DomainError("not_found", 404)
+    return row
+
+
+async def read_application(session: AsyncSession, id: UUID) -> e.Application:
+    """MVCC read for navigation; writers/admissions retain their existing locks."""
+    row = await session.scalar(select(e.Application).where(e.Application.id == id))
+    if row is None or row.deleted_at is not None:
         raise DomainError("not_found", 404)
     return row
 
@@ -149,15 +160,55 @@ async def add_job_revision(
 
 
 async def create_job(session: AsyncSession, payload: s.JobCreate) -> e.JobPosting:
-    # Names are not reliable company identities: never merge companies solely by name.
+    from career_agent.interview.context import digest
+
+    normalized = payload.model_dump(mode="json", exclude={"request_id"})
+    normalized["company_name"] = payload.company_name.strip()
+    fingerprint = digest(normalized)
+    if payload.request_id:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 4312))"),
+            {"key": str(payload.request_id)},
+        )
+        receipt = await session.get(e.JobCreateRequest, payload.request_id)
+        if receipt:
+            if receipt.payload_hash != fingerprint:
+                raise DomainError("request_identity_conflict", 409)
+            return await require(session, e.JobPosting, receipt.job_id)
+    # Only trim outer whitespace; never case-fold or fuzzy-merge company identities.
+    name = payload.company_name.strip()
     if payload.company_id:
         company = await require(session, e.Company, payload.company_id)
-        if company.name != payload.company_name:
+        if company.name.strip() != name:
             raise DomainError("company_name_mismatch", 422)
     else:
-        company = e.Company(name=payload.company_name)
-        session.add(company)
-        await session.flush()
+        # Serialize concurrent name-only misses without declaring names globally unique.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "job-company:" + name},
+        )
+        matches = list(
+            await session.scalars(
+                select(e.Company)
+                .where(
+                    func.btrim(
+                        e.Company.name,
+                        " \t\r\n\v\f\u0085\u00a0\u1680\u2000\u2001\u2002"
+                        "\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\x1c\x1d\x1e\x1f",
+                    )
+                    == name
+                )
+                .limit(2)
+            )
+        )
+        if len(matches) > 1:
+            raise DomainError("company_selection_required", 409)
+        if matches:
+            company = matches[0]
+        else:
+            company = e.Company(name=name)
+            session.add(company)
+            await session.flush()
     job = e.JobPosting(company_id=company.id)
     session.add(job)
     await session.flush()
@@ -176,18 +227,135 @@ async def create_job(session: AsyncSession, payload: s.JobCreate) -> e.JobPostin
             to_status=ApplicationStatus.TRACKING,
         )
     )
+    if payload.request_id:
+        session.add(
+            e.JobCreateRequest(
+                id=payload.request_id,
+                payload_hash=fingerprint,
+                job_id=job.id,
+                application_id=application.id,
+            )
+        )
     await session.flush()
     return job
+
+
+async def active_job(session: AsyncSession, job_id: UUID) -> None:
+    # Concurrent admissions must still reach the reuse claim; only deletion/state writes wait.
+    application = await session.scalar(
+        select(e.Application)
+        .where(e.Application.job_id == job_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if application is not None and application.deleted_at is not None:
+        raise DomainError("application_deleted", 409)
+
+
+async def active_jd(session: AsyncSession, jd_id: UUID) -> None:
+    jd = await require(session, e.JobRevision, jd_id)
+    await active_job(session, jd.job_id)
+
+
+async def active_interview_target(
+    session: AsyncSession,
+    row: e.MockInterviewSession | e.DebriefRun | e.InterviewSession | e.KnowledgeNote,
+) -> None:
+    if isinstance(row, (e.InterviewSession, e.KnowledgeNote)):
+        if row.application_id:
+            await require(session, e.Application, row.application_id)
+        elif isinstance(row, e.KnowledgeNote) and row.interview_id:
+            interview = await require(session, e.InterviewSession, row.interview_id)
+            await require(session, e.Application, interview.application_id)
+    elif isinstance(row, e.MockInterviewSession):
+        if row.application_id:
+            await require(session, e.Application, row.application_id)
+        else:
+            await active_job(session, UUID(row.context["job_id"]))
+    else:
+        snapshot = row.snapshot
+        if snapshot["source_kind"] == "actual":
+            interview = await require(session, e.InterviewSession, UUID(snapshot["interview_id"]))
+            await require(session, e.Application, interview.application_id)
+        else:
+            mock = await require(session, e.MockInterviewSession, UUID(snapshot["interview_id"]))
+            await active_interview_target(session, mock)
 
 
 async def revise_job(
     session: AsyncSession, row_id: UUID, payload: s.JobRevisionWrite
 ) -> e.JobPosting:
+    await active_job(session, row_id)
     job = await require(session, e.JobPosting, row_id, lock=True)
     check_revision(job.current_revision, payload.expected_revision)
+    previous = (
+        await session.scalars(
+            select(e.JobRevision).where(
+                e.JobRevision.job_id == job.id, e.JobRevision.revision == job.current_revision
+            )
+        )
+    ).one()
+    # The legacy endpoint also keeps the single owning application's default coherent.
+    if (
+        previous.title == payload.title
+        and previous.jd_text == payload.jd_text
+        and not payload.requirements
+    ):
+        return job
     job.current_revision += 1
     await add_job_revision(session, job, payload.title, payload.jd_text, payload.requirements)
+    from career_agent.product.bindings import initialize
+
+    app = await session.scalar(select(e.Application).where(e.Application.job_id == job.id))
+    if app is not None:
+        binding = await initialize(session, app)
+        jd = (
+            await session.scalars(
+                select(e.JobRevision).where(
+                    e.JobRevision.job_id == job.id, e.JobRevision.revision == job.current_revision
+                )
+            )
+        ).one()
+        binding.job_revision_id = jd.id
+        binding.revision += 1
+        binding.updated_at = e.utcnow()
     return job
+
+
+async def edit_application_jd(
+    session: AsyncSession, id: UUID, payload: s.ApplicationJDWrite
+) -> e.JobPosting:
+    from career_agent.product.bindings import read
+
+    app = await require(session, e.Application, id, lock=True)
+    binding = await read(session, id)
+    check_revision(binding.revision, payload.expected_binding_revision)
+    job = await require(session, e.JobPosting, app.job_id, lock=True)
+    current = (
+        await session.scalars(
+            select(e.JobRevision).where(
+                e.JobRevision.job_id == job.id, e.JobRevision.revision == job.current_revision
+            )
+        )
+    ).one()
+    return await revise_job(
+        session,
+        job.id,
+        s.JobRevisionWrite(
+            expected_revision=payload.expected_revision,
+            title=current.title,
+            jd_text=payload.jd_text,
+        ),
+    )
+
+
+async def delete_application(session: AsyncSession, id: UUID) -> None:
+    app = await require(session, e.Application, id, lock=True)
+    if application_status(app.status) != ApplicationStatus.CLOSED:
+        raise DomainError("application_not_closed", 409)
+    app.deleted_at = e.utcnow()
+    app.revision += 1
+    await session.flush()
 
 
 async def job_view(session: AsyncSession, job: e.JobPosting) -> dict[str, Any]:
@@ -200,7 +368,9 @@ async def job_view(session: AsyncSession, job: e.JobPosting) -> dict[str, Any]:
     ).one()
     company = await require(session, e.Company, job.company_id)
     application_id = await session.scalar(
-        select(e.Application.id).where(e.Application.job_id == job.id)
+        select(e.Application.id).where(
+            e.Application.job_id == job.id, e.Application.deleted_at.is_(None)
+        )
     )
     requirements = list(
         await session.scalars(
@@ -245,8 +415,11 @@ async def change_application(
         reason=payload.reason,
         explicit_user_action=True,
     )
+    target = application_status(payload.status)
+    if application_status(application.status) == target:
+        return application
     previous = application.status
-    application.status = payload.status
+    application.status = target
     application.revision += 1
     session.add(
         e.ApplicationEvent(
@@ -254,7 +427,8 @@ async def change_application(
             sequence=application.revision,
             kind="correction" if payload.correction else "status_changed",
             from_status=previous,
-            to_status=payload.status,
+            to_status=target,
+            source="status",
             note=payload.reason,
         )
     )
@@ -266,9 +440,28 @@ async def application_note(
     session: AsyncSession, row_id: UUID, payload: s.NoteCreate
 ) -> e.ApplicationEvent:
     application = await require(session, e.Application, row_id, lock=True)
+    if payload.request_id:
+        old = await session.scalar(
+            select(e.ApplicationEvent).where(e.ApplicationEvent.request_id == payload.request_id)
+        )
+        if old:
+            if (
+                old.application_id != row_id
+                or old.source != "user_note"
+                or old.note != payload.text
+            ):
+                raise DomainError("idempotency_conflict")
+            return old
+    if payload.expected_revision is not None:
+        check_revision(application.revision, payload.expected_revision)
     application.revision += 1
     event = e.ApplicationEvent(
-        application_id=row_id, sequence=application.revision, kind="note", note=payload.text
+        application_id=row_id,
+        sequence=application.revision,
+        kind="note",
+        note=payload.text,
+        source="user_note",
+        request_id=payload.request_id,
     )
     session.add(event)
     await session.flush()
@@ -276,13 +469,53 @@ async def application_note(
 
 
 async def create_interview(session: AsyncSession, payload: s.InterviewCreate) -> e.InterviewSession:
-    await require(session, e.Application, payload.application_id)
+    from career_agent.interview.actual import check_round, validate_entries
+    from career_agent.interview.context import digest
+    from career_agent.interview.numbering import numbered
     from career_agent.product.bindings import read as read_binding
     from career_agent.product.bindings import view as binding_view
 
+    app = await require(session, e.Application, payload.application_id)
+    request_hash = digest(payload.model_dump(mode="json"))
+    if payload.request_id:
+        existing = await session.scalar(
+            select(e.InterviewSession).where(e.InterviewSession.request_id == payload.request_id)
+        )
+        if existing:
+            if existing.application_id != app.id or existing.request_hash != request_hash:
+                raise DomainError("idempotency_conflict")
+            return existing
+    validate_entries(payload.entries)
+    if payload.status == "completed" and not any(v.kind == "primary" for v in payload.entries):
+        raise DomainError("interview_questions_required", 422)
+    await check_round(session, app.id, payload.round_number)
+    name = payload.round_name
+    if not name:
+        if payload.round_number is None or payload.interview_type is None:
+            raise DomainError("interview_metadata_required", 422)
+        job = await require(session, e.JobPosting, app.job_id)
+        company = await require(session, e.Company, job.company_id)
+        binding = await binding_view(session, await read_binding(session, app.id))
+        revision = await require(session, e.JobRevision, binding.job_revision_id)
+        types = {"technical": "技术", "hr": "人力资源", "mixed": "综合", "other": "其他"}
+        name = (
+            f"{company.name} · {revision.title} · 第{payload.round_number}轮 · "
+            f"{types[payload.interview_type]}"
+        )
     binding = await binding_view(session, await read_binding(session, payload.application_id))
     interview = e.InterviewSession(
-        **payload.model_dump(exclude={"expected_revision"}),
+        **payload.model_dump(exclude={"expected_revision", "entries", "notes_text", "round_name"}),
+        round_name=name,
+        request_hash=request_hash if payload.request_id else None,
+        saved_at=e.utcnow(),
+        entries=[entry.model_dump(mode="json") for entry in numbered(payload.entries, [])],
+        notes=[
+            s.InterviewNoteData(
+                text=payload.notes_text.strip(), recorded_at=e.utcnow().isoformat()
+            ).model_dump()
+        ]
+        if payload.notes_text and payload.notes_text.strip()
+        else [],
         context_binding={
             "profile_id": str(binding.profile_id) if binding.profile_id else None,
             "resume_revision_id": str(binding.resume_revision_id)
@@ -301,6 +534,7 @@ async def interview_note(
     session: AsyncSession, row_id: UUID, payload: s.InterviewNoteCreate
 ) -> e.InterviewSession:
     interview = await require(session, e.InterviewSession, row_id, lock=True)
+    await active_interview_target(session, interview)
     check_revision(interview.content_revision, payload.expected_revision)
     note = s.InterviewNoteData(text=payload.text, recorded_at=e.utcnow().isoformat())
     interview.notes = [*interview.notes, note.model_dump()]
@@ -310,15 +544,31 @@ async def interview_note(
 
 
 async def create_knowledge(session: AsyncSession, payload: s.KnowledgeCreate) -> e.KnowledgeNote:
+    from career_agent.infrastructure.claims import claim
+    from career_agent.interview.context import digest
+
+    identity = digest(payload.model_dump(mode="json", exclude={"request_id"}))
+    if payload.request_id:
+        await claim(session, "knowledge:" + str(payload.request_id))
+        existing = await session.scalar(
+            select(e.KnowledgeNote).where(e.KnowledgeNote.request_id == payload.request_id)
+        )
+        if existing:
+            if existing.request_hash != identity:
+                raise DomainError("request_identity_conflict", 409)
+            if existing.deleted_at:
+                raise DomainError("note_removed", 410)
+            return existing
     if payload.application_id:
         await require(session, e.Application, payload.application_id)
     if payload.interview_id:
         interview = await require(session, e.InterviewSession, payload.interview_id)
+        await active_interview_target(session, interview)
         if payload.application_id and interview.application_id != payload.application_id:
             raise DomainError("knowledge_application_mismatch", 409)
     if payload.source_document_id:
         await require(session, e.SourceDocument, payload.source_document_id)
-    note = e.KnowledgeNote(**payload.model_dump())
+    note = e.KnowledgeNote(**payload.model_dump(), request_hash=identity, updated_at=e.utcnow())
     session.add(note)
     await session.flush()
     return note

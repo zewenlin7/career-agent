@@ -54,9 +54,8 @@ def test_valid_application_transitions(start, end):
     "start,end",
     [(A.TRACKING, A.OFFER), (A.REJECTED, A.APPLIED), (A.APPLIED, A.TRACKING), (A.CLOSED, A.CLOSED)],
 )
-def test_invalid_application_transitions(start, end):
-    with pytest.raises(DomainError):
-        transition_application(start, end, explicit_user_action=True)
+def test_direct_application_updates_and_same_status_are_allowed(start, end):
+    transition_application(start, end, explicit_user_action=True)
 
 
 def test_explicit_application_and_correction():

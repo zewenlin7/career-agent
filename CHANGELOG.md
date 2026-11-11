@@ -1,6 +1,254 @@
 # Changelog
 
+Development checkpoints below are not a release ledger. Version labels identify implementation
+stages; they do not assert published packages. Each verification/CI/paid-call statement is scoped
+to its recorded stage. Current acceptance and submission authorization live in [TODO](TODO.md).
+Undated related v0.5 entries are grouped with their feature history, without assigning release dates.
+
 ## Unreleased
+
+### Documentation entrypoints and status reconciliation
+
+- Make English/Chinese root READMEs matching project entrypoints; move operational instructions and
+  caller examples to focused development/API guides, with existing feature contracts retaining authority.
+- Reconcile request identity, combined Interview selection, verified legacy ownership and scoped
+  typography; distinguish current recovery from historical no-recovery limits.
+- Reorganize current acceptance, post-commit cleanup, later discussion/Polish and optional research.
+  User-reported real Mock branching and successful Debrief retry/new analysis are limited functional
+  evidence, not whole-workspace sign-off or broad model-quality assessment. No new live call or remote
+  CI check was performed for this documentation work.
+
+### Application closeout: request identity and lifecycle
+
+- Add transactional Job-create UUID/hash receipts and read-only receipt lookup; Product persists only
+  intent identity/hash across uncertain responses. Preserve independent intents, legacy direct API
+  calls, Company reuse and exact deleted-result replay. Add migration `c305c2202601` without backfill.
+- Exclude deleted Application bindings from named Profile/snapshot/Resume archive checks, with shared
+  resource lock boundaries and archive-aware binding admission. Retain historical references and CAS.
+- Make Job workspace links nullable and project task workspace availability independently of execution
+  success. Refresh old unhandled notifications and explain unavailable exact workspace/task links.
+- Verify in-flight execution/adoption ordering without erasing accepted outputs or usage. Update formal
+  lifecycle contracts and add a Chinese project README. Manual Application/Internal sign-off remains separate.
+
+### Application closeout: bounded UI cleanup and diagnostics
+
+- Remove Debrief saved-item reports and persistent completion summaries. Keep exact loading,
+  failed-target recovery, incremental results, frozen evidence and source-change notices unchanged.
+- Add isolated Research empty/last-removal, expired-history and sole-reference refusal coverage;
+  no Research production or removal-policy change was needed.
+- Record the then-unfixed job-create request-identity, deleted-owner archive/link and documentation
+  gaps in [the round-one inventory](docs/application-closeout-round-one.md). The round-two section
+  above supersedes those findings; Application/Internal final manual acceptance remains pending.
+
+### Debrief evidence contract and request intent
+
+- Align overall prompt v6/input v5/output v3 with exact answered-entry evidence required by the
+  production mapper/validator. Require a nonempty canonical-number list for every finding, retain
+  strict rejection and add body-free failure paths/categories/allowed-set summaries. Keep group and
+  Mock contracts unchanged; restore accepted overall v2 outputs through their original v4 inputs.
+- Change Debrief create identity to v3: independent submissions create independent generations;
+  only request UUID retransmissions reuse a generation. Preserve target retries, budgets and history.
+- Bind execution feedback/retry to exact active or selected history identity; clear detached feedback
+  on navigation/selection, guard late responses and preserve exact foreground notification acknowledgement.
+- Hide empty group pickers, join expanded options to their trigger and align note menus to the full
+  content edge. No business records, migration, provider budgets or timeouts are changed.
+
+### Debrief recovery and foreground task feedback
+
+- Collapse selected primary groups into an ordered multi-select with two-line excerpts,
+  follow-up counts and optional full-group expansion; hidden selections never enter requests.
+- Allow explicit retry of confirmed invalid-evidence outputs, preserving saved targets, original
+  inputs and cumulative budgets. Keep grounding strict, accepted-output recovery call-free and
+  uncertain outcomes query-only. No business history is rewritten.
+- Project partial failure reasons and distinguish interrupted unknown calls from confirmed cancellation.
+  Show one execution feedback area and an observable read-only status check only when needed.
+- Treat a Mock request without a registered receipt as pending, not an unknown execution. A legacy
+  receipt with no outcome remains unknown. Suppress notifications only for exact foreground states;
+  preserve away/background delivery, acknowledgement and execution-revision ordering.
+- No model prompt/schema, migration, provider budget or timeout changes.
+
+### Application review and knowledge notes
+
+- Separate centered Debrief creation from read-only exact-generation history; combine typed Mock/Actual
+  selection, load all pages, support selected primary groups and independent full-interview overall.
+- Normalize multi-group create identity v2; persist create/retry receipts. Retry only failed targets
+  over their original snapshot, recover accepted outputs before redispatch, preserve successful targets
+  and cumulative budgets, and leave unknown outcomes query-only. Model output/prompt schemas unchanged.
+- Collapse frozen Q&A by default, project exact entry evidence links, suppress only redundant single-entry
+  references, and compare content independently of source revision/metadata. Add generation visibility
+  removal with running/reference checks, history-chain fallback, Summary and exact deleted-target handling.
+- Replace notes forms/cards with a complete reading list and shared editor, persistent action menu and
+  application dialogs. Add durable create identity, honest modification time, CAS/no-op and legacy ownership.
+- Add migration `c205c2102601`; retain old timestamps, frozen outputs and audit. No business data migration
+  or real model/Judge validation is included. Application manual acceptance remains pending.
+
+### Mock follow-up value and quality contrasts
+
+- Upgrade only Mock prompt/hash to v8; retain input v6/output v3 and all existing decision, quota,
+  parent and recovery semantics. Compare concrete answer gaps with the value of broader coverage;
+  brief correct answers, first-question position and spare quota do not justify follow-ups alone.
+  Require new value for continuous probing and allow finish with unused allowance.
+- Separate Mock interviewer instructions from Debrief findings/evaluation/example answers while
+  retaining shared language, privacy and source-trust constraints. Preserve Prep/Debrief hashes and
+  accepted v7 ask/finish recovery without redispatch or historical rewrites.
+- Add nine paired synthetic quality cases through the existing production input builder and Eval
+  entry point, separating action legality from annotated acceptability. Keep labels outside model
+  input and preserve reasonable alternatives. Unchanged fixture choices deliberately expose four
+  quality misses; no real model/Judge quality improvement is claimed or tested.
+
+### Model-directed Mock decisions
+
+- Replace fixed early follow-up scheduling with one versioned ask/finish decision call shared by all
+  modes. Enforce initial primary, accepted answers, global caps and exact current-parent ownership;
+  follow-ups may be skipped, delayed or chained, and finish never creates an empty turn.
+- Supply compact current-group Q&A and trusted dynamic limits without expanding source scope or
+  budgets. Persist actual decision metadata and recover accepted ask/finish outputs without another
+  call; retain strict legacy v1/v2 recovery and immutable Debrief snapshots.
+- Validate dynamic turn identity/numbering in the frontend, group by stable parent, and distinguish
+  exact-request completion from new-question notifications. Keep accepted UI and foreground dedupe.
+- Advance Mock prompt/input/output and Eval fixtures; add all-mode decision, illegal-output, recovery,
+  concurrent finish and isolated real-backend browser regressions. No business data migration.
+
+### Mock spoken questions and stable answering
+
+- Remove redundant topic titles from new Mock model outputs/history inputs, version the prompt and
+  Eval cases, and preserve strict legacy JSON reads and accepted-output recovery without regeneration.
+  Debrief question/answer snapshots and grounding checks remain intact.
+- Show question numbers and spoken questions only, label saved answers, and keep follow-up editors
+  and aligned actions in the same indent. Retain drafts until persistence confirms saving; show one
+  inline loading state beneath the saved answer and reject stale transcript updates.
+- Apply accepted typography across home, unfinished sessions, progress and all answer states. Remove
+  completed-session new buttons and add exact continue links to read-only unfinished Mock history.
+
+### Mock continuation and execution state
+
+- Add an Application-scoped, collapsed list of all unfinished Mock sessions with exact continue links;
+  navigation opens the home, while explicit session URLs restore the saved transcript and quota.
+- Preserve creation identity through response loss and keep creation/first-question loading continuous.
+  Remove premature zero/total counters and redundant answer labels.
+- Serialize generation and recovery; distinguish live execution from orphaned flags without data
+  backfills. Resolve save-failure status through the exact persisted ModelCall/turn relationship,
+  retain audit failures, and keep notification acknowledgement and unrelated-request errors intact.
+- Keep submission separators between records only, including paginated lists.
+
+### Interview UI closure and exact history selection
+
+- Give Mock question numbers normal dark emphasis and group main questions with their follow-ups under full-width
+  separators; omit trailing list separators and keep Actual actions in compact left/right groups.
+- Keep source labels at main generation controls, retain frozen execution provenance, and use shared
+  readable record-name formatting across selectors and exact source links.
+- Read historical Research/Fit/Prep results before changing selection, preserving the current result
+  on read failure and preserving all selection state when deletion is refused. Retain known history
+  on refresh failure, while confirmed deletions remain removed and report refresh errors separately.
+- Keep legacy research history readable while retaining explicit generation compatibility checks;
+  no historical data, prompt fingerprints or frozen sources are rewritten.
+
+### Interview acceptance corrections
+
+- Unify Interview typography and management rows with accepted Product surfaces; default new Prep
+  research to none, keep full compatible history, and show action-specific exact source links.
+- Use one editable date/time string with a Chinese picker; separate Actual cancel/back destinations,
+  disclose question ownership controls on demand, and keep historical notes readable.
+- Resolve verified legacy Mock and result ownership without rewriting rows; distinguish actual frozen
+  consumers from publication/cache metadata in research/Fit/Prep visibility removal.
+- Use centered confirmation/rejection dialogs with readable consumer details and persistent danger
+  button styling. Existing Debrief snapshots, execution and notification semantics remain intact.
+
+### Interview workspace and source-bound recovery
+
+- Project interviewer inputs from exact Resume visibility and selected compact expressions; freeze Prep
+  source context for adjustments/regeneration and automatically adopt successful results.
+- Add Actual atomic creation/request identity, round collision checks, no-op preservation and an
+  explicit create/edit form with read-only full history and stable question identity.
+- Add Mock Application ownership and creation identity; recover durable accepted outputs after turn-save
+  failure without provider redispatch, retaining original failed receipts and answers.
+- Suppress success inbox entries for a question already rendered in the foreground session; preserve
+  request-specific cross-page/background notifications and exact question destinations.
+  Reload-time receipt polling waits for the exact session transcript before deciding whether to
+  notify, so hydration order cannot manufacture an unread foreground success.
+- Add reference-protected research/Fit/Prep visibility removal, excluding removed results from normal
+  candidates and reuse while keeping historical bodies and evidence.
+- New additive migrations: bf05c1802601 (intake identity), c005c1902601 (Mock identity/ownership),
+  c105c2002601 (research visibility). No legacy round or Application ownership is guessed/backfilled.
+
+
+### Resume execution and browser task feedback
+
+- Resume adjustment/regeneration now send one authoritative Resume body, retaining frozen source
+  validation and unchanged input limits; Product preflight failures no longer use a Debrief error code.
+- Browser-local notices separate shown from handled state and float at the bottom right.
+- Replacement confirmation retains separate Application binding and saved library results.
+- Real-provider verification and full interaction acceptance remain separate from offline checks.
+### Model reliability corrections
+
+- Corrected the legacy single-bullet limit being applied to whole structured Resume entries after
+  successful model generation. Existing grounding, total layout budget and PDF checks remain.
+- Fixed task-specific invocation provenance and added Product refinement guardrails to Eval.
+  Expanded frozen foundation coverage to all registered model tasks, including Product drafts/Judge.
+- Added read-only cross-page task status feedback and material operation restoration. Unknown
+  outcomes do not automatically retry; leaving Debrief no longer implicitly cancels execution.
+- Pinned material generation prompt identity in reuse compatibility; retained historical readers.
+
+The reliability follow-up also freezes per-request Mock outcome metadata in migration
+`be05c1702601`; later turns cannot overwrite an earlier request's notification. Legacy receipts
+without outcome metadata remain unknown. Mixed failed/cancelled Debrief work is reported as a
+failure rather than incorrectly labelling the whole request cancelled.
+
+### Apply final interaction and naming fixes
+
+- Reconcile notification pause state after a notice unmounts; distinguish pointer focus from keyboard
+  focus and preserve the manual inbox, unread count and eight-second automatic popup lifecycle.
+- Share one persisted optimization sequence across Application tailoring, regeneration and adjustment,
+  serialized across variants; retain independent Resume-library naming branches and frozen references.
+- Align Submission section headings and field-label typography with existing Product tokens.
+
+### Apply generation and Greeting removal
+
+- Center material generation actions with their exact bound Resume link; preserve old content on failure,
+  keep loading on the initiating control, and match accepted research/Fit body typography.
+- Automatically adopt Greeting adjustments/regeneration and select the persisted result.
+- Synchronize optimization history with library names/deletion; preserve exact historical reads.
+- Add audited Greeting visibility removal with protection from all historical Submission references.
+- Distinguish local budget, provider throttling, input length and attempt-limit messages; no budget or
+  timeout increase. The user's two historical live failures cannot be attributed without their safe traces.
+
+### Apply materials and Submission maintenance
+
+- Automatically expose successful tailoring and adopt Application Resume refinements in the library;
+  retain exact lineage, stable names, idempotent save recovery and separately confirmed binding changes.
+- Flatten optimization/Greeting/submission pages and provide exact-result-scoped, dismissible Fit reuse feedback.
+- Allow library Resume choices and all same-Application historical Greetings; retain cross-Application rejection.
+- Add audited Submission note edits and soft deletion, stable numbering, frozen material navigation,
+  accurate tracking feedback and optional explicit tracking change after deleting the last record.
+- Add migration `bc05c1502601` for Submission overlays/numbers and reliable historical tailoring visibility.
+- Application and Internal final manual acceptance remain pending; Profile acceptance is unchanged.
+
+### Application navigation and Fit feedback
+
+- Share the primary dropdown pattern across Apply, Interview and Review, preserving subroutes and exact result links.
+- Keep Fit input selections across result URL changes; distinguish new generation, compatible reuse and failed execution.
+- Use compact record selectors and an aligned Profile/Resume/action row; retain pending-task navigation and durable recovery.
+
+### Research & Fit contracts and subpages
+
+- Split job description, company research and matching into compact sub-navigation, with legacy deep-link compatibility and exact-result landing.
+- Explicit research refreshes search and synthesis; complete history remains readable after TTL and failed reads preserve the selection.
+- Separate company-only synthesis instructions, add bounded scope checks and prompt-aware report compatibility without invalidating search observations.
+- Generate Fit with one explanation per requirement; retain lossless legacy reads, reference/classification validation, Eval and downstream compatibility.
+- Reuse atomic JD editing with matching view/edit typography, auto-height and actual saved time.
+
+### Application Summary and tracking
+
+- Ten-card Summary with bounded notes/records, exact result links, true interview/debrief totals,
+  task-isolated latest successes and historical research independent from execution freshness.
+- Move full job-description editing to Research & Fit, retaining atomic JD/binding updates and CAS.
+- Six direct tracking states, compatible legacy aliases, reopenable closed applications, and actual
+  Submission that advances tracking only. Generation, manual state and actual submission stay distinct.
+- Source-attributed user notes and auditable edit/removal overlays; protect creation, system events,
+  unknown legacy ownership and historical material references. Migration `bb05c1402601` adds these
+  fields plus stable Mock ordinals, following `ba05c1302601` soft deletion.
+- Application/Internal final manual acceptance remains pending; Profile acceptance is unchanged.
+
 
 ### Removed — retired manual Facts workflow
 
@@ -35,6 +283,36 @@
 - The earlier entries below record implementation stages; current behavior is documented in
   `docs/profile-workspace.md`. In particular, Fact UI and automatic compression are superseded.
 
+
+### v0.5 Profile workspace closure + HITL
+
+- Selector-first Profile homepage, idempotent creation and inline identity editing.
+- One-action quick/AI Resume creation; Product Facts navigation retired without deleting backend data.
+- Source-aware PDF validation replaces manual intermediate Fact approval.
+- Feedback comments/Application/provenance and queryable feedback-to-refinement lineage.
+- Nullable migration `b405c0702601`; old snapshots and artifact references retained.
+### Profile interaction correction
+
+The Facts controls in this intermediate checkpoint are retired by the later Profile/Facts changes;
+shared evidence and frozen history are retained.
+
+- Named independent Profile records with section saves, preserved snapshots and protected deletion.
+- Unified saved Resume versions, arbitrary Profile source, idempotent creation, explicit AI generation/compression, and incremental deterministic short-text selection.
+- Facts table with mixed-state batch review, actual update times, exact Profile/Resume extraction sources, candidate selection, duplicate detection and real cancellation.
+- Migration `b305c0602601` preserves old snapshots and historical artifact references.
+### Profile area restructuring (unreleased)
+
+Historical Profile/Facts UI checkpoint; subsequent [Facts retirement](#removed--retired-manual-facts-workflow)
+and [Profile acceptance](#v05-checkpoint--profile-workspace-manually-accepted) supersede manual Fact prerequisites.
+
+- Separate personal-information, resume-library and fact-library Product pages.
+- Durable section-level Profile drafts and explicit publication, history restore/archive,
+  optional contact/education/work/project fields, exact multiline skills, ordinary preference fields.
+- Validated private photo upload/read/replace/remove and snapshot-bound PDF headers/photos.
+- Compact fact review with atomic batch confirm/reject/archive and proposed replacement editing.
+- Persistent deterministic Resume drafts without fact prerequisites; verified/grounded formal
+  publication, one version selector, stable names, rename and safe archival.
+- `b205c0502601` migration; old snapshots/artifacts remain readable. No paid model acceptance claimed.
 
 ### Changed — v0.5 Application-centered Product workflow
 
@@ -121,6 +399,33 @@
   outcome, unconfirmed business commit and RecoveryIncident; scoped attempt metadata detail.
 - Documented server-only Next.js/BFF Ops-token and private-evaluation boundaries.
 
+### Fixed — Web product contract audit
+
+- ProductOperation reuses rollback PDF cleanup only after a confirmed rollback; committed or
+  uncertain-commit files are retained, including failures after business commit.
+- Explicit Company Research uses one workflow/version identity across run, state, steps, model
+  context/call and invocation. Unsupported workflow capture conversion rejects `case_incompatible`.
+- Research and Preparation share the operation recovery/terminal mapping.
+- Debrief discovery resolves selected generation identity, marks `is_selected`, and supplies
+  distinct default-selected and exact-historical detail URLs.
+- Preparation result views expose `source_resume_revision_id` separately from generated Resume identity.
+- Audit-fix offline acceptance: 577 tests passed, including 20 product contract cases, real
+  PostgreSQL migration/drift/history upgrades and Typst regression coverage. Ruff/format,
+  strict mypy and offline wheel/sdist build passed; no paid API calls.
+### Added — Web product backend contracts
+
+- Company and research discovery, explicit refresh operations reusing existing report/observation policy.
+- Durable idempotent preparation handles with explicit synchronous execution, status/result retrieval,
+  and conservative interruption/recovery semantics; no worker or implicit paid research.
+- Paginated Application, Mock/Debrief, run/operation and exact Profile/JD history discovery.
+- Typed preparation product projection resolving internal wrappers, exact context, PDF and feedback refs.
+- Immutable user-confirmed material submission records linked transactionally to Application events,
+  with exact Resume/PDF and optional Greeting/package validation, CAS and request idempotency.
+- Additive migration `ad04c0402601`; historical business rows are not backfilled or reinterpreted.
+- Offline verification: 567 tests passed (10 new product tests), including PostgreSQL migration/drift/history,
+  cancellation/concurrent operation execution and real Typst regressions; Ruff/format, strict mypy,
+  offline locked install, wheel/sdist build/import and font preflight passed. No paid live calls.
+
 ### Fixed — v0.4 Phase 3 audit
 
 - Preserve metadata-only target generation intent across business rollback, blocking automatic
@@ -132,6 +437,9 @@
   regenerate interleavings; Ruff/format, strict mypy, migration/drift/history and offline build passed.
 
 ### Added — v0.4 Phase 3 Reuse Optimization / Production Acceptance
+
+Historical Debrief fingerprint reuse below was superseded by [independent create intent and request-level
+idempotency](#debrief-evidence-contract-and-request-intent). Exact preparation/search reuse is a separate contract.
 
 - Feature-local versioned prompt composition, deterministic object serialization and preserved
   semantic array/ref order; provider cache telemetry remains reported usage, not inferred savings.
@@ -287,6 +595,11 @@
 
 
 ### Added / Changed — v0.2b Interview Loop
+
+Subsequent contracts: [model-directed decisions](#model-directed-mock-decisions) replace fixed Mock
+scheduling; [Review workspace](#application-review-and-knowledge-notes) adds multi-group selection and
+[request intent](#debrief-evidence-contract-and-request-intent) separates new analysis from retry/retransmission.
+The original phase's recovery/quality limits below do not erase later accepted-output recovery.
 
 - Actual InterviewSession current-state Q&A intake: ordered stable primary/follow-up entries,
   same-session primary references, occurred_at, CAS content_revision, correction/replacement and
@@ -482,6 +795,10 @@
 
 ### Added — v0.1b Resume Compiler
 
+Historical behavior: automatic full/short/optional selection below was later superseded by
+[explicit Profile/Resume presentation](#v05-checkpoint--profile-workspace-manually-accepted).
+The original acceptance results remain historical observations, not instructions for current PDF rendering.
+
 - Versioned hand-authored ResumeVariant documents and immutable revision persistence,
   exact Profile/JD references, captured fact revisions and duplicate/invalid input validation.
 - Render-time verified-fact/snapshot/requirement checks, numeric token consistency and
@@ -536,6 +853,11 @@
 - Wheel builds offline, includes the trusted Chinese `.typ` template and no font/PDF binaries.
 - Tracked/untracked hygiene and whitespace checks pass. No system fonts were installed.
 
+At the original v0.1b local-verification checkpoint, the user had confirmed v0.1a commit/push and
+remote CI; v0.1b was then uncommitted/unpushed and its updated CI had not run. This records that
+checkpoint only, not the present repository or remote CI state.
+No final v0.1.0 release was reported at that checkpoint.
+
 ### Added — v0.1a Foundation
 
 - v0.1a Foundation modular Python package with uv lockfile, Python 3.12 baseline,
@@ -565,61 +887,3 @@
 - Ruff check and format check pass; strict mypy passes for all 14 source modules.
 - FastAPI starts under Uvicorn; live HTTP health and OpenAPI (21 operations) verified.
 - Alembic reports no schema drift; tracked and untracked files pass whitespace checks.
-
-The user confirmed v0.1a was committed/pushed and its remote CI passed.
-The v0.1b changes have not been committed/pushed; their updated remote CI has not run.
-No final v0.1.0 release has been made.
-
-### Added — Web product backend contracts
-
-- Company and research discovery, explicit refresh operations reusing existing report/observation policy.
-- Durable idempotent preparation handles with explicit synchronous execution, status/result retrieval,
-  and conservative interruption/recovery semantics; no worker or implicit paid research.
-- Paginated Application, Mock/Debrief, run/operation and exact Profile/JD history discovery.
-- Typed preparation product projection resolving internal wrappers, exact context, PDF and feedback refs.
-- Immutable user-confirmed material submission records linked transactionally to Application events,
-  with exact Resume/PDF and optional Greeting/package validation, CAS and request idempotency.
-- Additive migration `ad04c0402601`; historical business rows are not backfilled or reinterpreted.
-- Offline verification: 567 tests passed (10 new product tests), including PostgreSQL migration/drift/history,
-  cancellation/concurrent operation execution and real Typst regressions; Ruff/format, strict mypy,
-  offline locked install, wheel/sdist build/import and font preflight passed. No paid live calls.
-
-### Fixed — Web product contract audit
-
-- ProductOperation reuses rollback PDF cleanup only after a confirmed rollback; committed or
-  uncertain-commit files are retained, including failures after business commit.
-- Explicit Company Research uses one workflow/version identity across run, state, steps, model
-  context/call and invocation. Unsupported workflow capture conversion rejects `case_incompatible`.
-- Research and Preparation share the operation recovery/terminal mapping.
-- Debrief discovery resolves selected generation identity, marks `is_selected`, and supplies
-  distinct default-selected and exact-historical detail URLs.
-- Preparation result views expose `source_resume_revision_id` separately from generated Resume identity.
-- Audit-fix offline acceptance: 577 tests passed, including 20 product contract cases, real
-  PostgreSQL migration/drift/history upgrades and Typst regression coverage. Ruff/format,
-  strict mypy and offline wheel/sdist build passed; no paid API calls.
-
-### Profile area restructuring (unreleased)
-
-- Separate personal-information, resume-library and fact-library Product pages.
-- Durable section-level Profile drafts and explicit publication, history restore/archive,
-  optional contact/education/work/project fields, exact multiline skills, ordinary preference fields.
-- Validated private photo upload/read/replace/remove and snapshot-bound PDF headers/photos.
-- Compact fact review with atomic batch confirm/reject/archive and proposed replacement editing.
-- Persistent deterministic Resume drafts without fact prerequisites; verified/grounded formal
-  publication, one version selector, stable names, rename and safe archival.
-- `b205c0502601` migration; old snapshots/artifacts remain readable. No paid model acceptance claimed.
-
-### Profile interaction correction
-
-- Named independent Profile records with section saves, preserved snapshots and protected deletion.
-- Unified saved Resume versions, arbitrary Profile source, idempotent creation, explicit AI generation/compression, and incremental deterministic short-text selection.
-- Facts table with mixed-state batch review, actual update times, exact Profile/Resume extraction sources, candidate selection, duplicate detection and real cancellation.
-- Migration `b305c0602601` preserves old snapshots and historical artifact references.
-
-### v0.5 Profile workspace closure + HITL
-
-- Selector-first Profile homepage, idempotent creation and inline identity editing.
-- One-action quick/AI Resume creation; Product Facts navigation retired without deleting backend data.
-- Source-aware PDF validation replaces manual intermediate Fact approval.
-- Feedback comments/Application/provenance and queryable feedback-to-refinement lineage.
-- Nullable migration `b405c0702601`; old snapshots and artifact references retained.

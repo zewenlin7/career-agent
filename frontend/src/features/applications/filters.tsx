@@ -1,114 +1,107 @@
 "use client";
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Surface } from "@/components/ui/surface";
 import { Button } from "@/components/ui/button";
-import { useRead } from "@/features/workspace/client";
-import { Field, Select, control, ErrorNotice } from "@/features/workspace/ui";
-import type { Page } from "@/features/workspace/contracts";
+import { Field, control } from "@/features/workspace/ui";
+import { CompanySearch, type Company } from "./company-search";
 import { applicationStatuses, statusLabels, type ApplicationStatus } from "./contracts";
 import { listHref, type ListQuery } from "./queries";
 export function ApplicationFilters({
   query,
-  companyName,
+  companies: initialCompanies,
 }: {
   query: ListQuery;
-  companyName?: string;
+  companies: Company[];
 }) {
   const router = useRouter();
-  const [search, setSearch] = useState(query.company_q || companyName || "");
-  const [typing, setTyping] = useState(false);
-  useEffect(() => {
-    if (!typing || (!query.company_id && query.company_q === search.trim())) return;
-    const timer = setTimeout(
-      () =>
-        router.replace(
-          listHref(query, { company_q: search.trim(), company_id: undefined, page: 1 }),
-        ),
-      350,
-    );
-    return () => clearTimeout(timer);
-  }, [typing, search, query, router]);
-  const companies = useRead<Page<{ id: string; name: string }>>(
-    typing && search.trim() ? `companies?q=${encodeURIComponent(search.trim())}&limit=8` : null,
-  );
+  const [status, setStatus] = useState(query.status || "");
+  const [selected, setSelected] = useState(initialCompanies);
+  const [search, setSearch] = useState("");
+  const composition = useRef(false);
   return (
     <Surface tone="warm" className="mb-6" aria-label="申请筛选">
       <form
-        className="flex flex-wrap items-end gap-3"
+        className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:flex"
         onSubmit={(e) => {
           e.preventDefault();
-          setTyping(false);
+          if (composition.current) return;
           router.push(
-            listHref(query, { company_q: search.trim(), company_id: undefined, page: 1 }),
+            listHref({
+              status: (status || undefined) as ApplicationStatus | undefined,
+              company_ids: selected.map((c) => c.id),
+              page: 1,
+            }),
           );
         }}
       >
-        <Select
-          label="状态"
-          value={query.status || ""}
-          onChange={(e) =>
-            router.push(
-              listHref(query, {
-                status: (e.target.value || undefined) as ApplicationStatus | undefined,
-                page: 1,
-              }),
-            )
-          }
-        >
-          <option value="">全部状态</option>
-          {applicationStatuses.map((s) => (
-            <option key={s} value={s}>
-              {statusLabels[s]}
-            </option>
-          ))}
-        </Select>
-        <div className="min-w-0 flex-1 space-y-2">
-          <Field label="公司">
-            <input
-              className={control}
-              placeholder="搜索公司"
-              value={search}
-              maxLength={200}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setTyping(true);
-              }}
-            />
-          </Field>
-          <ErrorNotice code={companies.error} />
-          {typing && search.trim() && companies.data && (
-            <ul className="rounded-control border border-line bg-paper p-2">
-              {companies.data.items.map((c) => (
-                <li key={c.id}>
-                  <Button
-                    onClick={() => {
-                      setSearch(c.name);
-                      setTyping(false);
-                      router.push(listHref(query, { company_q: "", company_id: c.id, page: 1 }));
-                    }}
-                  >
-                    {c.name}
-                  </Button>
-                </li>
-              ))}
-              {!companies.data.items.length && <li className="p-2 text-sm">没有找到公司</li>}
-            </ul>
-          )}
+        <div className="min-w-0 self-start sm:flex-1">
+          <CompanySearch
+            value={search}
+            onChange={setSearch}
+            onComposing={(value) => {
+              composition.current = value;
+            }}
+            disabled={(company) =>
+              selected.some((s) => s.id === company.id) || selected.length >= 50
+            }
+            onSelect={(company) => {
+              setSelected((items) =>
+                items.some((s) => s.id === company.id) ? items : [...items, company],
+              );
+              setSearch("");
+            }}
+          />
         </div>
-        <Button type="submit">筛选</Button>
-        <Link
-          className="inline-flex min-h-11 items-center text-sm underline"
-          href="/applications"
-          onClick={() => {
-            setSearch("");
-            setTyping(false);
-          }}
-        >
-          清除筛选
-        </Link>
+        <Field label="状态">
+          <select
+            className={`${control} font-normal`}
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ApplicationStatus | "")}
+          >
+            <option value="">全部状态</option>
+            {applicationStatuses.map((s) => (
+              <option key={s} value={s}>
+                {statusLabels[s]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="col-start-2 flex flex-col gap-2 sm:flex-row sm:gap-3">
+          <Button type="submit">筛选</Button>
+          <Button
+            onClick={() => {
+              setSearch("");
+              setSelected([]);
+              setStatus("");
+              router.push("/applications");
+            }}
+          >
+            清除筛选
+          </Button>
+        </div>
       </form>
+
+      {!!selected.length && (
+        <ul aria-label="已选公司" className="mt-3 flex flex-wrap gap-2">
+          {selected.map((c) => (
+            <li
+              key={c.id}
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-paper py-0.5 pr-1 pl-3 text-sm"
+            >
+              <span className="break-words">{c.name}</span>
+              <button
+                type="button"
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-secondary hover:bg-inset hover:text-ink focus-visible:outline-2 focus-visible:outline-accent-ink"
+                aria-label={`移除${c.name}`}
+                onClick={() => setSelected((items) => items.filter((s) => s.id !== c.id))}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </Surface>
   );
 }

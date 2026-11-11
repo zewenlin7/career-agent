@@ -43,6 +43,7 @@ async def test_application_knowledge_direct_legacy_global_and_conflict(client, s
             json={
                 "application_id": app_id,
                 "round_name": "技术一面",
+                "status": "draft",
                 "expected_revision": 0,
             },
         )

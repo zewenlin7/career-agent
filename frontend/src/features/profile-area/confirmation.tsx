@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useId } from "react";
 import { Button } from "@/components/ui/button";
-export function useConfirmation() {
+export function useConfirmation(accept = "确定", cancel = "取消", title?: string) {
+  const id = useId();
   const [message, setMessage] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const resolve = useRef<(value: boolean) => void>(() => {});
@@ -22,18 +23,29 @@ export function useConfirmation() {
     confirmation: (
       <dialog
         ref={dialog}
-        className="max-w-[calc(100%-2rem)] rounded-control bg-paper p-6 backdrop:bg-black/30"
+        aria-labelledby={title && message ? `${id}-title` : undefined}
+        aria-describedby={`${id}-body`}
+        className="fixed inset-0 m-auto w-[min(32rem,calc(100%-2rem))] rounded-control bg-paper p-6 backdrop:bg-black/30"
         onCancel={(e) => {
           e.preventDefault();
           finish(false);
         }}
       >
-        <p>{message}</p>
+        {title && (
+          <h2 id={`${id}-title`} className="mb-3 text-xl font-semibold">
+            {title}
+          </h2>
+        )}
+        <p id={`${id}-body`} className="text-base font-normal leading-relaxed">
+          {message}
+        </p>
         <div className="mt-5 flex justify-end gap-3">
-          <Button onClick={() => finish(true)}>确定</Button>
-          <Button autoFocus onClick={() => finish(false)}>
-            取消
-          </Button>
+          <Button onClick={() => finish(true)}>{accept}</Button>
+          {cancel && (
+            <Button autoFocus onClick={() => finish(false)}>
+              {cancel}
+            </Button>
+          )}
         </div>
       </dialog>
     ),

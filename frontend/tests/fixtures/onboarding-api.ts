@@ -1,5 +1,5 @@
 /** Empty-store fixture. No authoritative Profile/Fact/Resume/Job exists until a UI write. */
-import { id, time } from "./product-api.ts";
+import { id, time, summaryFixture } from "./product-api.ts";
 import { workspaceResponse, resetWorkspace, profileRow } from "./workspace-api.ts";
 import type { Profile, Variant, ResumeDocument } from "../../src/features/onboarding/contracts.ts";
 import { transitions } from "../../src/features/onboarding/contracts.ts";
@@ -65,7 +65,7 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
     q = url.searchParams;
   if (/^applications\/[^/]+\/context$/.test(p) && blank) {
     const app = apps.find((item) => item.id === p.split("/")[1]);
-    if (!app) return fail("not_found", 404);
+    if (!app || app.deleted_at) return fail("not_found", 404);
     const job = jobs.find((item) => item.id === app.job_id)!;
     let binding = bindings.get(String(app.id));
     if (!binding) {
@@ -232,6 +232,13 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
     let company = body.company_id ? companies.find((c) => c.id === body.company_id) : undefined;
     if (body.company_id && !company) return fail("not_found", 404);
     if (company && company.name !== body.company_name) return fail("company_name_mismatch", 422);
+    if (!body.company_id) {
+      const matches = companies.filter(
+        (c) => String(c.name).trim() === String(body.company_name).trim(),
+      );
+      if (matches.length > 1) return fail("company_selection_required", 409);
+      company = matches[0];
+    }
     if (!company) {
       company = { id: id(1001 + companies.length), name: body.company_name, created_at: time() };
       companies.push(company);
@@ -285,9 +292,14 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
             .reverse()
             .filter(
               (a) =>
+                !a.deleted_at &&
                 (!q.get("status") || a.status === q.get("status")) &&
                 (!q.get("company_id") ||
-                  jobs.find((j) => j.id === a.job_id)?.company_id === q.get("company_id")),
+                  jobs.find((j) => j.id === a.job_id)?.company_id === q.get("company_id")) &&
+                (!q.getAll("company_ids").length ||
+                  q
+                    .getAll("company_ids")
+                    .includes(String(jobs.find((j) => j.id === a.job_id)?.company_id))),
             ),
           q,
         ),
@@ -320,20 +332,70 @@ export function onboardingResponse(url: URL, method: string, body: D): Reply | u
       );
     }
   }
+  if (/^applications\/[^/]+\/jd$/.test(p) && method === "PUT") {
+    const app = apps.find((a) => a.id === p.split("/")[1]);
+    if (!app || app.deleted_at) return fail("not_found", 404);
+    const job = jobs.find((j) => j.id === app.job_id)!;
+    const binding = bindings.get(String(app.id));
+    if (
+      body.expected_revision !== job.revision ||
+      body.expected_binding_revision !== binding?.revision
+    )
+      return fail("revision_conflict");
+    if (String(body.jd_text).trim() !== job.jd_text) {
+      job.jd_text = String(body.jd_text).trim();
+      job.revision = Number(job.revision) + 1;
+      job.job_revision_id = uid();
+      job.requirements = [];
+      Object.assign(binding!, {
+        job_revision_id: job.job_revision_id,
+        job_revision: job.revision,
+        revision: Number(binding!.revision) + 1,
+      });
+    }
+    return ok(job);
+  }
+  if (/^applications\/[^/]+\/summary$/.test(p) && blank) {
+    const app = apps.find((a) => a.id === p.split("/")[1]);
+    if (!app || app.deleted_at) return fail("not_found", 404);
+    const job = jobs.find((j) => j.id === app.job_id)!;
+    return ok(summaryFixture(app as never, job as never));
+  }
+  if (/^applications\/[^/]+\/entries\/[^/]+$/.test(p) && blank) {
+    const app = apps.find((a) => a.id === p.split("/")[1]);
+    if (!app) return fail("not_found", 404);
+    const event = (app.events as D[]).find((e) => e.id === p.split("/")[3]);
+    if (!event || event.kind === "created") return fail("entry_read_only");
+    if (
+      body.expected_revision !== app.revision ||
+      body.expected_entry_revision !== (event.entry_revision || 1)
+    )
+      return fail("revision_conflict");
+    if (method === "DELETE") event.removed = true;
+    else event.note = body.text;
+    event.entry_revision = Number(event.entry_revision || 1) + 1;
+    app.revision = Number(app.revision) + 1;
+    return ok({ revision: app.revision });
+  }
   match = p.match(/^applications\/([^/]+)(\/notes)?$/);
   if (match && (blank || method !== "GET")) {
     const app = apps.find((a) => a.id === match![1]);
     if (!app && !blank) {
       return undefined;
     }
-    if (!app) return fail("not_found", 404);
+    if (!app || app.deleted_at) return fail("not_found", 404);
     if (method === "GET") return ok(app);
+    if (method === "DELETE") {
+      if (app.status !== "closed") return fail("application_not_closed");
+      app.deleted_at = time();
+      return ok({ deleted: true });
+    }
     if (match[2]) {
       app.revision = Number(app.revision) + 1;
       return ok(addEvent(app, "note", null, body.text), 201);
     }
     if (body.expected_revision !== app.revision) return fail("revision_conflict");
-    if (body.status === app.status) return fail("unchanged_application_status");
+    if (body.status === app.status) return ok(app);
     if (body.correction && !String(body.reason || "").trim()) return fail("validation_error", 422);
     if (
       !body.correction &&

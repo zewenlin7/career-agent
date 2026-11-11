@@ -1,3 +1,4 @@
+import { formatTime } from "@/lib/date-time";
 import { Surface } from "@/components/ui/surface";
 import { SectionHeading } from "@/components/ui/typography";
 
@@ -28,11 +29,7 @@ export function ReadProblem({
 export function DateTime({ value }: { value: string }) {
   return (
     <time dateTime={value} title={value}>
-      {new Intl.DateTimeFormat("zh-CN", {
-        dateStyle: "medium",
-        timeStyle: "short",
-        timeZone: "Asia/Shanghai",
-      }).format(new Date(value))}
+      {formatTime(value)}
     </time>
   );
 }

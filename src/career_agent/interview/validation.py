@@ -58,7 +58,10 @@ def validate_turn(
     if output.reason_code != ("next_primary" if kind == "primary" else "clarify_answer"):
         raise ModelGatewayError("illegal_question_kind")
     safe_prose(output.question)
-    safe_prose(output.topic, require_chinese=False)
+    from career_agent.interview.contracts import LegacyTurnOutput
+
+    if isinstance(output, LegacyTurnOutput):
+        safe_prose(output.topic, require_chinese=False)
     refs(output.fact_refs, set(context.fact_snapshot))
     refs(output.requirement_refs, {UUID(x["id"]) for x in context.data["requirements"]})
 

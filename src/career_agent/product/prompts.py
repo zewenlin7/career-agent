@@ -1,5 +1,7 @@
 """Feature-local, review-first onboarding and refinement prompts."""
 
+from typing import Any
+
 from pydantic import BaseModel
 
 from career_agent.models.composition import Composition
@@ -27,11 +29,29 @@ For editable resume content: return expressions keyed by supplied source_item_id
 The application restores sections and provenance. Never fabricate a source reference.
 For refinement: revise the original artifact using feedback, retaining all hard facts.
 Return no additional explanation outside the output schema."""
+
+
+def generation_inputs(task: str, inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep the frozen validation context, but send a Resume body only once."""
+    if task != "resume_refinement":
+        return inputs
+    return {
+        **inputs,
+        "context": {
+            k: v
+            for k, v in inputs["context"].items()
+            if k not in {"resume", "profile", "document_template", "profile_refs"}
+        },
+    }
+
+
 PROMPTS = {
     task: PromptSpec(
         task_type=task,
         prompt_name=task,
-        prompt_version=f"{task}_v6"
+        prompt_version=f"{task}_v4"
+        if task in {"resume_refinement", "interview_preparation_refinement"}
+        else f"{task}_v6"
         if task == "resume_library_compression"
         else f"{task}_v5"
         if task
@@ -41,13 +61,17 @@ PROMPTS = {
             "resume_claim_refinement",
         }
         else f"{task}_v3",
-        input_schema_version="product-draft-input-v3"
+        input_schema_version="resume-refinement-input-v3"
+        if task == "resume_refinement"
+        else "product-draft-input-v3"
         if task
         in {
             "base_resume_drafting",
             "resume_library_compression",
             "resume_claim_refinement",
         }
+        else "interview-visible-input-v1"
+        if task == "interview_preparation_refinement"
         else "product-draft-input-v2",
         output_schema_version=f"{task}-output-v4"
         if task == "resume_library_compression"

@@ -22,6 +22,7 @@ from career_agent.models.gateway import ModelGateway
 from career_agent.preparation.budget import BudgetLedger, input_bound
 from career_agent.product.entities import ProductDraft
 from career_agent.product.prompts import TASK_SCHEMAS as PRODUCT_TASKS
+from career_agent.product.prompts import generation_inputs
 from career_agent.runtime.contracts import Budget, OutputDiagnostic, Usage
 
 OwnerKind = Literal["mock", "debrief", "product_draft"]
@@ -84,6 +85,7 @@ class InterviewCalls:
         )
 
     def preflight(self, task: str, mode: str, inputs: dict[str, Any], policy: CallPolicy) -> int:
+        inputs = generation_inputs(task, inputs)
         context = self.request(task, mode, policy)
         spec = self.gateway.prompts.resolve(task).task(inputs)
         self.gateway.trace_metadata(context, spec)
@@ -91,13 +93,17 @@ class InterviewCalls:
             bound = input_bound(context, spec)
         except ModelGatewayError:
             raise ModelGatewayError(
-                "debrief_input_too_large"
+                "product_input_too_large"
+                if task in PRODUCT_TASKS
+                else "debrief_input_too_large"
                 if task != "mock_interview_turn_generation"
                 else "mock_input_too_large"
             ) from None
         if bound > policy.max_input_tokens:
             raise ModelGatewayError(
-                "debrief_input_too_large"
+                "product_input_too_large"
+                if task in PRODUCT_TASKS
+                else "debrief_input_too_large"
                 if task != "mock_interview_turn_generation"
                 else "mock_input_too_large"
             )
@@ -135,6 +141,7 @@ class InterviewCalls:
         retry_reason: str | None = None,
         repair_reason: str | None = None,
     ) -> AcceptedCall:
+        inputs = generation_inputs(task, inputs)
         try:
             return await self._generate(
                 kind,
@@ -148,7 +155,12 @@ class InterviewCalls:
                 repair_reason=repair_reason,
             )
         except ModelGatewayError as exc:
-            if exc.control_decisions:
+            if exc.control_decisions or exc.code in {
+                "product_input_too_large",
+                "mock_input_too_large",
+                "debrief_input_too_large",
+                "call_budget_exhausted",
+            }:
                 # Admission is not a provider attempt. Retain the decision as a step,
                 # without inventing a ModelCall or consuming a model-call quota.
                 async with self.sessions.begin() as session:
@@ -190,6 +202,18 @@ class InterviewCalls:
     ) -> AcceptedCall:
         async with self.sessions.begin() as session:
             row = await owner(session, kind, id)
+            from career_agent.application.services import active_interview_target, active_jd
+
+            if isinstance(row, (e.MockInterviewSession, e.DebriefRun)):
+                await active_interview_target(session, row)
+            elif row.request.get("application_id"):
+                await require(session, e.Application, UUID(row.request["application_id"]))
+            elif row.request.get("source_artifact_id"):
+                source = await require(
+                    session, e.PreparationArtifact, UUID(row.request["source_artifact_id"])
+                )
+                await active_jd(session, source.job_revision_id)
+
             attempt = 1 + (
                 await session.scalar(
                     select(func.max(e.ModelCall.attempts)).where(
@@ -321,8 +345,18 @@ class InterviewCalls:
         except ModelGatewayError as exc:
             failure = exc
             actual = actual or exc.usage
-            if result is not None and failure.diagnostic is None:
-                failure.diagnostic = OutputDiagnostic(failure_kind="output_guardrail_failed")
+            if result is not None:
+                # Retain transport response identity when adding body-free semantic diagnostics.
+                base_diagnostic = result.versions.output_diagnostic or OutputDiagnostic()
+                update = (
+                    failure.diagnostic.model_dump(exclude_none=True) if failure.diagnostic else {}
+                )
+                update["failure_kind"] = "output_guardrail_failed"
+                update["guardrail_code"] = failure.code
+                update.pop("response_status", None)
+                failure.diagnostic = OutputDiagnostic.model_validate(
+                    {**base_diagnostic.model_dump(), **update}
+                )
         except Exception:
             failure = ModelGatewayError("interview_provider_error")
         elapsed = time.monotonic() - start

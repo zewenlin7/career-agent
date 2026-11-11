@@ -37,7 +37,12 @@ def clean(value: Any, name: str = "") -> Any:
 
 
 async def freeze(
-    session: AsyncSession, settings: Settings, gateway: ModelGateway, binding: ContextBinding
+    session: AsyncSession,
+    settings: Settings,
+    gateway: ModelGateway,
+    binding: ContextBinding,
+    *,
+    visible_only: bool = False,
 ) -> FrozenContext:
     runner = PreparationWorkflow(
         session,
@@ -58,7 +63,7 @@ async def freeze(
         job_revision_id=binding.job_revision_id,
         requested_outputs=[],
     )
-    await runner.validate_inputs()
+    await runner.validate_inputs(resume_evidence_only=visible_only)
     if runner.state.warnings:
         raise DomainError("interview_context_too_large", 422)
     loader = ContextLoader(runner)
@@ -73,8 +78,13 @@ async def freeze(
         "resume": variant.document,
         "profile_refs": runner.profile_refs,
     }
+    if binding.interview_preparation_id and visible_only:
+        raise DomainError("interview_source_contract_incompatible", 422)
     if binding.interview_preparation_id:
         artifact = await require(session, e.PreparationArtifact, binding.interview_preparation_id)
+        from career_agent.product.result_lifecycle import require_source_visible
+
+        await require_source_visible(session, artifact.id)
         parsed = PrivateResult.model_validate(artifact.data)
         package = await session.scalar(
             select(e.PreparationArtifact).where(
@@ -94,11 +104,24 @@ async def freeze(
         ):
             raise DomainError("context_revision_mismatch", 422)
         data["interview_preparation"] = parsed.output.model_dump(mode="json")
+    if visible_only:
+        from career_agent.interview.materials import visible_materials
+
+        data.update(
+            visible_materials(
+                variant.document, variant.presentation, runner.facts, runner.profile_refs
+            )
+        )
     return FrozenContext(
+        schema_version="interview-context-v2" if visible_only else "interview-context-v1",
         binding=binding,
         profile_revision=runner.profile.revision,
         job_id=runner.job.job_id,
         job_revision=runner.job.revision,
-        fact_snapshot={f.id: f.revision for f in runner.fact_rows.values()},
+        fact_snapshot={
+            f.id: f.revision
+            for f in runner.fact_rows.values()
+            if not visible_only or str(f.id) in {value["id"] for value in data["facts"]}
+        },
         data=runner.model_view(data),
     )

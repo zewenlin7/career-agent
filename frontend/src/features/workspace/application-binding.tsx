@@ -46,7 +46,13 @@ export function ApplicationMaterials({ applicationId }: { applicationId: string 
     </Panel>
   );
 }
-function BindingEditor({ binding, onDone }: { binding: ApplicationBinding; onDone: () => void }) {
+export function BindingEditor({
+  binding,
+  onDone,
+}: {
+  binding: ApplicationBinding;
+  onDone: () => void;
+}) {
   const [resume, setResume] = useState(binding.resume_revision_id || "");
   const resumes = useRead<{ items: ResumeChoice[] }>(
     "resume-library/versions?limit=100",

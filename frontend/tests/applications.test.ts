@@ -81,27 +81,10 @@ test("exact Application/Job/Company binding rejects mismatches", async () => {
   );
   const siblings = await repo.siblings(ctx);
   assert.ok(siblings.items.every((x) => x.job.company_id === ctx.company.id));
-  assert.equal(siblings.has_more, true);
+  assert.equal(siblings.has_more, false);
+  assert.equal(siblings.items.length, 23);
 });
-test("summary keeps historical bindings, categories and independent failures", async () => {
-  const { read } = fixtureReader(),
-    repo = applicationRepository(read);
-  const ctx = await repo.context(id(1)),
-    summary = await repo.summary(ctx);
-  assert.equal(summary.packages.state, "ready");
-  if (summary.packages.state === "ready")
-    assert.notEqual(summary.packages.value[0].job_revision_id, ctx.job.job_revision_id);
-  if (summary.research.state === "ready")
-    assert.equal(summary.research.value.items[0].reusable_for_current_execution, false);
-  if (summary.debrief.state === "ready")
-    assert.equal(summary.debrief.value.items[0].is_selected, false);
-  assert.ok(!JSON.stringify(summary).includes("PRIVATE_PAYLOAD_NOT_RENDERED"));
-  const empty = await repo.summary(await repo.context(id(2)));
-  assert.deepEqual(empty.actual, { state: "ready", value: [] });
-  const partial = await repo.summary(await repo.context(id(24)));
-  assert.equal(partial.research.state, "unavailable");
-  assert.equal(partial.submissions.state, "ready");
-});
+
 test("failed Job join never fabricates a row or returns an empty success", async () => {
   const f = fixtureReader();
   const read: Reader = (path, decode, query) =>
@@ -112,4 +95,23 @@ test("failed Job join never fabricates a row or returns an empty success", async
     () => applicationRepository(read).list(parseQuery({})),
     /backend_unavailable/,
   );
+});
+
+test("repeated company IDs are bounded, deduplicated and preserved across pages", async () => {
+  const query = parseQuery({ company_ids: [id(1001), id(1002), id(1001)], status: "tracking" });
+  assert.deepEqual(query.company_ids, [id(1001), id(1002)]);
+  const next = new URL(listHref(query, { page: 2 }), "http://test");
+  assert.deepEqual(next.searchParams.getAll("company_ids"), query.company_ids);
+  const f = fixtureReader(),
+    repo = applicationRepository(f.read);
+  const first = await repo.list(query);
+  const second = await repo.list({ ...query, page: 2 });
+  assert.equal(first.items.length, 20);
+  assert.equal(second.items.length, 2);
+  assert.equal(first.has_more, true);
+  assert.equal(second.has_more, false);
+  assert.equal(new Set([...first.items, ...second.items].map((i) => i.application.id)).size, 22);
+  assert.ok(f.requests[0].includes("company_ids="));
+  assert.throws(() => parseQuery({ company_ids: [id(1001), "invalid"] }));
+  assert.throws(() => parseQuery({ company_ids: Array(51).fill(id(1001)) }));
 });

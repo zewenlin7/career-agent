@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import Field, StringConstraints, model_validator
@@ -69,21 +69,35 @@ class ResearchData(Contract):
     mode: Literal["fixture", "live"]
 
 
-class FitItem(Contract):
+class FitExplanation(Contract):
     requirement_ref: UUID
     status: Literal["matched", "partial", "no_evidence", "explicit_gap"]
     fact_refs: Refs
     explanation: Prose
+
+
+class FitItem(FitExplanation):
+    """Historical v1 item; never used as a new generation schema."""
+
     missing_evidence: str = Field(max_length=1000)
 
 
-class FitOutput(Contract):
+class FitSummary(Contract):
     locale: Literal["zh-CN"]
-    items: list[FitItem] = Field(min_length=1, max_length=40)
     strong_matches: Refs
     partial_matches: Refs
     evidence_missing: Refs
     clear_gaps: Refs
+
+
+class FitOutput(FitSummary):
+    """Lossless reader for both historical and current saved output."""
+
+    items: list[FitItem | FitExplanation] = Field(min_length=1, max_length=40)
+
+
+class FitGenerationOutput(FitSummary):
+    items: list[FitExplanation] = Field(min_length=1, max_length=40)
 
 
 class GreetingOutput(Contract):
@@ -210,6 +224,7 @@ class WorkflowOutcome(Contract):
 
 
 class TargetArtifact(Contract):
+    interview_context: dict[str, Any] | None = None
     compatibility_versions: dict[str, str] | None = None
     target: Target
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -220,6 +235,8 @@ class TargetArtifact(Contract):
 
 
 class WorkflowInputs(Contract):
+    research_report_id: UUID | None = None
+    use_company_research: bool = True
     fit_input: Literal["profile", "resume", "both"] | None = None
     job_revision_id: UUID
     profile_id: UUID | None = None

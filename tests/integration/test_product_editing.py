@@ -74,12 +74,13 @@ async def test_actual_draft_edit_numbers_and_snapshot(client, prep_input):
         (1, 1),
         (2, None),
     ]
-    # Delete a group, preserve the identity/number of the surviving question.
+    # Delete a group: preserve identity, project the surviving current number continuously.
     again = await client.patch(
         path, json={"expected_revision": 2, "entries": [numbered[2]], "notes_text": ""}
     )
     assert again.status_code == 200, again.text
-    assert again.json()["entries"][0]["main_question_number"] == 2
+    assert again.json()["entries"][0]["main_question_number"] == 1
+    assert again.json()["entries"][0]["entry_id"] == second
     assert again.json()["notes"] == []
     stale = await client.patch(path, json={"expected_revision": 2, "entries": entries})
     assert stale.status_code == 409

@@ -1,6 +1,6 @@
 "use client";
 import { ResultActions } from "./result-actions";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import type { Context, PackageView, Result, Submission, Page } from "./contracts";
 import { api, endpoint, useRead } from "./client";
@@ -18,7 +18,7 @@ const labels: Record<string, string> = {
   matched: "匹配",
   partial: "部分匹配",
   no_evidence: "不确定",
-  explicit_gap: "明显差距",
+  explicit_gap: "明确差距",
   strengths: "优势",
   issues: "问题",
   knowledge_gap_hypotheses: "知识缺口假设",
@@ -38,7 +38,7 @@ const labels: Record<string, string> = {
 };
 export function ResumeContent({ content }: { content: Record<string, unknown> }) {
   return (
-    <div className="space-y-5 max-w-[760px]">
+    <div className="space-y-5 w-full text-base font-normal leading-relaxed">
       {list(content.sections).map((raw, i) => {
         const s = obj(raw);
         return (
@@ -69,15 +69,32 @@ export function ResumeContent({ content }: { content: Record<string, unknown> })
 export function ResultContent({
   result,
   requirements = {},
+  management,
 }: {
   result: Result;
   requirements?: Record<string, string>;
+  management?: ReactNode;
 }) {
   const c = result.content;
+  let first = true;
+  const heading = (title: string) => {
+    const action = first ? management : null;
+    first = false;
+    return (
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold">{title}</h3>
+        {action}
+      </div>
+    );
+  };
   if (!c) return null;
   if (result.kind === "resume_tailoring") return <ResumeContent content={c} />;
   if (result.kind === "greeting_generation")
-    return <p className="max-w-[760px] whitespace-pre-wrap break-words">{text(c.greeting_text)}</p>;
+    return (
+      <p className="w-full whitespace-pre-wrap break-words text-base font-normal leading-relaxed">
+        {text(c.greeting_text)}
+      </p>
+    );
   if (result.kind === "fit_analysis")
     return (
       <div className="space-y-6">
@@ -88,16 +105,21 @@ export function ResultContent({
           if (!items.length) return null;
           return (
             <section key={status}>
-              <h3 className="mb-3 font-semibold">{labels[status]}</h3>
+              {heading(labels[status])}
               <ul className="space-y-4">
                 {items.map((item, index) => (
-                  <li key={index} className="border-b border-line pb-3">
-                    <h4 className="font-medium">
+                  <li key={index} className="border-b border-line pb-3 last:border-0 last:pb-0">
+                    <h4 className="text-base font-medium">
                       {requirements[text(item.requirement_ref)] || "岗位要求"}
                     </h4>
-                    <p className="mt-2 whitespace-pre-wrap text-sm">{text(item.explanation)}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-base font-normal leading-relaxed">
+                      {text(item.explanation)}
+                    </p>
                     {text(item.missing_evidence) && (
-                      <p className="mt-1 text-sm text-secondary">{text(item.missing_evidence)}</p>
+                      <details className="mt-2 text-base text-secondary">
+                        <summary>补充说明</summary>
+                        <p className="whitespace-pre-wrap">{text(item.missing_evidence)}</p>
+                      </details>
                     )}
                   </li>
                 ))}
@@ -108,57 +130,61 @@ export function ResultContent({
       </div>
     );
   return (
-    <div className="max-w-[760px] space-y-5">
-      {["likely_topics", "knowledge_gaps", "questions_to_ask_interviewer"].map((k) => (
-        <section key={k}>
-          <h3 className="font-semibold">
-            {
-              {
-                likely_topics: "可能涉及的话题",
-                knowledge_gaps: "待补知识",
-                questions_to_ask_interviewer: "可向面试官提问",
-              }[k]
-            }
-          </h3>
-          <ul className="list-disc pl-5">
-            {list(c[k]).map((s, i) => (
-              <li key={i}>{text(s)}</li>
-            ))}
-          </ul>
-        </section>
-      ))}
+    <div className="min-w-0 space-y-5 text-base font-normal leading-relaxed [overflow-wrap:anywhere]">
+      {["likely_topics", "knowledge_gaps", "questions_to_ask_interviewer"].map((k) =>
+        list(c[k]).length ? (
+          <section key={k}>
+            {heading(
+              (
+                {
+                  likely_topics: "可能涉及的话题",
+                  knowledge_gaps: "待补知识",
+                  questions_to_ask_interviewer: "可向面试官提问",
+                } as Record<string, string>
+              )[k],
+            )}
+            <ul className="list-disc space-y-2 pl-5">
+              {list(c[k]).map((s, i) => (
+                <li key={i}>{text(s)}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null,
+      )}
       {[
         "technical_questions",
         "project_deep_dive_questions",
         "behavioral_questions",
         "company_specific_questions",
-      ].map((k) => (
-        <section key={k}>
-          <h3 className="font-semibold">{labels[k]}</h3>
-          {list(c[k]).map((raw, i) => {
-            const q = obj(raw);
-            return (
-              <article key={i} className="mt-4 border-l border-line pl-4">
-                <h4 className="font-semibold">{text(q.question)}</h4>
-                <p className="text-sm text-secondary">
-                  {text(q.why_likely)} · {text(q.what_is_being_tested)}
-                </p>
-                <ul className="list-disc pl-5">
-                  {list(q.answer_outline).map((s, j) => (
-                    <li key={j}>{text(s)}</li>
-                  ))}
-                </ul>
-                <Refs
-                  values={{
-                    fact_refs: q.related_fact_refs,
-                    requirement_refs: q.related_requirement_refs,
-                  }}
-                />
-              </article>
-            );
-          })}
-        </section>
-      ))}
+      ]
+        .filter((k) => list(c[k]).length > 0)
+        .map((k) => (
+          <section key={k}>
+            {heading(labels[k])}
+            {list(c[k]).map((raw, i) => {
+              const q = obj(raw);
+              return (
+                <article key={i} className="mt-4 space-y-2 border-b border-line pb-5 last:border-0">
+                  <h4 className="text-base font-medium">{text(q.question)}</h4>
+                  <p className="text-base font-normal leading-relaxed">
+                    {text(q.why_likely)} · {text(q.what_is_being_tested)}
+                  </p>
+                  <ul className="list-disc pl-5">
+                    {list(q.answer_outline).map((s, j) => (
+                      <li key={j}>{text(s)}</li>
+                    ))}
+                  </ul>
+                  <Refs
+                    values={{
+                      fact_refs: q.related_fact_refs,
+                      requirement_refs: q.related_requirement_refs,
+                    }}
+                  />
+                </article>
+              );
+            })}
+          </section>
+        ))}
     </div>
   );
 }
@@ -206,7 +232,13 @@ export function ResultCard({
   submissions = [],
   applicationId,
   onSaved,
+  disabled,
+  onBusyChange,
+  management,
 }: {
+  management?: ReactNode;
+  disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
   result: Result;
   applicationId?: string;
   onSaved?: () => void;
@@ -226,13 +258,14 @@ export function ResultCard({
       : result.kind === "greeting_generation" && s.greeting_id === result.result_id,
   );
   return (
-    <article className="space-y-4 border-t border-line pt-4">
-      <div className="flex flex-wrap gap-3">
-        <span className="text-sm">{result.reused ? "复用已有结果" : "本次结果"}</span>
-        {used.length > 0 && <span className="text-sm">已用于投递</span>}
-      </div>
+    <article className="min-w-0 space-y-4">
+      {used.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          <span className="text-sm">已用于投递</span>
+        </div>
+      )}
       {result.reason && <ErrorNotice code={result.reason} />}
-      <ResultContent result={result} requirements={requirements} />
+      <ResultContent result={result} requirements={requirements} management={management} />
       <ResultActions
         key={
           result.target_artifact_id || result.result_id || result.resume_revision_id || result.kind
@@ -240,6 +273,8 @@ export function ResultCard({
         result={result}
         applicationId={applicationId}
         onSaved={onSaved}
+        disabled={disabled}
+        onBusyChange={onBusyChange}
       />
       {result.content && result.kind === "greeting_generation" && (
         <Refs

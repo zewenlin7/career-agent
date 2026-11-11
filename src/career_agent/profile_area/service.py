@@ -12,7 +12,7 @@ from career_agent.application.services import check_revision, put_profile, requi
 from career_agent.domain.rules import DomainError, FactStatus
 from career_agent.domain.schemas import ProfileData, ProfileWrite
 from career_agent.infrastructure import entities as e
-from career_agent.product.entities import ApplicationBinding
+from career_agent.product.active_bindings import in_use
 from career_agent.profile_area import contracts as c
 from career_agent.profile_area.entities import ProfilePhoto, ProfileWorkspace, ResumeWorkspace
 from career_agent.resume.grounding import FactEvidence, validate_grounding
@@ -172,11 +172,7 @@ async def restore(session: AsyncSession, request: c.Restore) -> ProfileWorkspace
 async def archive_profile(session: AsyncSession, id: UUID) -> None:
     await session.execute(text("SELECT pg_advisory_xact_lock(78420101)"))
     row = await require(session, e.PersonalProfile, id, lock=True)
-    if await session.scalar(
-        select(ApplicationBinding.application_id)
-        .where(ApplicationBinding.profile_id == id)
-        .limit(1)
-    ):
+    if await in_use(session, profiles=[id]):
         raise DomainError("profile_in_use")
     # Archival, not deletion: all exact reads and historic references remain valid.
     row.archived_at = row.archived_at or e.utcnow()

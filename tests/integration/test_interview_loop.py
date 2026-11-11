@@ -19,7 +19,7 @@ async def actual_session(client):
     ).json()
     response = await client.post(
         "/api/v1/interviews",
-        json={"application_id": job["application_id"], "round_name": "技术一面"},
+        json={"application_id": job["application_id"], "round_name": "技术一面", "status": "draft"},
     )
     assert response.status_code == 201, response.text
     return response.json(), job
@@ -41,7 +41,15 @@ async def append(client, row, order, parent=None, answer="使用测试验证实�
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    saved = response.json()
+    if saved["status"] == "draft":
+        completed = await client.patch(
+            f"/api/v1/interviews/{saved['id']}",
+            json={"expected_revision": saved["content_revision"], "status": "completed"},
+        )
+        assert completed.status_code == 200, completed.text
+        saved = completed.json()
+    return saved
 
 
 async def test_actual_cas_relations_and_snapshot(client):
@@ -161,7 +169,7 @@ async def test_mock_exact_target_and_idempotency(
         assert all(c.task_type == "mock_interview_turn_generation" for c in calls)
 
 
-async def test_mock_failure_preserves_answer_and_explicit_retry(client, prep_input):
+async def test_mock_failure_preserves_answer_and_explicit_retry(client, prep_input, sessions):
     from test_preparation import inject
 
     from career_agent.models.contracts import ModelGatewayError
@@ -196,7 +204,15 @@ async def test_mock_failure_preserves_answer_and_explicit_retry(client, prep_inp
     }
     row = (await client.post(path + "/answers", json=request)).json()
     assert row["status"] == "ready_to_generate", row
+    notification = (await client.get(f"/api/v1/task-status/mock-interviews/{row['id']}")).json()
+    assert notification["state"] == "failure"
+    assert notification["reason"] == "provider_timeout"
+    assert notification["revision"] == row["revision"]
     assert row["turns"][0]["answer"] == request["answer"]
+    exact_status = (
+        f"/api/v1/task-status/mock-interviews/{row['id']}?request_id={request['request_id']}"
+    )
+    assert (await client.get(exact_status)).json()["state"] == "failure"
     assert provider.count == 2
     assert (await client.post(path + "/answers", json=request)).json() == row
     row = (
@@ -214,8 +230,18 @@ async def test_mock_failure_preserves_answer_and_explicit_retry(client, prep_inp
     )
     assert [c["attempts"] for c in attempts] == [1, 2]
     assert [c["status"] for c in attempts] == ["failed", "succeeded"]
+    assert (await client.get(exact_status)).json()["state"] == "failure"
     assert turn["accepted_model_call_id"] == attempts[-1]["id"]
     assert attempts[-1]["versions"]["retry_reason"] == "explicit_generation_retry"
+    async with sessions.begin() as session:
+        receipt = await session.scalar(
+            select(e.MockRequestReceipt).where(
+                e.MockRequestReceipt.session_id == UUID(row["id"]),
+                e.MockRequestReceipt.request_id == UUID(request["request_id"]),
+            )
+        )
+        receipt.outcome = None  # Legacy receipt cannot borrow a later turn's success.
+    assert (await client.get(exact_status)).json()["state"] == "unknown"
 
     row = (
         await client.post(
@@ -228,7 +254,8 @@ async def test_mock_failure_preserves_answer_and_explicit_retry(client, prep_inp
             },
         )
     ).json()
-    assert "这是不可变的首次回答。" not in str(provider.inputs[-1])
+    assert "这是不可变的首次回答。" in str(provider.inputs[-1]["current_group"])
+    assert "这是不可变的首次回答。" not in str(provider.inputs[-1]["question_history"])
     assert "这是追问的回答。" in str(provider.inputs[-1])
     row = (
         await client.post(
@@ -460,6 +487,10 @@ async def test_migration_backfills_legacy_interviews(client, sessions, migrated_
     )
     cfg = Config("alembic.ini")
     cfg.attributes["database_url"] = migrated_url
+    async with sessions.begin() as session:
+        from sqlalchemy import text
+
+        await session.execute(text("UPDATE interview_sessions SET saved_at = NULL"))
     await asyncio.to_thread(command.downgrade, cfg, "f730b2c01231")
     await asyncio.to_thread(command.upgrade, cfg, "head")
     result = (await client.get(f"/api/v1/interviews/{row['id']}")).json()
@@ -476,7 +507,7 @@ async def test_illegal_model_kind_no_turn_and_trace_private(client, sessions, pr
     class Provider(FixtureTaskProvider):
         async def generate(self, candidate, context, task):
             response = await super().generate(candidate, context, task)
-            response.output["kind"] = "follow_up"
+            response.output["turn"]["kind"] = "follow_up"
             return response
 
     inject(client, Provider())
@@ -734,6 +765,10 @@ async def test_accepted_call_binding_and_historical_migration(client, sessions, 
         call.status = original_status
     cfg = Config("alembic.ini")
     cfg.attributes["database_url"] = migrated_url
+    async with sessions.begin() as session:
+        from sqlalchemy import text
+
+        await session.execute(text("UPDATE interview_sessions SET saved_at = NULL"))
     await asyncio.to_thread(command.downgrade, cfg, "a841c3d12342")
     await asyncio.to_thread(command.upgrade, cfg, "head")
     historical = (await client.get(f"/api/v1/interview-debriefs/{run['id']}")).json()
@@ -741,3 +776,58 @@ async def test_accepted_call_binding_and_historical_migration(client, sessions, 
     assert old["status"] == "completed" and old["data"] == artifact["data"]
     assert old["logical_operation_id"] is None and old["accepted_model_call_id"] is None
     await asyncio.to_thread(command.check, cfg)
+
+
+async def test_debrief_notification_distinguishes_mixed_failure_from_cancel(client, sessions):
+    row, _ = await actual_session(client)
+    row = await append(client, row, 1)
+    response = await client.post(
+        "/api/v1/interview-debriefs",
+        json={
+            "source_kind": "actual",
+            "interview_id": row["id"],
+            "expected_source_revision": row["content_revision"],
+            "question_analysis": "all",
+            "overall_analysis": True,
+        },
+    )
+    assert response.status_code == 201
+    id = UUID(response.json()["id"])
+    async with sessions.begin() as session:
+        run = await session.get(e.DebriefRun, id)
+        run.status = "failed"
+        artifacts = list(
+            await session.scalars(
+                select(e.DebriefArtifact)
+                .where(e.DebriefArtifact.debrief_id == id)
+                .order_by(e.DebriefArtifact.display_order)
+            )
+        )
+        assert len(artifacts) == 2
+        for artifact, code in zip(
+            artifacts, ["execution_cancelled", "provider_timeout"], strict=True
+        ):
+            artifact.status, artifact.error_code = "failed", code
+    path = f"/api/v1/task-status/interview-debriefs/{id}"
+    status = (await client.get(path)).json()
+    assert status["state"] == "failure"
+    assert status["reason"] == "provider_timeout"
+    async with sessions.begin() as session:
+        for artifact in await session.scalars(
+            select(e.DebriefArtifact).where(e.DebriefArtifact.debrief_id == id)
+        ):
+            artifact.error_code = "execution_cancelled"
+    assert (await client.get(path)).json()["state"] == "cancelled"
+
+
+async def test_mock_unregistered_request_is_pending_not_unknown(client, prep_input):
+    row = (await client.post("/api/v1/mock-interviews", json={"context": prep_input})).json()
+    request_id = str(uuid4())
+    path = f"/api/v1/task-status/mock-interviews/{row['id']}?request_id={request_id}"
+    assert (await client.get(path)).json()["state"] == "pending"
+    response = await client.post(
+        f"/api/v1/mock-interviews/{row['id']}/generate",
+        json={"expected_revision": row["revision"], "request_id": request_id},
+    )
+    assert response.status_code == 200
+    assert (await client.get(path)).json()["state"] == "success"

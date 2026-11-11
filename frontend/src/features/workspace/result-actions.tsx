@@ -1,23 +1,28 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { api, useAction, ApiError } from "./client";
+import { useConfirmation } from "../profile-area/confirmation";
+import { useResumeReplacement } from "./resume-replacement";
+import { api, useAction, useRequestId } from "./client";
 import type { Result } from "./contracts";
-import type { ApplicationBinding } from "./application-binding";
 import { DraftAction } from "./draft-action";
+import { taskMessage } from "./task-feedback";
 import { ResultContent } from "./results";
 import { ErrorNotice, Field, control } from "./ui";
 export function ResultActions({
   result,
   applicationId,
   onSaved,
+  disabled = false,
+  onBusyChange,
 }: {
+  disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
   result: Result;
   applicationId?: string;
   onSaved?: () => void;
 }) {
   const [adjusting, setAdjusting] = useState<"adjust" | "regenerate" | null>(null),
-    [saved, setSaved] = useState(false),
     [vote, setVote] = useState(""),
     [feedbackId, setFeedbackId] = useState<string>(),
     [negative, setNegative] = useState(false),
@@ -25,6 +30,36 @@ export function ResultActions({
   const [draftBusy, setDraftBusy] = useState(false);
   const [generation, setGeneration] = useState(0);
   const action = useAction();
+  const requestId = useRequestId();
+  const confirmation = useConfirmation();
+  const [deletionMessage, setDeletionMessage] = useState("");
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    onBusyChange?.(draftBusy);
+    return () => onBusyChange?.(false);
+  }, [draftBusy, onBusyChange]);
+  const remove = () =>
+    action.run(async () => {
+      const path = `applications/${applicationId}/greetings/${result.target_artifact_id}`;
+      const showUsed = (numbers: number[]) =>
+        setDeletionMessage(`已在第 ${numbers.join("、")} 次投递中使用此招呼语，无法删除`);
+      const state = await api<{ used_in: number[] }>(path);
+      if (state.used_in.length) return showUsed(state.used_in);
+      if (!(await confirmation.confirm("确定删除这条招呼语吗？"))) return;
+      const deleted = await api<{ deleted: boolean; used_in: number[] }>(path, "DELETE", {
+        request_id: requestId({ remove: result.target_artifact_id }),
+      });
+      if (!deleted.deleted) return showUsed(deleted.used_in);
+      if (!mounted.current) return;
+      onSaved?.();
+      window.history.replaceState(null, "", location.pathname);
+    });
   const recordVote = (v: string) =>
     action.run(async () => {
       const saved = await api<{ id: string }>("evaluation/feedback", "POST", {
@@ -37,26 +72,7 @@ export function ResultActions({
       setFeedbackId(saved.id);
       setNegative(false);
     });
-  const saveResume = (id: string) =>
-    action.run(async () => {
-      await api(`resume-revisions/${id}/save`, "POST", {});
-      setSaved(true);
-      if (
-        applicationId &&
-        window.confirm("已保存到简历库。是否将此申请当前使用的简历切换为这一版？")
-      ) {
-        const binding = await api<ApplicationBinding>(`applications/${applicationId}/context`);
-        if (binding.profile_id !== result.context.profile_id)
-          throw new ApiError("context_revision_mismatch");
-        await api(`applications/${applicationId}/context`, "PUT", {
-          expected_revision: binding.revision,
-          profile_id: binding.profile_id,
-          job_revision_id: binding.job_revision_id,
-          resume_revision_id: id,
-        });
-      }
-      onSaved?.();
-    });
+  const replacement = useResumeReplacement(applicationId);
   const tasks = {
     resume_tailoring: "resume_refinement",
     greeting_generation: "greeting_refinement",
@@ -65,18 +81,17 @@ export function ResultActions({
   const task = tasks[result.kind as keyof typeof tasks];
   return (
     <div className="space-y-3">
+      {replacement.confirmation}
+      {confirmation.confirmation}
       <div className="flex flex-wrap gap-3">
-        {result.resume_revision_id && (
-          <Button
-            disabled={action.busy || draftBusy || saved}
-            onClick={() => void saveResume(result.resume_revision_id!)}
-          >
-            {saved ? "已保存" : "保存到简历库"}
+        {result.kind === "greeting_generation" && applicationId && (
+          <Button disabled={disabled || action.busy || draftBusy} onClick={() => void remove()}>
+            删除
           </Button>
         )}
         {task && (
           <Button
-            disabled={action.busy || draftBusy}
+            disabled={disabled || action.busy || draftBusy}
             onClick={() => setAdjusting(adjusting ? null : "adjust")}
           >
             {adjusting ? "取消调整" : "调整"}
@@ -84,13 +99,15 @@ export function ResultActions({
         )}
         {task && (
           <Button
-            disabled={action.busy || draftBusy}
+            variant="primary"
+            disabled={disabled || action.busy || draftBusy}
             onClick={() => {
+              setDraftBusy(true);
               setGeneration((n) => n + 1);
               setAdjusting("regenerate");
             }}
           >
-            重新生成
+            {draftBusy && adjusting === "regenerate" ? "正在生成…" : "重新生成"}
           </Button>
         )}
         {result.feedback_target &&
@@ -108,6 +125,11 @@ export function ResultActions({
             </Button>
           ))}
       </div>
+      {deletionMessage && (
+        <p role="alert" className="text-sm text-error">
+          {deletionMessage}
+        </p>
+      )}
       {negative && (
         <div className="space-y-3">
           <Field label="意见（选填）">
@@ -126,13 +148,19 @@ export function ResultActions({
           </div>
         </div>
       )}
-      <ErrorNotice code={action.error} />
+      {action.error?.startsWith("resume_binding_") ? (
+        <p role="alert" className="text-base text-error">
+          {taskMessage("简历优化", { state: "failure", reason: action.error })}
+        </p>
+      ) : (
+        <ErrorNotice code={action.error} />
+      )}
       {adjusting && task && result.target_artifact_id && (
         <DraftAction
           key={`${adjusting}:${generation}`}
           onBusyChange={setDraftBusy}
           task={task}
-          disabled={action.busy}
+          disabled={disabled || action.busy}
           autoStart={adjusting === "regenerate"}
           fixedFeedback={
             adjusting === "regenerate"
@@ -143,12 +171,19 @@ export function ResultActions({
           feedbackId={feedbackId}
           applicationId={applicationId}
           refinementIntent={adjusting === "regenerate" ? "regenerate" : "refine"}
-          label="根据意见调整"
+          label="开始调整"
+          autoAdopt={true}
           render={(output) => <ResultContent result={{ ...result, content: output }} />}
           onSaved={(draft) => {
-            const id = draft.adopted?.resume_revision_id;
-            if (typeof id === "string") void saveResume(id);
-            else onSaved?.();
+            void action.run(async () => {
+              const id = draft.adopted?.resume_revision_id;
+              if (typeof id === "string") await replacement.offer(id);
+              if (!mounted.current) return;
+              onSaved?.();
+              const target = draft.adopted?.target_artifact_id;
+              if (typeof target === "string")
+                window.history.replaceState(null, "", `${location.pathname}?result=${target}`);
+            });
           }}
         />
       )}

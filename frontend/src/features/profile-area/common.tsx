@@ -1,4 +1,5 @@
 "use client";
+import { formatTime } from "@/lib/date-time";
 import type { ReactNode } from "react";
 import { errorMessage } from "./contracts";
 export function InlineError({ code, message }: { code?: string; message?: string }) {
@@ -31,15 +32,5 @@ export const dateLabel = (value: string) =>
   new Date(value).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
 
 export function SavedAt({ value }: { value?: string | null }) {
-  return value ? (
-    <p className="text-xs text-secondary">
-      {new Date(value).toLocaleString("sv-SE", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      })}
-    </p>
-  ) : null;
+  return value ? <p className="text-xs text-secondary">{formatTime(value)}</p> : null;
 }

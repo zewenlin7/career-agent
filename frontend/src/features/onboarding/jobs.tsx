@@ -1,217 +1,201 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PageHeading } from "@/components/ui/typography";
 import { Button } from "@/components/ui/button";
-import { api, ApiError, useAction, useRead } from "@/features/workspace/client";
-import { Field, Select, ReadState, ErrorNotice, control } from "@/features/workspace/ui";
-import type { Page } from "@/features/workspace/contracts";
+import { api, ApiError, useAction } from "@/features/workspace/client";
+import { Field, ErrorNotice, control } from "@/features/workspace/ui";
+import { CompanySearch, type Company } from "@/features/applications/company-search";
 import { UUID_PATTERN } from "@/features/applications/contracts";
-type Company = { id: string; name: string; created_at: string };
-type Requirement = {
-  text: string;
-  category: string;
-  importance: "must" | "nice_to_have" | "unknown";
-  source_quote: string | null;
-};
+import { clearJobRequest, jobRequest, pendingJobRequest } from "./job-request";
+import { useConfirmation } from "@/features/profile-area/confirmation";
 export function NewApplication() {
-  const [mode, setMode] = useState(""),
-    [search, setSearch] = useState(""),
-    [query, setQuery] = useState(""),
+  const { confirm, confirmation } = useConfirmation();
+  const [notice, setNotice] = useState("");
+  const [checking, setChecking] = useState(true);
+
+  const [search, setSearch] = useState(""),
     [company, setCompany] = useState<Company>(),
-    [requirements, setRequirements] = useState<Requirement[]>([]),
     [attempted, setAttempted] = useState(false);
+  const composition = useRef(false);
+  const submitted = useRef(false);
   const action = useAction(),
     router = useRouter();
   useEffect(() => {
-    const t = setTimeout(() => setQuery(search.trim()), 250);
-    return () => clearTimeout(t);
-  }, [search]);
-  const companies = useRead<Page<Company>>(
-    mode === "existing" && query
-      ? `companies?q=${encodeURIComponent(query)}&limit=8&offset=0`
-      : null,
-  );
+    let active = true;
+    const recover = async () => {
+      try {
+        const saved = pendingJobRequest();
+        if (!saved) return;
+        setAttempted(true);
+        const row = await api<{
+          request_id: string;
+          application_id: string;
+          workspace_available: boolean;
+        }>(`job-create-requests/${saved.id}`);
+        if (!active) return;
+        if (
+          row.request_id !== saved.id ||
+          !UUID_PATTERN.test(row.application_id) ||
+          typeof row.workspace_available !== "boolean"
+        )
+          throw new ApiError("invalid_response");
+        clearJobRequest();
+        setAttempted(false);
+        if (row.workspace_available) router.replace(`/applications/${row.application_id}/summary`);
+        else setNotice("此前创建的申请已删除，无法打开工作区。");
+      } catch {
+        if (active)
+          setNotice("上次创建结果尚未确认。请重新填写原内容后继续提交，或先核对申请列表。");
+      } finally {
+        if (active) setChecking(false);
+      }
+    };
+    void recover();
+    return () => {
+      active = false;
+    };
+  }, [router]);
   return (
     <>
-      <PageHeading title="添加职位" description="选择公司，粘贴职位描述，开始准备申请。" />
-      <Link href="/applications" className="text-accent-ink underline">
-        返回申请列表
+      <Link href="/applications" className="mb-5 inline-block text-sm text-secondary">
+        ← 返回申请列表
       </Link>
       <form
-        className="mt-6 max-w-[760px] space-y-8"
+        className="max-w-[760px] space-y-6 [&_label]:font-semibold [&_input]:font-normal [&_textarea]:font-normal [&_select]:font-normal"
         onSubmit={(e) => {
           e.preventDefault();
+          if (composition.current || submitted.current) return;
           const f = new FormData(e.currentTarget);
+          if (
+            ![search, f.get("title"), f.get("jd_text")].every(
+              (v) => typeof v === "string" && v.trim(),
+            )
+          ) {
+            e.currentTarget.reportValidity();
+            return;
+          }
+          submitted.current = true;
           setAttempted(true);
+          setNotice("");
           void action.run(async () => {
-            const r = await api<{ application_id: string }>("jobs", "POST", {
-              ...(mode === "existing" ? { company_id: company!.id } : {}),
-              company_name: mode === "existing" ? company!.name : f.get("company_name"),
-              title: f.get("title"),
-              jd_text: f.get("jd_text"),
-              requirements,
-            });
-            if (!UUID_PATTERN.test(r.application_id)) throw new ApiError("invalid_response");
-            router.push(`/applications/${r.application_id}/summary`);
-            router.refresh();
+            try {
+              const payload = {
+                ...(company ? { company_id: company.id } : {}),
+                company_name: search.trim(),
+                title: f.get("title"),
+                jd_text: f.get("jd_text"),
+              };
+              let requestId: string;
+              try {
+                requestId = await jobRequest(payload);
+              } catch (error) {
+                setNotice(
+                  error instanceof Error && error.message === "request_identity_conflict"
+                    ? "内容与上次提交不同。请恢复原内容重试；若要新增另一条申请，请选择“另建一条申请”。"
+                    : "无法保存创建请求，请检查浏览器存储设置后重试。",
+                );
+                return;
+              }
+              const r = await api<{ application_id: string | null }>("jobs", "POST", {
+                ...payload,
+                request_id: requestId,
+              });
+              if (r.application_id !== null && !UUID_PATTERN.test(r.application_id))
+                throw new ApiError("invalid_response");
+              clearJobRequest();
+              setAttempted(false);
+              if (r.application_id === null) {
+                setNotice("此前创建的申请已删除，无法打开工作区。");
+                return;
+              }
+              router.push(`/applications/${r.application_id}/summary`);
+              router.refresh();
+            } catch (error) {
+              if (
+                error instanceof ApiError &&
+                [400, 403, 404, 409, 422].includes(error.status) &&
+                error.code !== "request_identity_conflict"
+              ) {
+                clearJobRequest();
+                setAttempted(false);
+              } else setNotice("创建结果尚未确认。再次提交会核对同一次请求，不会另建申请。");
+              throw error;
+            } finally {
+              submitted.current = false;
+            }
           });
         }}
       >
-        <fieldset disabled={action.busy || attempted} className="min-w-0 space-y-8">
-          <section className="space-y-4">
-            <h2 className="font-serif text-lg">公司信息</h2>
-            <Select
-              label="公司来源"
-              value={mode}
+        <fieldset disabled={action.busy || checking} className="min-w-0 space-y-6">
+          <CompanySearch
+            label="公司名称"
+            value={search}
+            required
+            showEmpty={false}
+            onComposing={(value) => {
+              composition.current = value;
+            }}
+            onChange={(value) => {
+              setSearch(value);
+              setCompany(undefined);
+            }}
+            onSelect={(value) => {
+              setCompany(value);
+              setSearch(value.name);
+            }}
+          />
+          <Field label="职位名称">
+            <input
+              name="title"
               required
-              onChange={(e) => {
-                setMode(e.target.value);
-                setCompany(undefined);
-                setSearch("");
-              }}
-            >
-              <option value="">请选择</option>
-              <option value="existing">已有公司</option>
-              <option value="new">新建公司</option>
-            </Select>
-            {mode === "existing" && (
-              <>
-                <Field label="输入公司名称">
-                  <input
-                    className={control}
-                    value={search}
-                    onChange={(e) => {
-                      setSearch(e.target.value);
-                      setCompany(undefined);
-                    }}
-                    maxLength={200}
-                  />
-                </Field>
-                {query && !company && (
-                  <>
-                    <ReadState
-                      loaded={!!companies.data}
-                      error={companies.error}
-                      empty={companies.data?.items.length === 0}
-                    />
-                    <ul aria-label="匹配的公司" className="space-y-2">
-                      {companies.data?.items.map((c) => (
-                        <li key={c.id}>
-                          <Button onClick={() => setCompany(c)}>{c.name}</Button>
-                        </li>
-                      ))}
-                    </ul>
-                    {companies.data?.has_more && (
-                      <p className="text-sm">请输入更完整的公司名称缩小范围。</p>
-                    )}
-                  </>
-                )}
-                {company && <p role="status">已选择：{company.name}</p>}
-              </>
-            )}
-            {mode === "new" && (
-              <Field label="公司名称">
-                <input name="company_name" required maxLength={200} className={control} />
-              </Field>
-            )}
-          </section>
-          <section className="space-y-4 border-t border-line pt-6">
-            <h2 className="font-serif text-lg">职位信息</h2>
-            <Field label="职位名称">
-              <input name="title" required maxLength={200} className={control} />
-            </Field>
-            <Field label="职位描述">
-              <textarea name="jd_text" required maxLength={20000} rows={9} className={control} />
-            </Field>
-            <p className="text-sm text-secondary">
-              直接粘贴招聘信息即可；开始岗位匹配时会提取其中的要求。
-            </p>
-          </section>
-          <details className="space-y-4">
-            <summary className="cursor-pointer">岗位要求（高级，可选）</summary>
-            {requirements.map((r, i) => (
-              <div key={i} className="space-y-3 border-l border-line pl-4">
-                <Field label={`要求 ${i + 1}`}>
-                  <textarea
-                    required
-                    className={control}
-                    value={r.text}
-                    onChange={(e) =>
-                      setRequirements(
-                        requirements.map((x, n) => (n === i ? { ...x, text: e.target.value } : x)),
-                      )
-                    }
-                  />
-                </Field>
-                <Field label="原文依据">
-                  <textarea
-                    required
-                    className={control}
-                    value={r.source_quote || ""}
-                    onChange={(e) =>
-                      setRequirements(
-                        requirements.map((x, n) =>
-                          n === i ? { ...x, source_quote: e.target.value } : x,
-                        ),
-                      )
-                    }
-                  />
-                </Field>
-                <Select
-                  label="重要性"
-                  value={r.importance}
-                  onChange={(e) =>
-                    setRequirements(
-                      requirements.map((x, n) =>
-                        n === i
-                          ? { ...x, importance: e.target.value as Requirement["importance"] }
-                          : x,
-                      ),
-                    )
-                  }
-                >
-                  <option value="unknown">未指定</option>
-                  <option value="must">必须</option>
-                  <option value="nice_to_have">加分项</option>
-                </Select>
-                <Button onClick={() => setRequirements(requirements.filter((_, n) => n !== i))}>
-                  移除要求
-                </Button>
-              </div>
-            ))}
-            <Button
-              disabled={requirements.length >= 200}
-              onClick={() =>
-                setRequirements([
-                  ...requirements,
-                  { text: "", category: "general", importance: "unknown", source_quote: null },
-                ])
-              }
-            >
-              添加要求
-            </Button>
-          </details>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!mode || (mode === "existing" && !company)}
-          >
+              maxLength={200}
+              placeholder="输入职位名称"
+              className={`${control} placeholder:text-muted`}
+            />
+          </Field>
+          <Field label="职位描述">
+            <textarea
+              name="jd_text"
+              required
+              maxLength={20000}
+              rows={9}
+              placeholder="粘贴完整职位描述"
+              className={`${control} placeholder:text-muted`}
+            />
+          </Field>
+          <Button type="submit" variant="primary" disabled={!search.trim()}>
             创建职位
           </Button>
         </fieldset>
         <ErrorNotice code={action.error} />
-        {action.error && (
-          <div className="space-y-3">
-            <p>请先核对申请列表，确认没有创建成功，再重新提交。</p>
+        {notice && <p role="status">{notice}</p>}
+        {checking && <p role="status">正在检查创建记录…</p>}
+        {attempted && !action.busy && !checking && (
+          <div className="flex flex-wrap items-center gap-3">
             <Link href="/applications" className="text-accent-ink underline">
               查看申请列表
             </Link>
-            <Button onClick={() => setAttempted(false)}>已核对，重新填写</Button>
+            <Button
+              onClick={async () => {
+                if (
+                  !(await confirm(
+                    "另建一条申请会使用新的创建请求。此前的申请可能已经创建成功，确定另建吗？",
+                  ))
+                )
+                  return;
+                clearJobRequest();
+                submitted.current = false;
+                setAttempted(false);
+                setNotice("");
+              }}
+            >
+              另建一条申请
+            </Button>
           </div>
         )}
       </form>
+      {confirmation}
     </>
   );
 }

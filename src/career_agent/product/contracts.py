@@ -32,6 +32,7 @@ class OperationCreate(Contract):
     request_id: UUID
     kind: OperationKind
     application_binding: ApplicationBindingRef | None = None
+    application_id: UUID | None = None
     request: WorkflowRequest | CompanyResearchRequest
 
     @model_validator(mode="before")
@@ -74,7 +75,20 @@ class SubmissionCreate(Contract):
     note: str | None = Field(default=None, max_length=20000)
 
 
+class SubmissionEdit(Contract):
+    request_id: UUID
+    expected_revision: int = Field(ge=1)
+    note: str | None = Field(default=None, max_length=20000)
+
+
 class SubmissionOut(SubmissionCreate):
+    display_number: int
+    revision: int
+    resume_name: str | None = None
+    greeting_name: str | None = None
+    greeting_target_id: UUID | None = None
+    status_changed: bool = False
+
     id: UUID
     application_id: UUID
     event_id: UUID
@@ -92,12 +106,21 @@ class ContextSummary(Contract):
 
 
 class ResultView(Contract):
+    available: bool = True
+    resume_name: str | None = None
     kind: str
     status: str
     target_artifact_id: UUID | None = None
     result_id: UUID | None = None
     resume_revision_id: UUID | None = None
     source_resume_revision_id: UUID | None = None
+    source_research_id: UUID | None = None
+    source_resume_name: str | None = None
+    source_profile_id: UUID | None = None
+    source_original_target_id: UUID | None = None
+    refinement_resume_revision_id: UUID | None = None
+    refinement_resume_name: str | None = None
+    refinement_profile_id: UUID | None = None
     resume_variant_id: UUID | None = None
     revision: int | None = None
     render_artifact_id: UUID | None = None
@@ -149,3 +172,7 @@ class ApplicationBindingOut(Contract):
 class TaskHistoryItem(Contract):
     created_at: datetime
     result: ResultView
+
+
+class ResultDelete(Contract):
+    request_id: UUID

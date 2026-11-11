@@ -1,0 +1,2569 @@
+{
+  "suite": {
+    "suite_id": "mock-decision-quality",
+    "version": 1,
+    "schema_version": "eval-suite-v1",
+    "members": [
+      {
+        "case_id": "mock_decision_quality.complete",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.brief_accurate",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.missing_boundary",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.contradiction",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.conditional_judgment",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.group_sufficient",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.group_new_gap",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.finish_sufficient",
+        "case_version": 1
+      },
+      {
+        "case_id": "mock_decision_quality.finish_unresolved",
+        "case_version": 1
+      }
+    ]
+  },
+  "cases": [
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.complete",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:first_answer"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "standard",
+            "primary_target": 5,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "first_answer",
+          "preferred": "primary",
+          "acceptable": [
+            "primary"
+          ],
+          "rationale": "题目明确要求的并发与提交后超时边界均已回答，继续覆盖其他能力。",
+          "gap_to_probe": "",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 1,
+          "followup_count": 0,
+          "interviewer_turn_count": 1,
+          "remaining_primary": 4,
+          "remaining_followup": 3,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-000000000009",
+          "legal_actions": [
+            "ask_primary",
+            "ask_follow_up"
+          ],
+          "mode": "standard",
+          "primary_target": 5,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "primary",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "primary",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.brief_accurate",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:first_answer"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "standard",
+            "primary_target": 5,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "请求键唯一约束与写入同事务；并发冲突读已提交结果，提交后超时也用原键返回该结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "first_answer",
+          "preferred": "primary",
+          "acceptable": [
+            "primary"
+          ],
+          "rationale": "答案短但已覆盖两个关键边界，不把长度当成缺口。",
+          "gap_to_probe": "",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "请求键唯一约束与写入同事务；并发冲突读已提交结果，提交后超时也用原键返回该结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 1,
+          "followup_count": 0,
+          "interviewer_turn_count": 1,
+          "remaining_primary": 4,
+          "remaining_followup": 3,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-000000000009",
+          "legal_actions": [
+            "ask_primary",
+            "ask_follow_up"
+          ],
+          "mode": "standard",
+          "primary_target": 5,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "primary",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "primary",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.missing_boundary",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:first_answer"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "standard",
+            "primary_target": 5,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "用请求键保存处理结果；提交后响应丢失时，客户端用原键重试，服务端返回已保存的结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "first_answer",
+          "preferred": "follow_up",
+          "acceptable": [
+            "follow_up"
+          ],
+          "rationale": "遗漏题目明确要求的并发仲裁，是正确性关键而非额外扩展。",
+          "gap_to_probe": "并发请求同时检查不存在时由谁保证唯一写入？",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "用请求键保存处理结果；提交后响应丢失时，客户端用原键重试，服务端返回已保存的结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 1,
+          "followup_count": 0,
+          "interviewer_turn_count": 1,
+          "remaining_primary": 4,
+          "remaining_followup": 3,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-000000000009",
+          "legal_actions": [
+            "ask_primary",
+            "ask_follow_up"
+          ],
+          "mode": "standard",
+          "primary_target": 5,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.contradiction",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:first_answer"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "standard",
+            "primary_target": 5,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "先查询请求键，不存在才写入，不需要唯一约束或锁；并发先查后写也一定只执行一次。提交后响应丢失则按原键返回结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "first_answer",
+          "preferred": "follow_up",
+          "acceptable": [
+            "follow_up"
+          ],
+          "rationale": "无约束的先查后写与并发只执行一次存在直接矛盾。",
+          "gap_to_probe": "并发交错下先查后写为什么不会重复？",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "先查询请求键，不存在才写入，不需要唯一约束或锁；并发先查后写也一定只执行一次。提交后响应丢失则按原键返回结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 1,
+          "followup_count": 0,
+          "interviewer_turn_count": 1,
+          "remaining_primary": 4,
+          "remaining_followup": 3,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-000000000009",
+          "legal_actions": [
+            "ask_primary",
+            "ask_follow_up"
+          ],
+          "mode": "standard",
+          "primary_target": 5,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.conditional_judgment",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:first_answer"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "standard",
+            "primary_target": 5,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "所有写入限定经过同一个串行消费者，查询键与写入不会并发交错；结果持久化后原键重试返回旧结果。这个结论依赖单消费者约束，多消费者部署需要数据库唯一约束仲裁。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "first_answer",
+          "preferred": "primary",
+          "acceptable": [
+            "primary",
+            "follow_up"
+          ],
+          "rationale": "已明确结论成立条件及失效边界，优先扩展覆盖；也可核实单消费者约束如何保证，不能泛泛要求展开。",
+          "gap_to_probe": "仅在核实单消费者约束可执行性有新增价值时追问。",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "所有写入限定经过同一个串行消费者，查询键与写入不会并发交错；结果持久化后原键重试返回旧结果。这个结论依赖单消费者约束，多消费者部署需要数据库唯一约束仲裁。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 1,
+          "followup_count": 0,
+          "interviewer_turn_count": 1,
+          "remaining_primary": 4,
+          "remaining_followup": 3,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-000000000009",
+          "legal_actions": [
+            "ask_primary",
+            "ask_follow_up"
+          ],
+          "mode": "standard",
+          "primary_target": 5,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.action",
+          "value": "ask",
+          "material": true
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.group_sufficient",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:current_group"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "standard",
+            "primary_target": 5,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-00000000000a",
+              "kind": "follow_up",
+              "question": "如果客户端用同一个请求键但请求参数不同，如何避免返回错误结果？",
+              "answer": "保存请求参数摘要；相同键的摘要不同就拒绝冲突，相同才返回旧结果。",
+              "primary_entry_id": "00000000-0000-0000-0000-000000000009"
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "current_group",
+          "preferred": "primary",
+          "acceptable": [
+            "primary"
+          ],
+          "rationale": "已有题组已覆盖并发、响应丢失和参数冲突；仍有额度也应扩大能力覆盖。",
+          "gap_to_probe": "",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-00000000000a",
+              "kind": "follow_up",
+              "question": "如果客户端用同一个请求键但请求参数不同，如何避免返回错误结果？",
+              "answer": "保存请求参数摘要；相同键的摘要不同就拒绝冲突，相同才返回旧结果。",
+              "primary_entry_id": "00000000-0000-0000-0000-000000000009"
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 1,
+          "followup_count": 1,
+          "interviewer_turn_count": 2,
+          "remaining_primary": 4,
+          "remaining_followup": 2,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-00000000000a",
+          "legal_actions": [
+            "ask_primary",
+            "ask_follow_up"
+          ],
+          "mode": "standard",
+          "primary_target": 5,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "primary",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "primary",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.group_new_gap",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:current_group"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "standard",
+            "primary_target": 5,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-00000000000a",
+              "kind": "follow_up",
+              "question": "如果客户端用同一个请求键但请求参数不同，如何避免返回错误结果？",
+              "answer": "不比较请求参数；同一键始终返回旧结果，即使参数改变也当成成功。",
+              "primary_entry_id": "00000000-0000-0000-0000-000000000009"
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "current_group",
+          "preferred": "follow_up",
+          "acceptable": [
+            "follow_up"
+          ],
+          "rationale": "当前追问新暴露了参数冲突被错误复用的问题，连续追问有新增验证价值。",
+          "gap_to_probe": "参数不同却复用旧结果如何保证请求语义？",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-00000000000a",
+              "kind": "follow_up",
+              "question": "如果客户端用同一个请求键但请求参数不同，如何避免返回错误结果？",
+              "answer": "不比较请求参数；同一键始终返回旧结果，即使参数改变也当成成功。",
+              "primary_entry_id": "00000000-0000-0000-0000-000000000009"
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 1,
+          "followup_count": 1,
+          "interviewer_turn_count": 2,
+          "remaining_primary": 4,
+          "remaining_followup": 2,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-00000000000a",
+          "legal_actions": [
+            "ask_primary",
+            "ask_follow_up"
+          ],
+          "mode": "standard",
+          "primary_target": 5,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.finish_sufficient",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:last_answer"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "custom",
+            "primary_target": 3,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000007",
+              "kind": "primary",
+              "question": "如何确定服务指标？",
+              "answer": "按请求成功率和延迟分位数设置指标。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000008",
+              "kind": "primary",
+              "question": "如何定位性能瓶颈？",
+              "answer": "通过分段耗时和负载实验定位。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "last_answer",
+          "preferred": "finish",
+          "acceptable": [
+            "finish"
+          ],
+          "rationale": "规定主问题全部回答，最后题组核心边界已解决；额度未用完也无需继续。",
+          "gap_to_probe": "",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [
+          {
+            "entry_id": "00000000-0000-0000-0000-000000000007",
+            "kind": "primary",
+            "question": "如何确定服务指标？",
+            "primary_entry_id": null
+          },
+          {
+            "entry_id": "00000000-0000-0000-0000-000000000008",
+            "kind": "primary",
+            "question": "如何定位性能瓶颈？",
+            "primary_entry_id": null
+          }
+        ],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "使用稳定请求键，事务内用唯一约束仲裁并发写入；竞争失败读取已提交结果。提交后响应丢失时，客户端仍用原键查询或重试，服务端返回同一已存结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 3,
+          "followup_count": 0,
+          "interviewer_turn_count": 3,
+          "remaining_primary": 0,
+          "remaining_followup": 3,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-000000000009",
+          "legal_actions": [
+            "ask_follow_up",
+            "finish"
+          ],
+          "mode": "custom",
+          "primary_target": 3,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.action",
+          "value": "finish",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.action",
+          "value": "finish",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    },
+    {
+      "control_scenario": {
+        "recovery_version": "recovery-v1",
+        "automatic_policy": null,
+        "persisted_initial_state": null,
+        "evaluation_utc": "2026-01-01T00:00:00Z",
+        "control_events": [],
+        "version": "control-scenario-v1",
+        "capacity": [],
+        "circuits": [],
+        "feedback": {}
+      },
+      "schema_version": "eval-case-v1",
+      "case_id": "mock_decision_quality.finish_unresolved",
+      "case_version": 1,
+      "entrypoint": {
+        "kind": "component",
+        "component_kind": "model_task",
+        "name": "mock_interview_turn_generation"
+      },
+      "tags": [
+        "model_task",
+        "decision_quality",
+        "pair:last_answer"
+      ],
+      "source_type": "synthetic",
+      "source_snapshot": {
+        "context": {
+          "binding": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "resume_revision_id": "00000000-0000-0000-0000-000000000007"
+          },
+          "profile_revision": 1,
+          "job_id": "00000000-0000-0000-0000-00000000000b",
+          "job_revision": 1,
+          "fact_snapshot": {
+            "00000000-0000-0000-0000-000000000001": 1
+          },
+          "data": {
+            "facts": [
+              {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "revision": 1,
+                "status": "verified",
+                "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                "category": "project",
+                "trust_level": "user_verified"
+              }
+            ],
+            "requirements": [
+              {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "text": "需要 Python 和 PostgreSQL 开发经验。",
+                "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+                "trust_level": "untrusted_external"
+              }
+            ],
+            "profile_refs": {
+              "projects": [
+                {
+                  "project_ref": 0,
+                  "fact_refs": [
+                    "00000000-0000-0000-0000-000000000001"
+                  ]
+                }
+              ]
+            },
+            "resume": {
+              "profile_id": "00000000-0000-0000-0000-000000000003",
+              "profile_revision": 1,
+              "job_revision_id": "00000000-0000-0000-0000-000000000004",
+              "locale": "zh-CN",
+              "schema_version": "resume-v2",
+              "template": "resume_zh_cn_a4_single_v1",
+              "target_page_count": 1,
+              "sections": [
+                {
+                  "section_id": "00000000-0000-0000-0000-000000000005",
+                  "name": "projects",
+                  "ordering": 0,
+                  "priority": 80,
+                  "required": true,
+                  "items": [
+                    {
+                      "item_id": "00000000-0000-0000-0000-000000000006",
+                      "kind": "bullet",
+                      "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                      "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                      "fact_refs": [
+                        "00000000-0000-0000-0000-000000000001"
+                      ],
+                      "requirement_refs": [
+                        "00000000-0000-0000-0000-000000000002"
+                      ],
+                      "ordering": 0,
+                      "priority": 80,
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "decision_fixture": {
+          "policy": {
+            "mode": "custom",
+            "primary_target": 3,
+            "followup_max": 3,
+            "policy_version": "mock-policy-v1"
+          },
+          "history": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000007",
+              "kind": "primary",
+              "question": "如何确定服务指标？",
+              "answer": "按请求成功率和延迟分位数设置指标。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000008",
+              "kind": "primary",
+              "question": "如何定位性能瓶颈？",
+              "answer": "通过分段耗时和负载实验定位。",
+              "primary_entry_id": null
+            },
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "先查询请求键，不存在才写入，不需要唯一约束或锁；并发先查后写也一定只执行一次。提交后响应丢失则按原键返回结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "decision_quality": {
+          "annotation_version": "mock-decision-quality-v1",
+          "pair": "last_answer",
+          "preferred": "follow_up",
+          "acceptable": [
+            "follow_up"
+          ],
+          "rationale": "主问题虽已回答完，最后一组仍有直接影响正确性的矛盾，追问比立即结束有价值。",
+          "gap_to_probe": "并发交错下先查后写为什么不会重复？",
+          "scope": "Decision labels alone do not grade the relevance of the generated question."
+        }
+      },
+      "model_input": {
+        "stable_context": {
+          "facts": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "revision": 1,
+              "status": "verified",
+              "statement": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+              "category": "project",
+              "trust_level": "user_verified"
+            }
+          ],
+          "requirements": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "text": "需要 Python 和 PostgreSQL 开发经验。",
+              "evidence_span": "需要 Python 和 PostgreSQL 开发经验。",
+              "trust_level": "untrusted_external"
+            }
+          ],
+          "profile_refs": {
+            "projects": [
+              {
+                "project_ref": 0,
+                "fact_refs": [
+                  "00000000-0000-0000-0000-000000000001"
+                ]
+              }
+            ]
+          },
+          "resume": {
+            "profile_id": "00000000-0000-0000-0000-000000000003",
+            "profile_revision": 1,
+            "job_revision_id": "00000000-0000-0000-0000-000000000004",
+            "locale": "zh-CN",
+            "schema_version": "resume-v2",
+            "template": "resume_zh_cn_a4_single_v1",
+            "target_page_count": 1,
+            "sections": [
+              {
+                "section_id": "00000000-0000-0000-0000-000000000005",
+                "name": "projects",
+                "ordering": 0,
+                "priority": 80,
+                "required": true,
+                "items": [
+                  {
+                    "item_id": "00000000-0000-0000-0000-000000000006",
+                    "kind": "bullet",
+                    "text": "在合成项目使用 Python、FastAPI 和 PostgreSQL 构建服务。",
+                    "short_text": "使用 Python 和 PostgreSQL 开发项目。",
+                    "fact_refs": [
+                      "00000000-0000-0000-0000-000000000001"
+                    ],
+                    "requirement_refs": [
+                      "00000000-0000-0000-0000-000000000002"
+                    ],
+                    "ordering": 0,
+                    "priority": 80,
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "question_history": [
+          {
+            "entry_id": "00000000-0000-0000-0000-000000000007",
+            "kind": "primary",
+            "question": "如何确定服务指标？",
+            "primary_entry_id": null
+          },
+          {
+            "entry_id": "00000000-0000-0000-0000-000000000008",
+            "kind": "primary",
+            "question": "如何定位性能瓶颈？",
+            "primary_entry_id": null
+          }
+        ],
+        "current_group": {
+          "primary_entry_id": "00000000-0000-0000-0000-000000000009",
+          "entries": [
+            {
+              "entry_id": "00000000-0000-0000-0000-000000000009",
+              "kind": "primary",
+              "question": "同一请求因网络超时重复到达时，如何避免重复写入？请明确说明并发竞争与提交后响应丢失的处理边界。",
+              "answer": "先查询请求键，不存在才写入，不需要唯一约束或锁；并发先查后写也一定只执行一次。提交后响应丢失则按原键返回结果。",
+              "primary_entry_id": null
+            }
+          ]
+        },
+        "policy": {
+          "decision_contract_version": "mock-decision-v1",
+          "focus": "technical",
+          "primary_question_count": 3,
+          "followup_count": 0,
+          "interviewer_turn_count": 3,
+          "remaining_primary": 0,
+          "remaining_followup": 3,
+          "all_answered": true,
+          "current_primary_id": "00000000-0000-0000-0000-000000000009",
+          "current_question_id": "00000000-0000-0000-0000-000000000009",
+          "legal_actions": [
+            "ask_follow_up",
+            "finish"
+          ],
+          "mode": "custom",
+          "primary_target": 3,
+          "followup_max": 3,
+          "policy_version": "mock-policy-v1"
+        }
+      },
+      "frozen_external_observations": {},
+      "evaluation_clock": "2026-01-01T00:00:00Z",
+      "expectations": [
+        {
+          "check_id": "execution_legal",
+          "category": "correctness",
+          "tier": 0,
+          "operator": "valid",
+          "path": "valid",
+          "value": null,
+          "material": true
+        },
+        {
+          "check_id": "decision_acceptable",
+          "category": "quality",
+          "tier": 1,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": true
+        },
+        {
+          "check_id": "decision_preferred",
+          "category": "quality",
+          "tier": 2,
+          "operator": "equals",
+          "path": "output.turn.kind",
+          "value": "follow_up",
+          "material": false
+        }
+      ],
+      "fault_plan": {
+        "version": "fault-plan-v1",
+        "faults": []
+      },
+      "origin_provenance": {},
+      "content_hash": null
+    }
+  ]
+}

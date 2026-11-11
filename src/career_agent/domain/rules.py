@@ -70,40 +70,15 @@ def transition_application(
     reason: str | None = None,
     explicit_user_action: bool = False,
 ) -> None:
-    if current == target:
-        raise DomainError("unchanged_application_status")
     if not explicit_user_action:
         raise DomainError("explicit_status_action_required", 403)
-    if correction:
-        if not reason or not reason.strip():
-            raise DomainError("correction_reason_required", 422)
-        return
-    allowed = {
-        ApplicationStatus.TRACKING: {
-            ApplicationStatus.PREPARING,
-            ApplicationStatus.APPLIED,
-            ApplicationStatus.WITHDRAWN,
-            ApplicationStatus.CLOSED,
-        },
-        ApplicationStatus.PREPARING: {
-            ApplicationStatus.APPLIED,
-            ApplicationStatus.WITHDRAWN,
-            ApplicationStatus.CLOSED,
-        },
-        ApplicationStatus.APPLIED: {
-            ApplicationStatus.INTERVIEWING,
-            ApplicationStatus.OFFER,
-            ApplicationStatus.REJECTED,
-            ApplicationStatus.WITHDRAWN,
-            ApplicationStatus.CLOSED,
-        },
-        ApplicationStatus.INTERVIEWING: {
-            ApplicationStatus.OFFER,
-            ApplicationStatus.REJECTED,
-            ApplicationStatus.WITHDRAWN,
-            ApplicationStatus.CLOSED,
-        },
-        ApplicationStatus.OFFER: {ApplicationStatus.WITHDRAWN, ApplicationStatus.CLOSED},
-    }
-    if target not in allowed.get(current, set()):
-        raise DomainError("invalid_application_transition")
+    if correction and (not reason or not reason.strip()):
+        raise DomainError("correction_reason_required", 422)
+
+
+def application_status(value: ApplicationStatus) -> ApplicationStatus:
+    """Canonical Product status; historical event values are never rewritten."""
+    return {
+        ApplicationStatus.PREPARING: ApplicationStatus.TRACKING,
+        ApplicationStatus.WITHDRAWN: ApplicationStatus.CLOSED,
+    }.get(value, value)

@@ -17,7 +17,7 @@ from career_agent.api.dependencies import DB
 from career_agent.application import services as svc
 from career_agent.config import Settings
 from career_agent.domain import schemas as inp
-from career_agent.domain.rules import DomainError
+from career_agent.domain.rules import DomainError, application_status
 from career_agent.infrastructure import entities as e
 from career_agent.infrastructure.db import make_engine
 from career_agent.security.logging import SafeCode, SafeEvent, safe_log
@@ -50,6 +50,18 @@ async def create_job(payload: inp.JobCreate, session: DB) -> dict[str, Any]:
     return await svc.job_view(session, await svc.create_job(session, payload))
 
 
+@router.get("/job-create-requests/{id}", response_model=out.JobRequestOut)
+async def job_request(id: UUID, session: DB) -> dict[str, Any]:
+    receipt = await svc.require(session, e.JobCreateRequest, id)
+    application = await session.get(e.Application, receipt.application_id)
+    return {
+        "request_id": receipt.id,
+        "job_id": receipt.job_id,
+        "application_id": receipt.application_id,
+        "workspace_available": application is not None and application.deleted_at is None,
+    }
+
+
 @router.get("/jobs", response_model=list[out.JobOut])
 async def jobs(session: DB, limit: Limit = 50, offset: Offset = 0) -> list[dict[str, Any]]:
     rows = await session.scalars(
@@ -77,14 +89,27 @@ async def application_view(session: AsyncSession, application: e.Application) ->
         "created_at": application.created_at,
         "job_id": application.job_id,
         "revision": application.revision,
-        "status": application.status,
+        "status": application_status(application.status),
         "events": await svc.application_events(session, application.id),
     }
 
 
 @router.get("/applications/{row_id}", response_model=out.ApplicationOut)
 async def get_application(row_id: UUID, session: DB) -> dict[str, Any]:
-    return await application_view(session, await svc.require(session, e.Application, row_id))
+    return await application_view(session, await svc.read_application(session, row_id))
+
+
+@router.put("/applications/{row_id}/jd", response_model=out.JobOut)
+async def edit_application_jd(
+    row_id: UUID, payload: inp.ApplicationJDWrite, session: DB
+) -> dict[str, Any]:
+    return await svc.job_view(session, await svc.edit_application_jd(session, row_id, payload))
+
+
+@router.delete("/applications/{row_id}")
+async def delete_application(row_id: UUID, session: DB) -> dict[str, bool]:
+    await svc.delete_application(session, row_id)
+    return {"deleted": True}
 
 
 @router.patch("/applications/{row_id}", response_model=out.ApplicationOut)

@@ -11,8 +11,11 @@ from career_agent.product.entities import ProductDraft
 
 async def branch(session: AsyncSession, source: e.ResumeVariantRevision) -> dict[str, Any]:
     state = source.library_state or {}
+    sequence = {
+        key: state[key] for key in ("optimization_job_id", "optimization_number") if key in state
+    }
     if state.get("branch_id"):
-        return {k: state[k] for k in ("branch_id", "branch_name")}
+        return {**sequence, **{k: state[k] for k in ("branch_id", "branch_name")}}
     # Legacy adopted refinements already persisted root identity/name/ordinal.
     # Use those facts, never parse a suffix or infer membership from a Profile.
     origin = await session.scalar(
@@ -29,4 +32,4 @@ async def branch(session: AsyncSession, source: e.ResumeVariantRevision) -> dict
     else:
         value = {"branch_id": str(source.id), "branch_name": source.display_name or "简历"}
     source.library_state = {**state, **value}
-    return value
+    return {**sequence, **value}

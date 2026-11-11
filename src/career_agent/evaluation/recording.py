@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from career_agent.application.compatibility import execution_versions
+from career_agent.application.compatibility import model_execution_versions
 from career_agent.evaluation.contracts import JudgeSamplingPolicy, OperationSnapshot, Subject
 from career_agent.evaluation.identity import code_identity, digest
 from career_agent.models.contracts import ModelRequestContext, TaskSpec
@@ -50,7 +50,7 @@ async def record_model(
             **versions,
             "control_contract": context.control_snapshot,
             **await asyncio.to_thread(code_identity),
-            "execution_versions": execution_versions("resume_tailoring"),
+            "execution_versions": model_execution_versions(context.task_type),
             "external_observations": {
                 "evidence": task.inputs.get("context", {}).get("evidence", [])
             },

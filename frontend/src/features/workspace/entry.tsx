@@ -1,7 +1,8 @@
+import { TargetBoundary } from "./target-boundary";
 import { getApplicationContext } from "@/features/applications/server";
 import { PageHeading } from "@/components/ui/typography";
 import { ReadProblem } from "@/components/product/read-state";
-import { ResearchFit } from "./research";
+import { ResearchFit, type ResearchSection } from "./research";
 import { PreparationPage } from "./preparation";
 import { ResumePage, SubmissionsPage } from "./materials";
 import { ActualPage, MockPage, HistoryPage } from "./interviews";
@@ -19,7 +20,15 @@ const titles = {
   notes: "求职笔记",
 };
 export type WorkspaceFeature = keyof typeof titles;
-export async function WorkspaceEntry({ id, feature }: { id: string; feature: WorkspaceFeature }) {
+export async function WorkspaceEntry({
+  id,
+  feature,
+  researchSection = "description",
+}: {
+  id: string;
+  feature: WorkspaceFeature;
+  researchSection?: ResearchSection;
+}) {
   let ctx;
   try {
     ctx = await getApplicationContext(id);
@@ -27,7 +36,7 @@ export async function WorkspaceEntry({ id, feature }: { id: string; feature: Wor
     return <ReadProblem href={`/applications/${id}/summary`} />;
   }
   const page = {
-    research: <ResearchFit ctx={ctx} />,
+    research: <ResearchFit ctx={ctx} section={researchSection} />,
     resume: <ResumePage ctx={ctx} />,
     greeting: <PreparationPage ctx={ctx} target="greeting_generation" />,
     submissions: <SubmissionsPage ctx={ctx} />,
@@ -40,8 +49,22 @@ export async function WorkspaceEntry({ id, feature }: { id: string; feature: Wor
   }[feature];
   return (
     <>
-      <PageHeading title={titles[feature]} />
-      {page}
+      {!["research", "resume", "greeting", "submissions", "preparation", "notes"].includes(
+        feature,
+      ) &&
+        (["mock", "actual", "history", "debriefs"].includes(feature) ? (
+          <h1 className="mb-7 text-2xl font-semibold">{titles[feature]}</h1>
+        ) : (
+          <PageHeading title={titles[feature]} />
+        ))}
+      <TargetBoundary
+        preserveInputs={
+          ["resume", "greeting", "preparation", "mock", "debriefs", "notes"].includes(feature) ||
+          (feature === "research" && ["company", "fit"].includes(researchSection))
+        }
+      >
+        {page}
+      </TargetBoundary>
     </>
   );
 }

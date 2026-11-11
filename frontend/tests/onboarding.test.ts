@@ -17,13 +17,12 @@ test("Product allowlist supports exact onboarding contracts, not arbitrary write
         company_name: "合成公司",
         title: "岗位",
         jd_text: "JD",
-        requirements: [],
       },
     ],
     [
       `applications/${id(1)}`,
       "PATCH",
-      { expected_revision: 1, status: "preparing", correction: false, reason: null },
+      { expected_revision: 1, status: "tracking", correction: false, reason: null },
     ],
     [`resume-variants/${id(1)}/revisions`, "POST", { expected_revision: 1, document: {} }],
   ] as const)
@@ -36,7 +35,7 @@ test("Product allowlist supports exact onboarding contracts, not arbitrary write
     validateBody({ status: "verified" }, productRule("facts", "POST", new URLSearchParams()).body),
   );
 });
-test("existing Company is explicit; Application state CAS/correction and notes remain separate", () => {
+test("existing Company is explicit; Application state CAS and notes remain separate", () => {
   resetOnboarding(true);
   const body = { company_name: "合成公司", title: "工程师", jd_text: "Python", requirements: [] };
   call("jobs", "POST", body);
@@ -52,14 +51,37 @@ test("existing Company is explicit; Application state CAS/correction and notes r
   );
   assert.equal(
     call(`applications/${id(1)}`, "PATCH", { expected_revision: 1, status: "offer" }).status,
-    409,
-  );
-  assert.equal(
-    call(`applications/${id(1)}`, "PATCH", { expected_revision: 1, status: "preparing" }).status,
     200,
   );
-  call(`applications/${id(1)}/notes`, "POST", { text: "尚未投递" });
-  assert.equal((call(`applications/${id(1)}`).body as { status: string }).status, "preparing");
-  assert.deepEqual(transitions.rejected, []);
-  assert.equal(transitions.tracking.includes("offer"), false);
+  call(`applications/${id(1)}/notes`, "POST", { text: "记录" });
+  assert.equal((call(`applications/${id(1)}`).body as { status: string }).status, "offer");
+  assert.equal(transitions.tracking.includes("offer"), true);
+});
+
+test("JD and deletion writes are narrow; retired requirements form is not a BFF input", () => {
+  assert.doesNotThrow(() => productRule(`applications/${id(1)}`, "DELETE", new URLSearchParams()));
+  assert.doesNotThrow(() =>
+    validateBody(
+      { expected_revision: 1, expected_binding_revision: 1, jd_text: "JD" },
+      productRule(`applications/${id(1)}/jd`, "PUT", new URLSearchParams()).body,
+    ),
+  );
+  assert.throws(() =>
+    validateBody(
+      { company_name: "公司", title: "职位", jd_text: "JD", requirements: [] },
+      productRule("jobs", "POST", new URLSearchParams()).body,
+    ),
+  );
+  assert.throws(() => productRule(`jobs/${id(1)}/revisions`, "POST", new URLSearchParams()));
+});
+
+test("modern Job BFF requires UUID request identity and supports exact receipt lookup", () => {
+  const rule = productRule("jobs", "POST", new URLSearchParams());
+  const body = { company_name: "公司", title: "职位", jd_text: "JD" };
+  assert.throws(() => validateBody(body, rule.body, "jobs"));
+  assert.throws(() => validateBody({ ...body, request_id: "invalid" }, rule.body, "jobs"));
+  assert.doesNotThrow(() => validateBody({ ...body, request_id: id(9001) }, rule.body, "jobs"));
+  assert.doesNotThrow(() =>
+    productRule(`job-create-requests/${id(9001)}`, "GET", new URLSearchParams()),
+  );
 });

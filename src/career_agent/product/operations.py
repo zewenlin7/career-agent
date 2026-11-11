@@ -45,7 +45,21 @@ def view(row: ProductOperation) -> OperationOut:
     )
 
 
+async def validate_owner(session: AsyncSession, payload: OperationCreate) -> None:
+    if payload.application_id is None:
+        return
+    app = await require(session, e.Application, payload.application_id)
+    jd = await require(session, e.JobRevision, payload.request.job_revision_id)
+    if app.job_id != jd.job_id or (
+        payload.application_binding and payload.application_binding.application_id != app.id
+    ):
+        raise DomainError("context_revision_mismatch")
+
+
 async def create(session: AsyncSession, payload: OperationCreate) -> OperationOut:
+    from career_agent.application.services import active_jd
+
+    await active_jd(session, payload.request.job_revision_id)
     await claim(session, "product-request:" + str(payload.request_id))
     old = await session.scalar(
         select(ProductOperation).where(ProductOperation.request_id == payload.request_id)
@@ -55,6 +69,7 @@ async def create(session: AsyncSession, payload: OperationCreate) -> OperationOu
         if OperationCreate.model_validate(old.payload).model_dump(mode="json") != data:
             raise DomainError("idempotency_conflict")
         return view(old)
+    await validate_owner(session, payload)
     if payload.application_binding is not None:
         from career_agent.product.bindings import validate_request
 
@@ -63,6 +78,12 @@ async def create(session: AsyncSession, payload: OperationCreate) -> OperationOu
         assert payload.request.profile_id is not None
         await require(session, e.PersonalProfile, payload.request.profile_id)
     await require(session, e.JobRevision, payload.request.job_revision_id)
+    if payload.request.research_report_id:
+        source = await require(session, e.CompanyResearch, payload.request.research_report_id)
+        if source.deleted_at is not None:
+            raise DomainError("research_removed")
+    if payload.request.application_package_id:
+        await require(session, e.PreparationArtifact, payload.request.application_package_id)
     row = ProductOperation(
         request_id=payload.request_id, kind=payload.kind, run_id=uuid4(), payload=data
     )
@@ -150,6 +171,10 @@ async def execute(
                 if row.status != "pending":
                     return view(row)
                 payload = OperationCreate.model_validate(row.payload)
+                from career_agent.application.services import active_jd
+
+                await active_jd(session, payload.request.job_revision_id)
+                await validate_owner(session, payload)
                 run_id = row.run_id
                 row.status = "running"
             try:

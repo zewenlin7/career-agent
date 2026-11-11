@@ -2,9 +2,11 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
 from uuid import UUID, uuid4
 
+from anyio import CancelScope
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,6 +23,7 @@ from career_agent.interview.contracts import (
     ContextBinding,
     DebriefCreate,
     DebriefRegenerate,
+    DebriefRetry,
     EvaluationData,
     EventData,
     FrozenContext,
@@ -31,16 +34,17 @@ from career_agent.interview.contracts import (
 from career_agent.interview.mock import frozen_policy, turns
 from career_agent.interview.numbering import anchor, numbered
 from career_agent.interview.policy import CallPolicy, InterviewPolicy
-from career_agent.interview.prompts import PROMPTS
-from career_agent.interview.validation import VALIDATION_VERSION, groups, validate_evaluation
+from career_agent.interview.validation import groups, validate_evaluation
 from career_agent.models.contracts import ModelGatewayError
 from career_agent.models.gateway import ModelGateway
 from career_agent.preparation.observation_store import ReuseDecision
 
-CREATE_IDENTITY_VERSION = "debrief-create-v1"
+CREATE_IDENTITY_VERSION = "debrief-create-v3"
 
 
-def inputs_for(snapshot: SourceSnapshot, group_ref: UUID | None) -> dict[str, Any]:
+def inputs_for(
+    snapshot: SourceSnapshot, group_ref: UUID | None, *, legacy_overall: bool = False
+) -> dict[str, Any]:
     context = snapshot.context.data if snapshot.context else {}
     entries = compact_entries(snapshot, group_ref)
     if group_ref is None:
@@ -49,6 +53,11 @@ def inputs_for(snapshot: SourceSnapshot, group_ref: UUID | None) -> dict[str, An
             "source": clean(
                 {
                     "entries": entries,
+                    **(
+                        {}
+                        if legacy_overall
+                        else {"evidence_numbers": [e["number"] for e in entries if e["answer"]]}
+                    ),
                     "notes": [note.model_dump(mode="json") for note in snapshot.notes],
                 }
             ),
@@ -88,6 +97,8 @@ def presentation(snapshot: SourceSnapshot, artifact: e.DebriefArtifact) -> dict[
                 "question_number": anchor(display[item["entry_id"]]),
                 "label": "来自追问" if item["kind"] == "follow_up" else "主问题",
                 "preview": "",
+                "entry_id": item["entry_id"],
+                "kind": item["kind"],
             }
     out: dict[str, Any] = {
         "section": "overall" if artifact.kind == "overall" else "questions",
@@ -113,7 +124,10 @@ def presentation(snapshot: SourceSnapshot, artifact: e.DebriefArtifact) -> dict[
                 result[key] = [
                     {
                         "content": finding["content"],
-                        "evidence": [anchors[str(ref)] for ref in finding["evidence_refs"]],
+                        "evidence": [
+                            anchors.get(str(ref), {"scope_unknown": True})
+                            for ref in finding["evidence_refs"]
+                        ],
                     }
                     for finding in value
                 ]
@@ -133,6 +147,8 @@ class DebriefService:
     async def regenerate(self, id: UUID, request: DebriefRegenerate) -> dict[str, Any]:
         async with self.sessions() as session:
             old = await require(session, e.DebriefRun, id)
+            if old.deleted_at:
+                raise DomainError("debrief_removed", 410)
             source = SourceSnapshot.model_validate(old.snapshot)
             payload = DebriefCreate(
                 source_kind=source.source_kind,
@@ -147,6 +163,17 @@ class DebriefService:
         self, request: DebriefCreate, *, frozen_from: UUID | None = None
     ) -> dict[str, Any]:
         async with self.sessions.begin() as session:
+            identity = request.model_dump(mode="json", exclude={"request_id"})
+            identity["primary_entry_ids"] = sorted(identity["primary_entry_ids"])
+            request_hash = digest(identity)
+            if request.request_id:
+                await claim(session, "debrief-request:" + str(request.request_id))
+                receipt = await session.get(e.DebriefRequest, request.request_id)
+                if receipt:
+                    if receipt.operation != "create" or receipt.payload_hash != request_hash:
+                        raise DomainError("request_identity_conflict", 409)
+                    result = await self.view(receipt.debrief_id, historical=True)
+                    return {**result, "reused": True}
             previous = None
             root = None
             if frozen_from:
@@ -156,11 +183,15 @@ class DebriefService:
                 )
                 if digest(previous.snapshot) != previous.source_hash:
                     raise DomainError("snapshot_integrity_failed")
+                from career_agent.application.services import active_interview_target
+
+                await active_interview_target(session, previous)
                 snapshot = SourceSnapshot.model_validate(previous.snapshot)
             elif request.source_kind == "actual":
                 interview = await require(
                     session, e.InterviewSession, request.interview_id, lock=True
                 )
+                await require(session, e.Application, interview.application_id)
                 check_revision(interview.content_revision, request.expected_source_revision)
                 if interview.status == "draft":
                     raise DomainError("interview_not_completed")
@@ -188,7 +219,9 @@ class DebriefService:
                     source_kind="actual",
                     interview_id=interview.id,
                     content_revision=interview.content_revision,
-                    entries=[InterviewEntry.model_validate(x) for x in interview.entries],
+                    entries=numbered(
+                        [InterviewEntry.model_validate(x) for x in interview.entries], []
+                    ),
                     notes=[InterviewNoteData.model_validate(x) for x in interview.notes],
                     context=context,
                 )
@@ -196,6 +229,9 @@ class DebriefService:
                 mock = await require(
                     session, e.MockInterviewSession, request.interview_id, lock=True
                 )
+                from career_agent.application.services import active_interview_target
+
+                await active_interview_target(session, mock)
                 check_revision(mock.revision, request.expected_source_revision)
                 if mock.status != "completed" or mock.generation_active:
                     raise DomainError("mock_not_completed")
@@ -224,13 +260,28 @@ class DebriefService:
                         for t in history
                     ],
                 )
+            if request.application_id:
+                from career_agent.interview.review_state import owner
+
+                resolved_owner = await owner(
+                    session, e.DebriefRun(snapshot=snapshot.model_dump(mode="json"))
+                )
+                if resolved_owner != request.application_id:
+                    raise DomainError("context_revision_mismatch", 409)
             snapshot.entries = numbered(snapshot.entries)
             grouped = groups(snapshot)
+            requested_ids = request.primary_entry_ids or (
+                [request.primary_entry_id] if request.primary_entry_id else []
+            )
+            if requested_ids and not set(map(str, requested_ids)) <= {
+                g["group_ref"] for g in grouped
+            }:
+                raise DomainError("invalid_primary_reference", 422)
             selected = (
                 grouped
                 if request.question_analysis == "all"
-                else [g for g in grouped if g["group_ref"] == str(request.primary_entry_id)]
-                if request.question_analysis == "single"
+                else [g for g in grouped if g["group_ref"] in set(map(str, requested_ids))]
+                if request.question_analysis in {"single", "selected"}
                 else []
             )
             if request.question_analysis == "single" and len(selected) != 1:
@@ -244,39 +295,17 @@ class DebriefService:
             ]
             if request.overall_analysis:
                 plan.append(("overall", None, None, len(grouped) + 1))
-            fingerprint = None
-            if frozen_from is None:
-                fingerprint = digest(
+            fingerprint = (
+                None
+                if frozen_from
+                else digest(
                     {
                         "version": CREATE_IDENTITY_VERSION,
-                        "validator_version": VALIDATION_VERSION,
-                        "snapshot": snapshot.model_dump(mode="json"),
-                        "request": request.model_dump(mode="json"),
-                        "policy": policy.model_dump(mode="json"),
-                        "prompts": {
-                            task_type(k): PROMPTS[task_type(k)].prompt_hash for k, _, _, _ in plan
-                        },
+                        "request_id": str(request.request_id or uuid4()),
+                        "payload_hash": request_hash,
                     }
                 )
-                await claim(
-                    session,
-                    "debrief:" + fingerprint,
-                    wait_seconds=self.settings.reuse_claim_wait_seconds,
-                )
-                existing = await session.scalar(
-                    select(e.DebriefRun).where(e.DebriefRun.request_fingerprint == fingerprint)
-                )
-                if existing:
-                    session.add(
-                        ReuseDecision(
-                            run_id=existing.run_id,
-                            category="business_artifact",
-                            operation="interview_debrief",
-                            disposition="reused",
-                            identity_hash=fingerprint,
-                        )
-                    )
-                    return await self.view(existing.id, historical=True)
+            )
             for kind, ref, _, _ in plan:
                 self.calls.preflight(
                     task_type(kind),
@@ -337,15 +366,122 @@ class DebriefService:
                     )
                 )
             id = row.id
+            if request.request_id:
+                session.add(
+                    e.DebriefRequest(
+                        id=request.request_id,
+                        debrief_id=id,
+                        payload_hash=request_hash,
+                        operation="create",
+                        execution_revision=0,
+                    )
+                )
             if previous and root:
                 row.root_run_id = root.id
                 row.supersedes_run_id = previous.id
                 root.selected_run_id = row.id
+        return {**await self.view(id, historical=True), "reused": False}
+
+    async def retry(self, id: UUID, request: DebriefRetry) -> dict[str, Any]:
+        from career_agent.evaluation.recording import bind_artifact
+        from career_agent.interview.execution import available
+        from career_agent.interview.review_state import disposition
+
+        async with self.sessions.begin() as session:
+            await claim(session, "debrief-request:" + str(request.request_id))
+            identity = digest({"id": str(id), **request.model_dump(mode="json")})
+            receipt = await session.get(e.DebriefRequest, request.request_id)
+            if receipt:
+                if receipt.operation != "retry" or receipt.payload_hash != identity:
+                    raise DomainError("request_identity_conflict", 409)
+                return await self.view(receipt.debrief_id, historical=True)
+            if not await available(session, id):
+                raise DomainError("debrief_running", 409)
+            run = await require(session, e.DebriefRun, id, lock=True)
+            from career_agent.application.services import active_interview_target
+
+            await active_interview_target(session, run)
+            if run.deleted_at:
+                raise DomainError("debrief_removed", 410)
+            check_revision(run.execution_revision, request.expected_execution_revision)
+            if run.status not in {"failed", "partial", "running"}:
+                raise DomainError("debrief_not_retryable", 409)
+            if digest(run.snapshot) != run.source_hash:
+                raise DomainError("snapshot_integrity_failed", 409)
+            artifacts = list(
+                await session.scalars(
+                    select(e.DebriefArtifact).where(e.DebriefArtifact.debrief_id == id)
+                )
+            )
+            changed = pending = 0
+            states = []
+            for artifact in artifacts:
+                if artifact.status == "completed":
+                    continue
+                state, accepted = await disposition(session, run, artifact)
+                states.append(state)
+                if accepted:
+                    source = SourceSnapshot.model_validate(run.snapshot)
+                    output = canonical(accepted.output, source, artifact.group_ref)
+                    await bind_artifact(
+                        session, accepted.model_call_id, artifact.id, self.settings.judge_sampling
+                    )
+                    artifact.accepted_model_call_id = accepted.model_call_id
+                    artifact.data = EvaluationData(
+                        group=output if isinstance(output, QuestionGroupEvaluation) else None,
+                        overall=output if isinstance(output, OverallEvaluation) else None,
+                    ).model_dump(mode="json")
+                    artifact.status, artifact.error_code = "completed", None
+                    await self.event(
+                        session,
+                        run,
+                        EventData.model_validate(
+                            {
+                                "event": f"{artifact.kind}_completed",
+                                "artifact_id": artifact.id,
+                                "group_index": artifact.group_index,
+                                "display_section": "overall"
+                                if artifact.kind == "overall"
+                                else "questions",
+                                "display_order": artifact.display_order,
+                            }
+                        ),
+                    )
+                    changed += 1
+                elif state == "retryable":
+                    artifact.status, artifact.error_code = "pending", None
+                    artifact.logical_operation_id = uuid4()
+                    pending += 1
+                    changed += 1
+            if not changed:
+                raise DomainError(
+                    "execution_outcome_unknown"
+                    if any(state in {"unknown", "incompatible"} for state in states)
+                    else "debrief_not_retryable",
+                    409,
+                )
+            run.execution_revision += 1
+            run.status = "ready" if pending else "running"
+            parent = await require(session, e.AgentRun, run.run_id)
+            parent.status, parent.finished_at = RunStatus.PENDING, None
+            session.add(
+                e.DebriefRequest(
+                    id=request.request_id,
+                    debrief_id=id,
+                    payload_hash=identity,
+                    operation="retry",
+                    execution_revision=run.execution_revision,
+                )
+            )
+        if not pending:
+            await self.finish(id)
         return await self.view(id, historical=True)
 
     async def view(self, id: UUID, *, historical: bool = False) -> dict[str, Any]:
         async with self.sessions() as session:
             row = await require(session, e.DebriefRun, id)
+            if row.deleted_at:
+                raise DomainError("debrief_removed", 410)
             root = await require(session, e.DebriefRun, row.root_run_id) if row.root_run_id else row
             if not historical and root.selected_run_id:
                 row = await require(session, e.DebriefRun, root.selected_run_id)
@@ -358,7 +494,23 @@ class DebriefService:
                     .order_by(e.DebriefArtifact.display_order)
                 )
             )
+            from career_agent.interview.execution import available
+            from career_agent.interview.review_state import disposition, source_changed, source_name
+
+            recovery = {}
+            for artifact in artifacts:
+                if artifact.status not in {"completed", "pending"} and row.status != "ready":
+                    try:
+                        recovery[str(artifact.id)] = (await disposition(session, row, artifact))[0]
+                    except (ValueError, ModelGatewayError, DomainError):
+                        recovery[str(artifact.id)] = "incompatible"
             return {
+                "source_name": await source_name(session, row.snapshot),
+                "source_changed": await source_changed(session, row.snapshot),
+                "created_at": row.created_at,
+                "execution_revision": row.execution_revision,
+                "execution_active": row.status == "running" and not await available(session, id),
+                "recovery": recovery,
                 "id": row.id,
                 "run_id": row.run_id,
                 "status": row.status,
@@ -392,7 +544,9 @@ class DebriefService:
 
     async def events(self, id: UUID, after: int = 0) -> list[dict[str, Any]]:
         async with self.sessions() as session:
-            await require(session, e.DebriefRun, id)
+            row = await require(session, e.DebriefRun, id)
+            if row.deleted_at:
+                raise DomainError("debrief_removed", 410)
             return [
                 {"sequence": event.sequence, **event.data}
                 for event in await session.scalars(
@@ -542,10 +696,32 @@ class DebriefService:
             return
 
     async def execute(self, id: UUID) -> AsyncGenerator[dict[str, Any], None]:
+        from career_agent.interview.execution import available
+
+        guard = self.sessions()
+        try:
+            await guard.begin()
+            if not await available(guard, id):
+                raise DomainError("debrief_running", 409)
+            async with aclosing(self._execute(id)) as stream:
+                async for event in stream:
+                    yield event
+        finally:
+            # ASGI disconnect cancellation must not strand the advisory connection.
+            with CancelScope(shield=True):
+                await guard.rollback()
+                await guard.close()
+
+    async def _execute(self, id: UUID) -> AsyncGenerator[dict[str, Any], None]:
         async with self.sessions.begin() as session:
             run = await require(session, e.DebriefRun, id, lock=True)
+            from career_agent.application.services import active_interview_target
+
+            await active_interview_target(session, run)
+            if run.deleted_at:
+                raise DomainError("debrief_removed", 410)
             if run.status != "ready":
-                raise DomainError("debrief_already_started")
+                return
             run.status = "running"
             parent = await require(session, e.AgentRun, run.run_id)
             parent.status = RunStatus.RUNNING
@@ -553,7 +729,9 @@ class DebriefService:
             ids = list(
                 await session.scalars(
                     select(e.DebriefArtifact.id)
-                    .where(e.DebriefArtifact.debrief_id == id)
+                    .where(
+                        e.DebriefArtifact.debrief_id == id, e.DebriefArtifact.status == "pending"
+                    )
                     .order_by(e.DebriefArtifact.display_order.desc())
                 )
             )
@@ -615,13 +793,14 @@ class DebriefService:
             await asyncio.gather(*workers)
             yield await self.finish(id)
         finally:
-            for task in workers:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*workers, return_exceptions=True)
-            # Disconnect stops new calls; completed artifacts survive. Unknown in-flight usage
-            # remains reserved. No hidden background worker or automatic replay.
-            await self.finish(id, interrupted=True)
+            with CancelScope(shield=True):
+                for task in workers:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
+                # Disconnect stops new calls; completed artifacts survive. Unknown in-flight
+                # usage stays reserved. No hidden worker or automatic replay.
+                await self.finish(id, interrupted=True)
 
     async def finish(self, id: UUID, *, interrupted: bool = False) -> dict[str, Any]:
         async with self.sessions.begin() as session:

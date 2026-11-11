@@ -1,17 +1,19 @@
 # Career Agent architecture
 
-Status: **v0.1–v0.2 and v0.3 offline foundation complete and locally verified**. Every capability below marked **planned** is not
-present in the executable application. This is an independent project and does not reuse an
-unrelated RAG application's data or code.
+Status: **v0.5 Application/Interview closeout** over the implemented v0.1–v0.4 backend. Profile
+manual acceptance is complete; Application/Interview and Internal final acceptance remain pending.
+Stage-named chapters retain implementation lineage; superseded behavior is identified below and in
+CHANGELOG. Current Product contracts are in the v0.5/lifecycle chapters and the frontend/Profile guides.
+This is an independent project, not a reuse of another application's data or code.
 
 ## Product boundary
 
-Primarily single-user job-search assistance. Before v0.4, real personal data may be used locally
-for development, but load/regression demonstrations are synthetic. No claim of real multi-user
+Primarily single-user private job-search assistance. Personal data stays in the private deployment;
+automated regression and load demonstrations use synthetic data. No claim of real multi-user
 production traffic. Generating materials never means an application was sent; generated text
 never promotes itself into verified personal knowledge.
 
-Long-term lifecycle (planned beyond manual Foundation operations):
+Implemented user-directed workflow (optional steps, not a mandatory sequence):
 
 `Job Intake → Tracker → Research → Fit → Resume Tailoring → Greeting → Interview Prep → Mock → Debrief → Knowledge`
 
@@ -75,19 +77,25 @@ Each created job has one application in Foundation. Reapplication cycles are not
 Every event increments the application revision and has a unique sequence. Row locks and
 expected revisions prevent lost status updates. Notes append under the same lock.
 
-Normal transitions:
+Product states are tracking, applied, interviewing, offer, rejected and closed. Explicit user
+updates can move directly between any of them; unchanged states are no-ops. Legacy preparing
+reads/filters as tracking, withdrawn as closed, without rewriting historical events. Closed can
+reopen until soft-deleted. The legacy correction API still requires a reason but Product no longer
+exposes it. CAS, row locks and transactions remain authoritative.
 
-- tracking → preparing, applied, withdrawn, closed
-- preparing → applied, withdrawn, closed
-- applied → interviewing, offer, rejected, withdrawn, closed
-- interviewing → offer, rejected, withdrawn, closed
-- offer → withdrawn, closed
+Explicit material Submission advances tracking to applied; all other states are retained when
+recording additional submissions. Manual applied status does not create a Submission, and material
+generation never changes tracking state. Exact submitted revisions and PDFs remain frozen.
 
-Direct user-recorded application/offer allows omitted preparatory/interview steps. Terminal
-states cannot progress normally. A correction may repair a prior state but requires a nonempty
-reason and a distinct event; unchanged-state operations are rejected. No model/material path
-can record `applied`. Application mutations are local user API operations;
-there is no authentication/authorization system in v0.1a.
+`GET applications/{id}/summary` projects the ten Product sections, exact successful result targets,
+true formal interview/debrief counts, and all visible user notes/status records. Research history
+visibility is independent from reuse TTL. Notes carry explicit source/request identity. Existing
+notes with unknown ownership remain readable through historical events but are not projected as
+editable user notes. Submission-linked notes stay system-owned; linked status events can be read
+but not edited. `ApplicationEntryEdit` appends auditable text/removal overlays under Application and
+entry CAS; original events and Submission foreign keys remain intact. Removing a status entry never
+rewinds current status. Initial creation is read-only. The new migration backfills Mock ordinals from
+creation order; later allocation uses a job-scoped transaction lock.
 
 ### Interview knowledge
 
@@ -162,7 +170,9 @@ Fake and HTTP-mocked adapters exercise the same canonical contracts offline. All
 API task cases passed bounded synthetic acceptance; this does not establish real job-search quality.
 
 Model-family prompt overrides and additional real providers remain unimplemented. v0.3 adds an explicit
-quality Judge runner through the same Gateway, currently verified with offline fixtures only.
+quality Judge runner through the same Gateway. Its offline foundation and later bounded synthetic
+live smoke are separate historical observations in [CHANGELOG](../CHANGELOG.md#verified--v03-minimal-live-smoke);
+neither establishes representative Judge calibration.
 
 ## Privacy boundary
 
@@ -176,45 +186,51 @@ Operational logs use enum events/codes, UUID and numeric latency only. Basic red
 common email/phone/path/credential forms but cannot recognize every name or private fact.
 Validation errors omit original inputs; unexpected exceptions are caught before ASGI error logging.
 Documented Uvicorn startup disables access logs. SQL echo is off and bound parameters are hidden.
-Model task content remains in memory and is not automatically persisted to traces.
+Ordinary traces remain metadata-only. Dedicated private invocation/capture and accepted-output
+stores may retain bodies for replay or safe recovery; this is not ordinary log/Ops exposure.
 
 JD and research evidence are untrusted external data. The only web adapter calls a fixed Tavily
 endpoint with a validated search query. Returned URLs are evidence, never fetched or executed.
 No shell, SQL, arbitrary HTTP, browser or filesystem tool is available to a model. Injection fixtures
 exercise the structural boundary; this does not certify universal model resistance to injection.
 
-## Planned architecture and roadmap
+## Architecture evolution and roadmap
 
-The long-term modular monolith adds a thin LangGraph workflow layer:
-`Goal → Planner/Router → Shared State → Executor → Tool → Observation → Evaluator → continue/replan/finish`.
-Domain services remain independent of the orchestrator. No general unbounded loop or multi-agent
-system is present in Foundation.
+The implemented modular monolith uses deterministic Python business orchestration and a bounded
+Planner/validator/executor loop. The earlier LangGraph preparation implementation was replaced in
+v0.1d; it is not a current dependency or future requirement. No unbounded planner or multi-agent
+execution system is included. Current and optional work is maintained in [TODO](../TODO.md).
 
 | Milestone | Status / purpose |
 | --- | --- |
 | v0.1a Foundation | Implemented: domain, persistence, APIs, runtime/model/privacy/testing contracts |
-| v0.1b Resume Compiler | Implemented: hand-authored Variant, grounding, Typst, one-page PDF, deterministic compression/validation |
+| v0.1b Resume Compiler | Implemented: hand-authored Variant, grounding, Typst, one-page PDF validation; automatic v0.1b selection later replaced by explicit presentation |
 | v0.1c Job Preparation Workflow | Completed locally: two fixed workflows, providers, guardrails, budgets and bounded live acceptance |
 | v0.1d Integration / E2E | Completed locally: target-driven deterministic orchestration, context integrity, retrieval closure and offline E2E |
 | v0.2a Runtime Core | Bounded planner/validator/executor/evaluator, shared budgets, explicit checkpoint resume |
 | v0.2b Interview Loop | Actual intake, text Mock, standalone snapshot Debrief; offline acceptance |
-| v0.3 Evaluation Foundation | Current: frozen cases/trials/operations, offline replay, sampling/Judge, calibration/capture and priority comparison |
-| v0.4 Production Engineering | Phase 1: approved routing, in-process admission/circuits, attempt bounds and output control. Later: Ops, automatic policies, distributed coordination/cache |
-| v0.5 Real Usage Loop | Planned: actual outcomes, feedback, real bad cases, continuous regression |
+| v0.3 Evaluation Foundation | Implemented: frozen cases/trials/operations, offline replay, sampling/Judge, calibration/capture and priority comparison |
+| v0.4 Production Engineering | Implemented routing/admission/circuits, durable journal/Ops, bounded controls and exact reuse; distributed coordination remains optional |
+| v0.5 Web product | Implemented Product/Internal workspaces; Application/Interview closeout and final manual confirmation remain active |
 
 Resume compilation now separates verified fact references, hand-authored structured variants,
 deterministic layout and validation. v0.1c adds structured model generation before the unchanged compiler boundary; bounded synthetic live acceptance passed.
 Typst is the canonical renderer; DOCX and other templates remain optional future work.
 
-Production control will scope action by dependency/tool/workflow, use windows/minimum samples,
-cooldowns and recovery probes, and record policy decisions. One error does not pause the service.
-Before real use, 1000+ posting tests are synthetic workload tests, not claimed production traffic.
+Production control uses versioned capacity/circuit policies and durable operational facts as described
+in the v0.4 chapters. Offline faults do not establish production load capacity; large-scale load
+characterization remains optional work rather than a completed traffic claim.
 
 Semantic retrieval may use pgvector if measured retrieval needs justify it; no vector extension
 or embedding pipeline is installed now. Optional extensions are listed separately in TODO.md.
 
 
 ## Resume Compiler: implemented v0.1b
+
+Historical implementation lineage: the original automatic full/short/optional selection described
+below is superseded for current rendering by [explicit presentation](profile-workspace.md#presentation-and-saved-time).
+The compiler does not implicitly shorten/delete content or call a model. The separately authorized
+Preparation semantic-compression branch is a different operation.
 
 ### Boundary and data flow
 
@@ -503,6 +519,27 @@ explicit workflows. No external model/search call was made for this milestone. T
 integration checks, not evidence of real job-search quality or production crash recovery.
 
 
+### Usage, cost estimates and budget reservations
+
+- `input_tokens` / `output_tokens` / `cached_tokens` / `cache_write_tokens` / `reasoning_tokens` are provider-reported
+  usage. `measurement=reported` describes usage, not a paid invoice. Unknown per-call usage is null.
+- Existing `estimated_cost` (with `currency=USD`) is the USD estimate, equivalent to
+  `estimated_cost_usd`: reported OpenAI usage × the versioned configured price table.
+- `cache_write_tokens` is nullable per-call telemetry. No separate write charge is inferred:
+  the estimate still partitions total input into cached reads and other input, plus output.
+  Independent cache-write billing is not claimed; no pricing snapshot or billing API is added.
+- `budget_reserved_usd` and `reserved_input_tokens` / `reserved_output_tokens` are conservative
+  bounds for unsettled/unknown attempts. They are separate from usage and estimated cost.
+- `actual_billed_cost_usd=null` and `billing_tier=unknown`: no billing/account integration, Admin
+  Costs API or admin key. Run token totals sum known usage; unknown-attempt bounds remain separate.
+- Tavily `search_calls` counts locally observed dispatch attempts; `credits_used=null` because
+  the current adapter has no reliable consumed-credit/account source. A successful basic search's
+  configured USD 0.008 is **PAYG-equivalent retail estimated cost**, not actual cash paid.
+  Failed searches retain a reservation. Free allowance coverage is unknown, never assumed free.
+- Budget admission uses **estimated_cost + budget_reserved_usd**; `max_estimated_cost` remains
+  the existing public limit name for this conservative sum. Timeout/invalid output with reported
+  usage still settles normally; only unavailable usage/cost stays reserved.
+
 ## v0.2a bounded runtime
 
 The runtime adds orchestration above, rather than replacing, `preparation.Orchestrator`. It owns
@@ -566,7 +603,8 @@ Checkpoint recovery covers committed action boundaries, waiting input/decision a
 restart. It does not cover in-flight paid calls, unknown side effects, exactly-once, uncommitted
 transactions, filesystem/database atomicity, distributed workers or production crash recovery.
 Synchronous validation/finalization is not preemptively interrupted at a wall-clock deadline.
-All acceptance is synthetic/offline; no claim is made about live planner or job-search quality.
+The v0.2a checkpoint reported synthetic/offline acceptance; see [the historical record](../CHANGELOG.md#verified--v02a-local-offline-acceptance).
+This is a phase-specific evidence boundary, not a claim that no other feature has had real calls.
 
 
 ## Shared version governance (before v0.2b)
@@ -624,24 +662,53 @@ Row locking + expected_revision CAS applies to every update including notes; the
 per-edit content history. Full entry replacement supports corrections/deletion and validates unique
 IDs/orders plus same-session primary-only parent links. It never marks an application applied.
 
-MockInterviewSession/Turn are separate records. A session freezes existing exact domain context
-via v0.1 ContextLoader/grounding (Profile revision/fact revision map/JD/explicit Resume, optional
-existing InterviewPreparation). No missing-context generation or automatic Resume selection.
-The deterministic scheduler chooses legal next kind and exact target progress; one shared strong
-`mock_interview_turn_generation` prompt generates only the question. Immutable answer acceptance,
+MockInterviewSession/Turn are separate records. New Product sessions have explicit Application
+ownership and idempotent creation (nullable legacy API fields remain compatible). They freeze exact
+JD/Resume-visible context through the existing grounding
+boundary; Profile identity and evidence remain internal. Hidden experiences and unselected short
+alternatives are excluded from model inputs. Optional InterviewPreparation attachment belongs to
+legacy snapshots and is rejected for new sessions. No missing-context generation or automatic
+Resume selection occurs; incompatible legacy continuations remain readable but cannot substitute
+current materials.
+The server derives legal actions and remaining quotas from persisted turns/answers; one shared strong
+`mock_interview_turn_generation` call chooses a legal primary, current-group follow-up, or finish and
+supplies any question. No deterministic scheduler overrides the model's choice. Only the initial
+primary and the exhausted-quota terminal state are determined without a choice. Immutable answer acceptance,
 receipt/idempotency hash and generation admission are committed together after input preflight.
 Generation then runs outside that transaction; failure retains answer and ready state. Waiting
 state has no time expiry, and only active calls count toward execution time. Retry is explicit and
 uses the same cumulative attempt quota. Context/policy JSON is frozen at session creation.
 
 DebriefRun stores immutable SourceSnapshot, source hash, policy and one authoritative ledger.
+Review create identity v3 normalizes selected primary ID sets to source order; old single requests
+retain the same plan. Input equivalence does not deduplicate independent user intents: each new
+request UUID creates its own root/generation, while a retransmission resolves its durable receipt. Group tasks are scoped individually while overall always uses the full
+snapshot. DebriefRequest persists create/retry UUID, payload hash and execution revision. Execution, retry and deletion share an advisory execution lock;
+closing the SSE stream explicitly closes its worker stream before releasing ownership.
+Explicit failed-target retry uses original source/policy/budget: an accepted captured output is parsed,
+grounded and provenance-validated before save-only recovery; a confirmed retryable failure gets a new
+logical attempt. Unknown or incompatible persisted results are not dispatched. Ready execution is
+idempotent; completed targets remain untouched. Cumulative cost/call limits are never reset by retry.
+Generation deletion uses DebriefRun.deleted_at and a partial live-fingerprint unique index, not the
+PreparationArtifact-only ResultRemoval relation. Root/selected/supersedes and own audit are management
+relations; exact downstream frozen inputs remain protected. Root selection falls back to a visible
+readable generation, while exact deleted Product reads return 410. No source/artifact/usage is erased.
+KnowledgeNote gains a nullable request identity/hash and real updated_at. New create retries return
+the same object, changed payloads conflict, and CAS edits only change revision/time for changed content.
+Existing rows retain unknown updated_at and use created_at for order; deleted records keep provenance.
 Snapshot includes ordered actual/mock entries, notes, source schema/revision, exact optional domain
 context. DebriefArtifact stores each independent group's/overall's validated output and status;
 DebriefEvent is a durable ordered business event log. A QuestionGroup joins primary+follow-ups.
 `interview_group_debrief` sees that group; `interview_overall_debrief` sees the authoritative source
 without group analyses. Both are strong tasks registered through feature-local PromptSpec and the
 shared registry; career-model-policy-v3 explicitly maps all three to strong without premium fallback.
-Evidence is validated against answered entries in the correct snapshot/group.
+Evidence is validated against answered entries in the correct snapshot/group. Overall prompt v6, input
+v5 and compact output v3 expose the exact answered anchor set and require each finding to cite at least
+one canonical question number. Unlike single-entry group output, overall has no empty-evidence shorthand.
+The mapper resolves these numbers to frozen UUIDs; unknown, malformed and unanswered references remain
+rejected. Body-free diagnostics retain the target operation/call, field path, reference category, reason
+and allowed-set count/hash. Captured accepted output v2 is still parsed with legacy input v4 and rechecked
+for original snapshot/provenance before save-only recovery; new retries without accepted output use v6.
 Example answers use only a conservative verbatim verified-fact composition. Unknown semantics and
 quality still require human review; this is not an evaluator ground-truth mechanism.
 
@@ -953,7 +1020,8 @@ reconstruct exactly. Existing historical artifacts remain readable and their reu
 not invalidated by ordinary control-state changes.
 
 Known limits: single owner per quota scope, no distributed reconciliation/exactly-once guarantee,
-no provider outcome lookup, no automatic replay or unknown-spend waiver, no production worker/UI.
+no provider outcome lookup, no automatic replay or unknown-spend waiver, and no durable production worker.
+The current Internal UI consumes these contracts; it does not remove these recovery limits.
 A changed persisted base-policy identity requires an explicit administrative migration. Event retention
 and larger operational-load optimization are deferred; private artifact/DB commits are still not globally atomic.
 
@@ -1005,14 +1073,13 @@ Different contexts may still encounter ordinary domain CAS conflicts; there is n
 or automatic recovery of lost provider outputs. Independent observation writes require available DB
 connections alongside the business transaction; no worker/scheduler was added.
 
-Ordinary Debrief create fingerprints frozen source, exact requested targets/mode, execution policy,
-prompt identity and validator version. A nullable unique fingerprint plus pre-generation claim
-prevents duplicate runs. A duplicate returns its exact original run, not a later selected run with
-possibly different targets. Explicit regenerate bypasses create idempotency, appends new run/artifacts
-and keeps the original immutable source. Old runs with no fingerprint remain readable; migration
-never invents identity or retroactively claims compatibility.
-Create/regenerate responses read their exact new generation, even if a concurrent regenerate has
-changed the selected result. Default GET/view continues to follow that selected result.
+Debrief create identity v3 includes the explicit request UUID as well as frozen source, normalized
+requested targets/mode and execution compatibility. Independent user intents create independent
+generations; equal input is not a cross-intent cache hit. A request receipt and transaction claim
+return the exact original generation only for the same request/payload, rejecting identity conflicts.
+Target-level persistence/recovery within that generation is unchanged. Deleted generations are not
+reused; historical receipt replay cannot redirect to a different selected run. The legacy regenerate
+API remains a separate frozen-source operation; Product has no history regeneration control.
 
 `ReuseDecision` is metadata-only, with no FK to an uncommitted run. Search hit creates no ToolCall and
 no usage/cost reservation. Business creation/reuse decisions are not provider attempts; Debrief creation
@@ -1038,7 +1105,9 @@ Acceptance mapping (synthetic, not production traffic/quality evidence):
 | Stable prefixes/arrays/refs, cache null coverage and safe metrics | `test_composition.py`, `test_reuse_metrics.py`, `test_production_acceptance.py` |
 | Frozen Eval/candidate, real PostgreSQL/Typst, historical migration, privacy | existing evaluation/database/interview suites plus Phase 3 reuse tests |
 
-Deferred: paid Phase 3 smoke, independent audit, broader contention/retention measurements and UI.
+At the Phase 3 checkpoint, paid smoke, independent audit, broader contention/retention measurements
+and UI were deferred. Internal Web UI was subsequently implemented; remaining evidence work is
+tracked in [TODO](../TODO.md#evidence-gathering-and-engineering-research).
 No generic model-response/semantic cache, distributed limiter, multi-user quotas or auto-promotion.
 
 ## Web product contract layer
@@ -1063,8 +1132,9 @@ legacy records remain unchanged and need no invented operation/submission backfi
 The product package projection resolves target wrappers server-side and exposes requested outputs only.
 It joins historical exact context and accepted-call feedback subjects, without rerunning compatibility
 or substituting current sources. Discovery uses bounded offset pages and deterministic ordering. Existing
-selected Debrief GET semantics and exact-generation creation semantics remain unchanged. No frontend,
-authentication system, scheduler, automatic send/application, or provider calls are added by discovery.
+selected Debrief GET semantics and exact-generation creation semantics remain unchanged. Discovery
+itself does not execute providers or add a scheduler, authentication or automatic sending. Its consumers
+now include the implemented Product/Internal Web UI.
 
 Product audit closure: the operation business transaction observes outer commit/rollback completion.
 Only confirmed rollback triggers the existing `artifact_cleanup` mechanism; a successful commit or
@@ -1072,6 +1142,15 @@ unknown commit outcome never triggers deletion. Provider/context-close failures 
 replace the committed operation result. Explicit research uses `company_research` /
 `company-research-product-v1` in state and trace as well as AgentRun; workflow-level captured-source
 conversion is currently incompatible for this entrypoint (task-level replay remains available).
+Debrief recovery classification distinguishes accepted output, confirmed output rejection, capacity
+blocks and uncertain provider outcomes. `invalid_evidence_reference` is a confirmed failed target eligible
+for explicit retry over its original snapshot; it never bypasses canonical evidence or grounding checks.
+Task status includes partial failure reasons and uses this same recovery classification when interruption
+otherwise resembles cancellation. Unknown remains query-only; accepted save recovery avoids redispatch.
+For Mock exact-request polling, a missing receipt is pending admission, not evidence of unknown execution;
+an existing legacy receipt with no outcome remains unknown. Foreground state acknowledgement and receipt
+ordering are client projections and cannot cause model execution or overwrite server outcomes.
+
 Recovery-required mapping is shared across operation kinds. Debrief discovery is a generation list:
 `generation_id`/`status` describe that historical row, `selected_run_id` is resolved from its root,
 `is_selected` compares the two, `detail_url` follows current selection, and `historical_detail_url`
@@ -1101,8 +1180,16 @@ serialized per draft; interrupted in-flight work requires recovery rather than r
 transactional and independently idempotent. Retired fact-extraction outputs remain readable but cannot be newly executed or adopted. Resume and text adoption creates new canonical artifacts. No generic chat,
 automatic verification or separate model routing/budget implementation is introduced.
 
-Resume library visibility distinguishes generated/persisted tailoring output from user adoption;
-actual material submissions remain separate immutable facts. Task result discovery resolves canonical
+Successful tailoring exposes its canonical variant in the library in the artifact transaction.
+Application Resume refinement uses the same idempotent adoption capability immediately after accepted
+output persistence; a failed adoption leaves that output available for save-only recovery. Library
+visibility is independent from Application binding. Existing exact tailoring links are exposed by the
+submission-management migration without creating another Resume or guessing by name.
+Actual material submissions retain their immutable payload/event references. Mutable note/deletion
+projections have a Submission revision and append-only edit audit; list/Summary queries exclude deleted
+records. Application-row locking serializes creation, status and deletion, and stable ordinal allocation
+includes removed records. Selected Resume and Greeting need not share generation inputs: Greeting must
+still belong to the same Application, with its own exact target/provenance verified. Task result discovery resolves canonical
 target wrappers server-side. Product pages display names/content, while machine identities remain
 in typed requests and Internal provenance.
 
@@ -1162,3 +1249,225 @@ private inputs. No Internal UI redesign is included.
 
 Migration `b405c0702601` adds nullable Profile creation-intent and saved-expression evidence metadata.
 Existing Feedback JSON is backward compatible; historical missing metadata remains unknown.
+
+### Application JD editing and logical deletion
+
+The Application-scoped JD write checks Job and binding CAS in one transaction, appends an immutable
+JobRevision, and updates only the owning ApplicationBinding. No-op writes do not add revisions.
+A new JD starts without copied requirements; old results and exact sources remain readable. The
+legacy Job revision writer also synchronizes its single owning Application default.
+
+`applications.deleted_at` (migration `ba05c1302601`) hides closed applications. State validation
+and deletion share the Application row lock with tracking writes. Active workspace reads and new
+Application/job-scoped preparation, draft, interview and agent execution reject deleted owners;
+already-dispatched usage settlement and historical artifact reads remain intact. No shared Company,
+Job, Resume, evidence or result is cascade-deleted. Downgrade refuses to discard deletion markers.
+
+### Company research scope and Fit expression contracts
+
+Explicit Product research uses the existing force-refresh path for both synthesized report and
+SearchObservation; other authorized consumers retain shared reuse. History/readability is separate
+from TTL. History and Summary order by fetched_at descending, then ID; fetched_at remains the start
+of research, not its completion. No historical timestamps or outputs are rewritten.
+
+Research synthesis has its own company-only instruction prefix, with company/evidence as the only
+body inputs. Reference validation, input allowlists and bounded relation checks reject obvious
+personal-assessment/missing-JD/preparation-advice leakage. These checks are not a semantic proof.
+Current evaluation execution uses the same checks; historical reading does not reinterpret output.
+The synthesis prompt hash is now part of report execution compatibility, so changing the scope cannot
+reuse old report contracts. SearchObservation identity is unchanged.
+
+Fit generation uses `fit_analysis-output-v2` / prompt v8: one explanation plus unchanged requirement,
+status, fact and summary references. `FitGenerationOutput` is the strict generation schema;
+`FitOutput` is the lossless canonical reader for both new items and legacy items with missing_evidence.
+Target prompt fingerprints and compatibility metadata distinguish the new contract. Historical
+artifact/Eval capture reads retain the old field; they do not concatenate or regenerate its prose.
+Tailoring/Greeting service methods accept Fit, but the target orchestrator intentionally omits this
+optional dependency. New Interview preparation uses the visible Resume and selected company research;
+legacy package/Fit references remain available for historical validation, not extra model background.
+Requirement extraction remains a separate task and exact-JD
+persistence step, and is skipped when requirements already exist.
+
+### Material result visibility and automatic Greeting adoption
+
+`product_result_removals` (migration `bd05c1602601`) hides user-deleted Greetings without mutating
+canonical artifacts, accepted-call links or exact historical reads. Application locking serializes
+removal with Submission creation; every Submission reference protects the Greeting, including soft-deleted
+records. Ordinary history/reuse excludes removed records and archived Resume entries. Product `available`
+is a visibility projection, distinct from historical readability. Greeting refinement uses the existing
+idempotent adoption transaction after accepted output persistence; no second model call is introduced.
+
+### Execution reliability audit
+
+[Model reliability](model-reliability.md) maps the 19 active tasks to production inputs, schemas,
+validators, persistence and consumers. Private invocation provenance now freezes the actual task
+contract instead of universally labeling it as Resume tailoring. Product draft/refinement replay
+uses the production output validator and deterministic source-item conversion. Material reuse pins
+the generation prompt hash; historical reads are not invalidated by missing new reuse metadata.
+The Product task-status projection is read-only and metadata-only; browser-local notification
+handles do not constitute a new worker, scheduler, recovery executor or provider retry policy.
+
+Resume refinement input v3 projects duplicate presentation context out of provider requests while
+retaining the original frozen context for grounding and adoption. Preflight input/budget rejection
+is recorded as an AgentStep without inventing a provider call or budget charge. Accepted outputs
+remain durable before auto-adoption; adoption database failures are reread before a safe save-failure
+projection, so an already committed result is not mislabeled.
+
+
+## Interview workspace input and lifecycle update
+
+`interview/materials.py` applies the same presentation policy as PDF before constructing interviewer
+inputs. Model evidence statements are limited to visible Resume expressions; internal exact evidence
+identities still validate references. Prep target artifacts store their frozen `interview_context` for
+refinement/regeneration. Mock freezes `interview-context-v2`; historical v1 is readable but is not
+silently executed under the new source contract.
+
+Actual intake has request identity/hash, saved time, atomic nonempty completed creation and round
+collision checks under the Application lock. Unchanged legacy rounds/unknown metadata are retained;
+no-op updates preserve legacy note timestamps. Current numbering is a projection; Debrief creation
+copies that projection, while existing source snapshots/hashes remain unchanged.
+
+Mock creation persists explicit Application ownership and request identity. Generation persists its
+accepted ModelCall/private invocation before the turn transaction. A turn-save failure preserves that
+output and logical operation, and explicit retry/recovery revalidates it before saving without provider
+redispatch. Unknown recovery without accepted output does not automatically replay.
+
+Mock decision output v3 (prompt v8, input v6) is a strict object:
+`{action: "ask", turn: {kind, question, question_type, primary_entry_id, fact_refs,
+requirement_refs, reason_code}}` or `{action: "finish", turn: null}`.
+The spoken question has no topic/title. `decisions.py` requires an accepted answer before any next
+action, validates caps/current primary ownership and keeps existing grounding checks. Follow-up
+allowance is optional and global; continuous follow-ups share their primary's stable UUID.
+
+The input includes frozen materials once, question-only history outside the current group, all
+necessary current-group Q&A and typed server policy (counts, remaining quotas, current question/parent,
+legal actions). Trusted task instructions end with those dynamic limits, including an explicit ban
+when follow-up allowance is zero. User answers remain data. Both prompt rule templates and the
+versioned input contract contribute to the prompt hash; complete input/call identity changes with
+quota, parent, answers or legal actions. Existing input and invocation budgets are unchanged.
+
+Prompt v8 isolates the interviewer task from Debrief's findings/evaluation/example-answer requirements.
+`COMMON` retains language, privacy and untrusted-data constraints; `BASE` still composes the exact
+previous Debrief instruction, while `MOCK_BASE` adds interviewer-only source/claim boundaries.
+Prep and both Debrief prompt hashes remain unchanged. Mock's static decision criteria require a
+specific, directly relevant important gap and higher value than moving to the next primary; adequate
+brief answers, first-question position and spare quota are not independent reasons to probe.
+Already-resolved gaps must not be repeated, unasked details are not automatically omissions, and
+continuous follow-ups each need new verification value relative to remaining interview coverage.
+After all primaries are answered, no useful unresolved gap means finish without spending the cap.
+These criteria select among existing legal actions; the trusted dynamic tail retains the zero-quota
+ban. No ratio target, length threshold, new reasoning field or semantic validator heuristic is added.
+`reason_code` remains an action label, not evidence of the model's decision rationale.
+
+This is a prompt/hash-only change. Input v6, output v3, parser/validator, decision policy, persistence,
+UI and schema fingerprints are unchanged. Current execution identity reads v8 metadata from the
+registry, so an old prompt/hash cannot silently dispatch as v8. Already accepted v7 ask/finish
+outputs retain their original invocation metadata and recover through the unchanged v3 output/input
+validation without regeneration; later decisions in that session use v8 with the original materials.
+
+| Producer → consumer | Authoritative fields and boundary |
+| --- | --- |
+| Answer API → `interview/mock.py` | CAS, request UUID and pending question ID; answer commits before generation. |
+| `decisions.py` → `interview/prompts.py` | `mock-decision-v1` policy, current-group IDs/Q&A, counts and `legal_actions`; no reserved question-kind slot. |
+| Gateway parser/validator → turn transaction | `DecisionOutput.action`, actual `turn.kind`/`primary_entry_id`; accepted invocation persists first; one transaction saves turn or finish, counters, receipt and session status. |
+| Session DTO → existing BFF → `mock-contract.ts` | Strict stored question types, stable ID/parent, sequence and server numbering; decoder rejects inconsistent counts/parent/number, never infers kind from position. |
+| `mockGroups` → active/history UI | Group by stable parent; display actual 2.1/2.2 and saved counts, preserve accepted indentation and full-width group dividers. |
+| Request receipt → `task_status.py` → tracker | Actual decision/completion type; exact accepted-call or operation proof resolves recovered finish; foreground completion is acknowledged after mount, background finish is not a new-question notification. |
+| Accepted invocation → recovery / Eval / Debrief | Versioned strict parsing and exact input validation; production decision validator in Eval; Debrief still snapshots stored Q&A/IDs without decision fields. |
+
+Persisted turn JSON accepts strict legacy v1 (topic) and v2 (spoken-only) shapes without rewriting
+history. Accepted-output recovery selects v1/v2/v3 from durable invocation metadata and reconstructs
+the original version's input and validation rules before existing source/call/owner checks. A valid
+accepted decision is adopted without redispatch, including finish with no turn. A known failed legacy
+attempt may start an explicitly requested new decision operation under the current contract; its old
+attempt and cumulative session usage remain. Unknown legacy attempts must be resolved first.
+An eligible old session keeps its frozen materials while subsequent decisions use the current contract.
+
+Receipts retain safe decision context, input hash, actual action/kind/parent, validation disposition,
+logical operation and accepted call identity; no answers or raw prompt are added to ordinary logs.
+Debrief snapshots/hashes are unchanged. Foundation Mock Eval cases advance to v3 (suite v6), including
+finish and continuous follow-up; old captures are not silently replayed through the new schema.
+No database migration or business-row backfill is required.
+
+An independent `mock-decision-quality` v1 suite adds nine synthetic, annotated contrasts without
+changing foundation cases or fixture-provider choices. `evaluation/mock_quality.py` builds inputs
+through production `decisions.inputs_for`; its paired groups differ only in the latest answer.
+Current-group Q&A, history, counts and legal actions are frozen in each case. Source annotations
+store acceptable/preferred actions, gap and rationale outside model input. Existing Eval checks
+separate Tier 0 execution correctness from Tier 1 acceptability; an explicitly acceptable alternative
+does not fail merely for differing from the advisory preference. Production output validation and
+isolated Eval persistence run normally. The default fixture's nine legal executions include four
+quality misses, intentionally exposing the difference. Neither fixture action frequency nor matching
+labels proves real decision quality or that a generated question actually targets the annotated gap;
+the latter needs content review and separately authorized paired model calls, not an automatic Judge.
+
+Mock continuation holds a session-specific PostgreSQL advisory execution lock through admission,
+provider execution and turn commit. Reads project an orphaned in-progress flag as unknown without
+writing it back. Recovery cannot race a live generator. Save-failure receipts retain the exact accepted
+ModelCall identity; task-status reads resolve that failure only through its corresponding turn or a
+successful finish receipt with matching accepted call/operation,
+while the receipt and unrelated failed attempts remain unchanged. Session discovery exposes safe
+creation identity, focus, policy and persisted counts within the existing ownership/pagination boundary.
+
+Generated-result removal is visibility-only. Fit/Prep use existing ResultRemoval tombstones; research
+uses nullable `deleted_at`. Source reads take shared row locks and removal takes exclusive locks, so a
+reference transaction either commits before the deletion check or cannot admit the removed source.
+Checks cover business JSON snapshots, pending requests, submissions, Resume lineage and actual model
+inputs. Eval's inventory of available fixture resources is not itself evidence of business use. No
+shared evidence, original model history or frozen PDF is physically deleted.
+
+Independent-input Fit operations now persist an optional `application_id` in their existing request
+JSON. Admission/execution validate the owner and exact JD relationship without forcing the selected
+materials to equal the mutable Application binding. Result removal uses this identity (or the existing
+binding/draft identity); older unowned results are not assigned by Job-name or shared-Job inference.
+
+
+### Interview acceptance compatibility
+
+Legacy ownership resolution is read-only. Mock validates exact JD/Profile/Resume, frozen revision
+numbers and an already-existing unique Job/Application owner. Legacy Fit/Prep additionally requires
+the generating operation request's JD/Profile to match the immutable target. Explicit ownership wins;
+conflicting or incomplete evidence is rejected.
+No historical ownership, round, source snapshot or business row is backfilled by discovery.
+Removal distinguishes result publication/reuse metadata from actual downstream inputs. Research loaded
+into a package is not alone proof of consumption: task invocation inputs and known target dependencies
+must substantiate the reference. Exact reused outputs follow their original task capture; missing
+captures return a distinct reference-unknown error rather than proving no use. Pure publication of a
+Fit/Prep result is not a downstream input; multi-target Fit protection checks actual Fit consumption or
+an explicit Fit gate. Missing or contradictory evidence remains conservative. Source locks
+and deletion locks still serialize admission, and historical artifacts remain readable.
+
+
+### Application closeout: create identity and deleted-owner reachability
+
+JobCreate accepts an optional request UUID for direct-API compatibility; the modern Product BFF
+requires it. `job_create_requests` stores the UUID as its primary key, canonical payload hash and
+exact Job/Application references. A transaction advisory lock serializes contenders before Company
+reuse and all initial business inserts. Receipt and objects commit/roll back together. The read-only
+receipt endpoint returns original identities and current availability, including deleted applications;
+replay never creates a replacement. Migration `c305c2202601` adds only the receipt table, leaves old
+rows untouched, and refuses downgrade while receipts would be lost.
+
+Product persists only UUID/hash in sessionStorage, not Company/title/JD bodies. Refresh queries the
+receipt; uncommitted/not-found does not prove absence of an in-flight commit. An explicit resubmission
+must match the original hash and reuse its UUID; changed input requires explicit new intent. Successful
+or definitely rejected input clears the handle. Uncertain responses retain it. Storage failure prevents
+submission. Tabs are independent, except browser duplication may copy the same safe idempotent intent;
+no cross-device identity recovery or permanent browser-storage guarantee is offered.
+
+Archive checks use `product.active_bindings` to count only nondeleted Application owners. Named
+Profile archival locks its exact snapshots in stable UUID order; direct snapshots and Resumes lock
+those same rows. Binding admission locks and rechecks resources, including named Profile archival,
+before commit. Archive reads do not lock Applications in reverse order. An overlapping uncommitted
+deletion may conservatively refuse archive until retry, without removing the retained binding.
+
+Job DTO `application_id` is nullable for unavailable workspaces. Task status adds orthogonal workspace
+availability using persisted ownership/unique Job relationships; it never changes historical execution
+outcomes or guesses ownership by display name. Unhandled browser notifications requery current status;
+handled-state identity and exact foreground suppression remain unchanged. Unavailable actions are
+removed and the user can return to the Application list. Retained audit/exact reads remain legal.
+
+Preparation's shared owner lock orders in-flight commit before deletion. Draft dispatch admission and
+adoption recheck the owner; already-dispatched accepted output and usage remain durable if deletion
+wins before adoption. An adoption holding the owner lock finishes before deletion. No deletion can
+undo an issued external call, erase fees, or resurrect a workspace through a late result.

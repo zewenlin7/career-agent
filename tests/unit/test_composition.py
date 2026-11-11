@@ -31,19 +31,22 @@ def test_mock_stable_prefix_changes_only_at_volatile_suffix():
     from career_agent.interview.prompts import PROMPTS
 
     spec = PROMPTS["mock_interview_turn_generation"]
-    payload = {
-        "policy": {"primary_question_count": 1},
-        "current_answer": "新的回答",
-        "current_question": {"question": "当前问题"},
-        "question_history": [{"question": "历史问题", "fact_refs": ["ref-b", "ref-a"]}],
-        "stable_context": {"job": {"title": "合成岗位"}, "facts": [{"id": "ref-a"}]},
-    }
+    from input_fixtures import valid_inputs
+
+    payload = valid_inputs(spec)
+    payload.update(
+        {
+            "current_group": {"primary_entry_id": None, "entries": [{"answer": "新的回答"}]},
+            "question_history": [{"question": "历史问题", "fact_refs": ["ref-b", "ref-a"]}],
+            "stable_context": {"job": {"title": "合成岗位"}, "facts": [{"id": "ref-a"}]},
+        }
+    )
     first = serialize(spec.task(payload).inputs)
     changed = copy.deepcopy(payload)
-    changed["current_answer"] = "另一个回答"
+    changed["current_group"]["entries"][0]["answer"] = "另一个回答"
     changed["policy"]["primary_question_count"] = 2
     second = serialize(spec.task(changed).inputs)
-    assert first.split('"current_answer":')[0] == second.split('"current_answer":')[0]
+    assert first.split('"current_group":')[0] == second.split('"current_group":')[0]
     assert payload["question_history"][0]["fact_refs"] == ["ref-b", "ref-a"]
 
 

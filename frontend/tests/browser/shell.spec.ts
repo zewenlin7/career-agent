@@ -30,9 +30,24 @@ test("all IA routes render; browser never calls backend APIs directly", async ({
   ];
   for (const item of pages) {
     await page.goto(item.href);
-    await expect(
-      page.getByRole("heading", { name: item.label, exact: true, level: 1 }),
-    ).toBeVisible();
+    if (item.href.endsWith("/summary")) {
+      await expect(page.getByRole("region", { name: "职位描述", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "概览", exact: true })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+    } else if (item.href.endsWith("/research-fit")) {
+      await expect(
+        page.getByRole("heading", { name: "职位描述", level: 1, exact: true }),
+      ).toBeVisible();
+    } else
+      await expect(
+        page.getByRole("heading", {
+          name: item.href.endsWith("/submissions") ? "新增投递" : item.label,
+          exact: true,
+          level: 1,
+        }),
+      ).toBeVisible();
   }
   expect(errors).toEqual([]);
   expect(

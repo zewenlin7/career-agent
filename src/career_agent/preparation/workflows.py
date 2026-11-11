@@ -42,6 +42,7 @@ from career_agent.preparation.contracts import (
 from career_agent.preparation.guardrails import (
     chinese,
     minimize,
+    validate_company_scope,
     validate_compression,
     validate_extraction,
     validate_fit,
@@ -91,6 +92,7 @@ class PreparationWorkflow:
         self.facts: dict[UUID, dict[str, Any]] = {}
         self.fact_rows: dict[UUID, e.PersonalFact] = {}
         self.profile_refs: dict[str, Any] = {}
+        self.interview_context: dict[str, Any] | None = None
         self.requirements: list[e.JobRequirement] = []
         self.variant: e.ResumeVariantRevision | None = None
         self.fit: FitOutput | None = None
@@ -367,14 +369,20 @@ class PreparationWorkflow:
 
     async def validate_research_inputs(self) -> None:
         self.job = await require(self.session, e.JobRevision, self.request.job_revision_id)
+        from career_agent.application.services import active_job
+
+        await active_job(self.session, self.job.job_id)
         posting = await require(self.session, e.JobPosting, self.job.job_id)
         self.company = await require(self.session, e.Company, posting.company_id)
         self.state.job_id, self.state.job_revision = posting.id, self.job.revision
 
-    async def validate_inputs(self) -> None:
+    async def validate_inputs(self, *, resume_evidence_only: bool = False) -> None:
         if self.request.profile_id is None:
             raise ModelGatewayError("profile_required")
         self.job = await require(self.session, e.JobRevision, self.request.job_revision_id)
+        from career_agent.application.services import active_job
+
+        await active_job(self.session, self.job.job_id)
         posting = await require(self.session, e.JobPosting, self.job.job_id)
         self.company = await require(self.session, e.Company, posting.company_id)
         self.profile = await require(self.session, e.PersonalProfile, self.request.profile_id)
@@ -382,6 +390,23 @@ class PreparationWorkflow:
         self.state.job_id, self.state.job_revision = self.job.job_id, self.job.revision
         data = ProfileData.model_validate(self.profile.data)
         members = resumes.profile_fact_ids(self.profile)
+        resume_evidence_only = (
+            resume_evidence_only or self.state.workflow == "prepare_interview"
+        ) and not self.request.application_package_id
+        if resume_evidence_only and self.request.resume_revision_id:
+            source = await require(
+                self.session, e.ResumeVariantRevision, self.request.resume_revision_id
+            )
+            source_document = ResumeDocument.model_validate(source.document)
+            selected_refs = {
+                ref
+                for section in source_document.sections
+                for item in section.items
+                for ref in item.fact_refs
+            }
+            if source.profile_id != self.profile.id or not selected_refs <= members:
+                raise ModelGatewayError("grounding_failed")
+            members = selected_refs
         if self.request.fit_input in {"profile", "both"}:
             from career_agent.profile_area.evidence import profile_evidence
 
@@ -416,12 +441,12 @@ class PreparationWorkflow:
                 select(e.PersonalFact)
                 .where(e.PersonalFact.id.in_(members), e.PersonalFact.status == FactStatus.VERIFIED)
                 .order_by(e.PersonalFact.id)
-                .limit(61)
+                .limit(None if resume_evidence_only else 61)
             )
         )
         if not rows:
             raise ModelGatewayError("missing_verified_fact")
-        if len(rows) > 60:
+        if not resume_evidence_only and len(rows) > 60:
             self.state.warnings.append("fact_context_limited")
             rows = rows[:60]
         self.fact_rows = {f.id: f for f in rows}
@@ -435,13 +460,15 @@ class PreparationWorkflow:
             }
             for f in rows
         }
-        if any(len(f["statement"]) > 12000 for f in self.facts.values()):
+        if not resume_evidence_only and any(
+            len(f["statement"]) > 12000 for f in self.facts.values()
+        ):
             raise ModelGatewayError("context_too_large")
         self.profile_refs = {
             "projects": [
                 {"project_ref": i, "fact_refs": [str(f) for f in x.fact_ids if f in self.facts]}
                 for i, x in enumerate(data.projects)
-            ][:10]
+            ][: None if resume_evidence_only else 10]
         }
         self.protected_fields = [
             value
@@ -522,6 +549,7 @@ class PreparationWorkflow:
         await require(self.session, e.Company, self.company.id, lock=True)
         candidates = await self.session.scalars(
             select(e.CompanyResearch)
+            .where(e.CompanyResearch.deleted_at.is_(None))
             .where(
                 e.CompanyResearch.company_id == self.company.id,
                 e.CompanyResearch.expires_at > now,
@@ -644,6 +672,7 @@ class PreparationWorkflow:
             ),
         )
         validate_research(output, {x.id for x in evidence})
+        validate_company_scope(output)
         version = await self.session.scalar(
             select(func.max(e.CompanyResearch.research_version)).where(
                 e.CompanyResearch.company_id == self.company.id
@@ -677,18 +706,16 @@ class PreparationWorkflow:
                     self.session, e.ResumeVariantRevision, self.request.resume_revision_id
                 )
                 selected_input["fit_input"]["resume"] = source.document
-        self.fit = cast(
-            FitOutput,
-            await self.call(
-                TaskType.FIT,
-                {
-                    "requirements": self.requirements_context(),
-                    "facts": list(self.facts.values()),
-                    "profile_refs": self.profile_refs,
-                    **selected_input,
-                },
-            ),
+        output = await self.call(
+            TaskType.FIT,
+            {
+                "requirements": self.requirements_context(),
+                "facts": list(self.facts.values()),
+                "profile_refs": self.profile_refs,
+                **selected_input,
+            },
         )
+        self.fit = FitOutput.model_validate(output.model_dump(mode="json"))
         validate_fit(self.fit, set(self.state.requirement_refs), self.facts)
         self.state.fit_analysis_id = await self.persist("fit", self.fit)
 
@@ -771,7 +798,13 @@ class PreparationWorkflow:
         budget = LayoutBudget()
         if (
             sum(len(i.text) for s in doc.sections for i in s.items) > budget.max_total_characters
-            or any(len(i.text) > budget.max_bullet_length for s in doc.sections for i in s.items)
+            # Structured entries contain title, dates and multiple paragraphs. The
+            # single-bullet allowance must not reject an otherwise valid entry.
+            or any(
+                i.kind == "bullet" and len(i.text) > budget.max_bullet_length
+                for s in doc.sections
+                for i in s.items
+            )
             or any(
                 s.name == "experience"
                 and sum(i.kind == "bullet" for i in s.items) > budget.max_experience_bullets
@@ -868,55 +901,44 @@ class PreparationWorkflow:
 
     async def generate_interview_prep(self) -> None:
         assert self.variant is not None
-        data = ProfileData.model_validate(self.profile.data)
-        stories = []
-        for id in self.request.star_story_ids[:10]:
-            story = await require(self.session, e.StarStory, id)
-            if not {UUID(x) for x in story.data.get("fact_ids", [])} <= set(self.facts):
-                raise ModelGatewayError("invalid_story_reference")
-            stories.append(
-                {
-                    "id": str(id),
-                    "trust_level": "user_context_not_verified",
-                    "text": minimize(str(story.data), data.display_name)[:4000],
-                }
-            )
-        notes = []
-        for id in self.request.knowledge_note_ids[:10]:
-            note = await require(self.session, e.KnowledgeNote, id)
-            if note.deleted_at is not None:
-                raise DomainError("not_found", 404)
-            notes.append(
-                {
-                    "id": str(id),
-                    "trust_level": "user_context_not_verified",
-                    "text": minimize(note.content, data.display_name)[:2000],
-                }
-            )
-        output = cast(
-            InterviewOutput,
-            await self.call(
-                TaskType.INTERVIEW,
-                {
-                    "job": self.job_context(),
-                    "research": self.research_output.model_dump(mode="json")
-                    if self.research_output
-                    else None,
-                    "fit": self.fit.model_dump(mode="json") if self.fit else None,
-                    "variant": self.variant.document,
-                    "facts": list(self.facts.values()),
-                    "requirements": self.requirements_context(),
-                    "profile_refs": self.profile_refs,
-                    "stories": stories,
-                    "notes": notes,
-                },
-            ),
+        if self.request.star_story_ids or self.request.knowledge_note_ids:
+            raise DomainError("interview_source_contract_incompatible", 422)
+        from career_agent.interview.materials import visible_materials
+
+        visible = visible_materials(
+            self.variant.document, self.variant.presentation, self.facts, self.profile_refs
         )
+        inputs = {
+            "job": self.job_context(),
+            "research": self.research_output.model_dump(mode="json")
+            if self.research_output
+            else None,
+            "fit": None,
+            "variant": visible["resume"],
+            "facts": visible["facts"],
+            "requirements": self.requirements_context(),
+            "profile_refs": visible["profile_refs"],
+            "stories": [],
+            "notes": [],
+        }
+        self.interview_context = self.model_view(
+            {
+                **inputs,
+                "profile_id": str(self.profile.id),
+                "profile_revision": self.profile.revision,
+                "job_revision_id": str(self.job.id),
+                "source_resume_revision_id": str(self.variant.id),
+                "research_report_id": str(self.state.research_report_id)
+                if self.state.research_report_id
+                else None,
+            }
+        )
+        output = cast(InterviewOutput, await self.call(TaskType.INTERVIEW, inputs))
         validate_interview(
             output,
             set(self.state.requirement_refs),
-            set(self.facts),
-            {x["project_ref"] for x in self.profile_refs["projects"]},
+            {UUID(f["id"]) for f in visible["facts"]},
+            {x["project_ref"] for x in visible["profile_refs"]["projects"]},
         )
         self.state.interview_prep_id = await self.persist("interview", output)
 

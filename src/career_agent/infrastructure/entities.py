@@ -12,10 +12,12 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -156,6 +158,7 @@ class JobRequirement(Row, Base):
 
 class Application(Row, Base):
     __tablename__ = "applications"
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (CheckConstraint("revision > 0", name="positive_revision"),)
     job_id: Mapped[UUID] = mapped_column(
         ForeignKey("job_postings.id", ondelete="RESTRICT"), unique=True
@@ -166,8 +169,28 @@ class Application(Row, Base):
     revision: Mapped[int] = mapped_column(default=1)
 
 
+class JobCreateRequest(Row, Base):
+    __tablename__ = "job_create_requests"
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    job_id: Mapped[UUID] = mapped_column(ForeignKey("job_postings.id", ondelete="RESTRICT"))
+    application_id: Mapped[UUID] = mapped_column(ForeignKey("applications.id", ondelete="RESTRICT"))
+
+
+class ApplicationEntryEdit(Row, Base):
+    __tablename__ = "application_entry_edits"
+    __table_args__ = (UniqueConstraint("event_id", "revision"),)
+    event_id: Mapped[UUID] = mapped_column(ForeignKey("application_events.id", ondelete="RESTRICT"))
+    request_id: Mapped[UUID] = mapped_column(unique=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    revision: Mapped[int] = mapped_column()
+    text: Mapped[str | None] = mapped_column(Text)
+    removed: Mapped[bool] = mapped_column(default=False)
+
+
 class ApplicationEvent(Row, Base):
     __tablename__ = "application_events"
+    source: Mapped[str | None] = mapped_column(String(30))
+    request_id: Mapped[UUID | None] = mapped_column(unique=True)
     __table_args__ = (
         UniqueConstraint("application_id", "sequence"),
         CheckConstraint("kind IN ('created', 'status_changed', 'correction', 'note')", name="kind"),
@@ -192,6 +215,9 @@ class InterviewSession(Row, Base):
     __tablename__ = "interview_sessions"
     __table_args__ = (CheckConstraint("content_revision > 0", name="positive_revision"),)
     content_revision: Mapped[int] = mapped_column(default=1)
+    request_id: Mapped[UUID | None] = mapped_column(unique=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), default="completed", server_default="completed")
     round_number: Mapped[int | None] = mapped_column()
     interview_type: Mapped[str | None] = mapped_column(String(20))
@@ -211,6 +237,9 @@ class InterviewSession(Row, Base):
 
 class KnowledgeNote(Row, Base):
     __tablename__ = "knowledge_notes"
+    request_id: Mapped[UUID | None] = mapped_column(unique=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     application_id: Mapped[UUID | None] = mapped_column(
@@ -460,6 +489,7 @@ class RenderArtifact(Row, Base):
 
 
 class CompanyResearch(Row, Base):
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = "company_research"
     __table_args__ = (
         UniqueConstraint("company_id", "research_version"),
@@ -536,12 +566,18 @@ from career_agent.interview.contracts import (  # noqa: E402
     InterviewUsage,
     MockPolicy,
     SourceSnapshot,
-    TurnOutput,
+    StoredTurnOutput,
 )
 from career_agent.interview.policy import InterviewPolicy  # noqa: E402
 
 
 class MockInterviewSession(Row, Base):
+    application_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("applications.id", ondelete="RESTRICT"), index=True
+    )
+    request_id: Mapped[UUID | None] = mapped_column(unique=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    display_number: Mapped[int | None] = mapped_column()
     __tablename__ = "mock_interview_sessions"
     __table_args__ = (
         CheckConstraint("revision > 0", name="positive_revision"),
@@ -582,7 +618,7 @@ class MockInterviewTurn(Row, Base):
         ForeignKey("mock_interview_sessions.id", ondelete="RESTRICT"), index=True
     )
     sequence: Mapped[int] = mapped_column()
-    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(TurnOutput))
+    data: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(StoredTurnOutput))
     answer: Mapped[str | None] = mapped_column(Text)
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -595,11 +631,22 @@ class MockRequestReceipt(Row, Base):
     )
     request_id: Mapped[UUID] = mapped_column()
     request_hash: Mapped[str] = mapped_column(String(64))
+    outcome: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class DebriefRun(Row, Base):
-    request_fingerprint: Mapped[str | None] = mapped_column(String(64), unique=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64))
     __tablename__ = "debrief_runs"
+    __table_args__ = (
+        Index(
+            "uq_debrief_runs_request_fingerprint",
+            "request_fingerprint",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    execution_revision: Mapped[int] = mapped_column(default=0, server_default="0")
     run_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_runs.id", ondelete="RESTRICT"), unique=True
     )
@@ -620,6 +667,14 @@ class DebriefRun(Row, Base):
     limits: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewLimits))
     usage: Mapped[dict[str, Any]] = mapped_column(ValidatedJSON(InterviewUsage), default=dict)
     event_sequence: Mapped[int] = mapped_column(default=0)
+
+
+class DebriefRequest(Row, Base):
+    __tablename__ = "debrief_requests"
+    debrief_id: Mapped[UUID] = mapped_column(ForeignKey("debrief_runs.id", ondelete="RESTRICT"))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    operation: Mapped[str] = mapped_column(String(20))
+    execution_revision: Mapped[int] = mapped_column(default=0)
 
 
 class DebriefArtifact(Row, Base):

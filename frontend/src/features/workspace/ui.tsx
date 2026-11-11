@@ -6,18 +6,22 @@ import { Surface } from "@/components/ui/surface";
 import { errorText, statusText } from "./contracts";
 import type { Mode } from "./contracts";
 export const control =
-  "w-full min-h-11 rounded-control border border-line bg-paper px-3 py-2 text-sm";
+  "w-full min-h-11 rounded-control border border-line bg-paper px-3 py-2 text-sm font-normal";
 export function Field({
   label,
   children,
+  labelClassName,
 }: {
   label: string;
+  labelClassName?: string;
   children: ReactElement<{ id?: string }>;
 }) {
   const id = useId();
   return (
     <div className="grid gap-2 text-sm font-medium">
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id} className={labelClassName}>
+        {label}
+      </label>
       {cloneElement(children, { id })}
     </div>
   );
@@ -25,11 +29,37 @@ export function Field({
 export function Select({
   label,
   children,
+  inline = false,
+  recordWidth = "fit",
+  labelClassName,
   ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & { label: string }) {
+}: SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  inline?: boolean;
+  recordWidth?: "company" | "fit" | "content";
+  labelClassName?: string;
+}) {
+  const id = useId();
+  if (inline)
+    return (
+      <div
+        className={`flex w-full max-w-full flex-wrap items-center gap-x-4 gap-y-2 ${recordWidth === "content" ? "sm:w-auto" : recordWidth === "company" ? "sm:w-[26rem]" : "sm:w-[36rem]"}`}
+      >
+        <label htmlFor={id} className="shrink-0 text-lg font-semibold">
+          {label}
+        </label>
+        <select
+          {...props}
+          id={id}
+          className={`${control.replace("text-sm", "text-base").replace("w-full", recordWidth === "content" ? "w-auto" : "w-full")} ${recordWidth === "content" ? "flex-none max-w-full" : "min-w-0 flex-1 basis-64"}`}
+        >
+          {children}
+        </select>
+      </div>
+    );
   return (
-    <Field label={label}>
-      <select {...props} className={control}>
+    <Field label={label} labelClassName={labelClassName}>
+      <select {...props} className={control.replace("text-sm", "text-base")}>
         {children}
       </select>
     </Field>

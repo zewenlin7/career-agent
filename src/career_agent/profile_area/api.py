@@ -12,7 +12,7 @@ from career_agent.application import resumes
 from career_agent.application import services as svc
 from career_agent.domain.rules import DomainError
 from career_agent.infrastructure import entities as e
-from career_agent.product.entities import ApplicationBinding
+from career_agent.product.active_bindings import in_use
 from career_agent.profile_area import contracts as c
 from career_agent.profile_area import service as s
 from career_agent.profile_area.entities import ProfilePhoto, ResumeWorkspace
@@ -261,11 +261,7 @@ async def rename(id: UUID, payload: c.Rename, session: DB) -> dict[str, Any]:
 async def archive_resume(id: UUID, payload: c.Publish, session: DB) -> dict[str, bool]:
     row = await svc.require(session, e.ResumeVariantRevision, id, lock=True)
     svc.check_revision(row.metadata_revision, payload.expected_revision)
-    if await session.scalar(
-        select(ApplicationBinding.application_id)
-        .where(ApplicationBinding.resume_revision_id == id)
-        .limit(1)
-    ):
+    if await in_use(session, resume=id):
         raise DomainError("resume_in_use")
     if row.archived_at is None:
         row.archived_at = e.utcnow()

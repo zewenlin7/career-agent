@@ -58,7 +58,7 @@ async function handle(request: Request, ctx: { params: Promise<{ path: string[] 
         const raw = await request.text();
         if (new TextEncoder().encode(raw).length > 1_000_000)
           return failure("input_too_large", 413);
-        body = JSON.stringify(validateBody(JSON.parse(raw || "{}"), rule.body));
+        body = JSON.stringify(validateBody(JSON.parse(raw || "{}"), rule.body, path));
       }
     }
   } catch {

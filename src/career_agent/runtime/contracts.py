@@ -23,7 +23,17 @@ class ValidationIssue(Contract):
     ] = "canonical schema validation failed"
 
 
+class ReferenceDiagnostic(Contract):
+    scope: Literal["group", "overall"]
+    reason: Literal["missing", "malformed_number", "unknown_number", "unanswered_number"]
+    reference_kind: Literal["empty", "number", "uuid", "other"]
+    supplied_count: int = Field(ge=0, le=500)
+    allowed_count: int = Field(ge=0, le=500)
+    allowed_hash: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
+
+
 class OutputDiagnostic(Contract):
+    reference_diagnostic: ReferenceDiagnostic | None = None
     failure_kind: (
         Literal[
             "provider_timeout",

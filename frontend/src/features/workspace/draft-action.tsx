@@ -2,7 +2,9 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, useAction, useRequestId } from "./client";
-import { control, ErrorNotice, Field } from "./ui";
+import { control, Field } from "./ui";
+import { taskMessage } from "./task-feedback";
+import { visibleTaskErrors, taskChange } from "./task-tracker";
 export type Draft = {
   id: string;
   status: string;
@@ -21,6 +23,7 @@ export function DraftAction({
   label,
   fixedFeedback,
   autoStart = false,
+  autoAdopt = false,
   render,
   onSaved,
   onBusyChange,
@@ -35,10 +38,18 @@ export function DraftAction({
   label: string;
   fixedFeedback?: string;
   autoStart?: boolean;
+  autoAdopt?: boolean;
   render: (output: Record<string, unknown>) => ReactNode;
   onSaved?: (draft: Draft) => void;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [feedback, setFeedback] = useState(fixedFeedback || "");
   const [draft, setDraft] = useState<Draft>();
   const [intent, setIntent] = useState(0);
@@ -64,12 +75,18 @@ export function DraftAction({
   }, [storageKey, autoStart]);
   useEffect(() => {
     if (draft?.status !== "running") return;
+    let active = true;
     const timer = setInterval(() => {
       void api<Draft>(`product-drafts/${draft.id}`)
-        .then(setDraft)
+        .then((value) => {
+          if (active) setDraft(value);
+        })
         .catch(() => {});
     }, 2000);
-    return () => clearInterval(timer);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [draft?.id, draft?.status]);
   const start = () =>
     action.run(async () => {
@@ -94,9 +111,34 @@ export function DraftAction({
         result = await api<Draft>(`product-drafts/${result.id}/execute`, "POST", {});
         setDraft(result);
       }
+      if (mounted.current && autoAdopt && result.adopted) onSaved?.(result);
       if (!["pending", "running", "recovery_required"].includes(result.status))
         setIntent((n) => n + 1);
     });
+  const error = !action.busy ? action.error || draft?.reason : undefined;
+  const actionName =
+    task === "resume_refinement"
+      ? refinementIntent === "regenerate"
+        ? "简历重新生成"
+        : "简历调整"
+      : task === "greeting_refinement"
+        ? refinementIntent === "regenerate"
+          ? "招呼语重新生成"
+          : "招呼语调整"
+        : task === "interview_preparation_refinement"
+          ? refinementIntent === "regenerate"
+            ? "面试准备重新生成"
+            : "面试准备调整"
+          : label;
+  useEffect(() => {
+    if (!error || !draft?.id) return;
+    const key = `product-drafts:${draft.id}`;
+    visibleTaskErrors.add(key);
+    window.dispatchEvent(new Event(taskChange));
+    return () => {
+      visibleTaskErrors.delete(key);
+    };
+  }, [error, draft?.id]);
   const started = useRef(false);
   useEffect(() => {
     if (autoStart && !started.current && !disabled) {
@@ -113,23 +155,35 @@ export function DraftAction({
             maxLength={20000}
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
-            placeholder="例如：突出项目中的测试与错误恢复，减少泛泛描述。"
+            placeholder="输入调整意见"
           />
         </Field>
       )}
-      <Button
-        disabled={
-          disabled ||
-          action.busy ||
-          draft?.status === "running" ||
-          draft?.status === "recovery_required"
-        }
-        onClick={() => void start()}
-      >
-        {action.busy || draft?.status === "running" ? "正在生成…" : label}
-      </Button>
-      <ErrorNotice code={action.error || draft?.reason || undefined} />
-      {draft?.output && (
+      {!autoStart && (
+        <div className="flex justify-center">
+          <Button
+            variant="primary"
+            disabled={
+              disabled ||
+              action.busy ||
+              draft?.status === "running" ||
+              draft?.status === "recovery_required"
+            }
+            onClick={() => void start()}
+          >
+            {action.busy || draft?.status === "running" ? "正在生成…" : label}
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="text-base text-error">
+          {taskMessage(actionName, {
+            state: draft?.status === "recovery_required" ? "unknown" : "failure",
+            reason: error,
+          })}
+        </p>
+      )}
+      {draft?.output && !(autoAdopt && draft.adopted) && (
         <div className="space-y-4 rounded-control border border-line p-4">
           {render(draft.output)}
           {!draft.adopted ? (
@@ -144,7 +198,7 @@ export function DraftAction({
                 })
               }
             >
-              保存
+              {autoAdopt ? "重试保存" : "保存"}
             </Button>
           ) : (
             <p className="text-sm">已保存。</p>

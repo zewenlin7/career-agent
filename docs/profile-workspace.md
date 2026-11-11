@@ -46,7 +46,9 @@ its optional `fit_input` is frozen in task provenance and reuse identity.
 Library and Application adjustments share `resume_refinement`, its canonical
 output schema, grounding, Gateway and adoption logic. Library inputs bind a source
 workspace/revision; Application inputs additionally bind the source artifact and
-original context. Old results are preserved. Feedback is independently persisted
+original context. The resume-refinement input v3 sends the original Resume body once,
+with frozen evidence and JD constraints; duplicated Resume/Profile display content is excluded
+from the provider request, not from persisted context or validation. Old results are preserved. Feedback is independently persisted
 and never starts generation. Metadata discovery supports source workspace and
 Resume revision filters through `/evaluation/refinements`.
 
@@ -104,6 +106,11 @@ AI refinement names use a persisted naming branch, independent of the immutable
 parent and source Profile. Renaming creates a new branch; adopted generations
 record branch identity/name/ordinal. A variant lock serializes branch numbering.
 Legacy generations are resolved using their stored root metadata, never suffix parsing.
+Application tailoring, regeneration and adjustment retain the shared job optimization
+sequence (`优化版 N`); they do not apply the independent library `AI优化版N` branch suffix.
+Allocation locks the JobPosting and persists `optimization_job_id` / `optimization_number`
+in revision library metadata. Re-adoption returns the existing result; ordinary edits retain
+sequence metadata, exact parent lineage and historical PDF snapshots.
 
 Source resolution checks hard-claim membership and values before rebinding both
 item references and hard-claim references to the resolved evidence. Rebinding does
@@ -167,3 +174,40 @@ Stored output, adopted references and call identity remain readable under existi
 An interrupted/unknown execution is not converted to a retryable failure. Shared generation
 cancellation, Resume tasks, evidence storage, grounding and Eval frozen evidence are retained.
 No schema migration or historical-data deletion accompanies this retirement.
+
+
+## Active-owner archive protection
+
+Named Profile, direct Profile snapshots and canonical Resume archive checks exclude bindings owned
+only by soft-deleted Applications. Active bindings still reject archival; mixed active/deleted owners
+remain protected. Modern Resume bindings do not add direct Profile dependencies merely because the
+Resume retains its immutable Profile source. Historical bindings, revisions and PDFs are retained.
+
+Archive and binding admission lock the same resource rows; named Profile removal locks its snapshots
+in stable order and admission also rejects snapshots belonging to archived named records. CAS and
+existing archive behavior remain unchanged. An in-flight deletion can yield a conservative archive
+refusal until its commit is visible; no binding is cleared to make archival succeed.
+
+
+## Compiler dependencies and layout
+
+Operational installation/preflight commands moved to [development](development.md#typst-and-fonts).
+Canonical rendering uses Typst 0.15.1 and Noto Sans CJK SC 2.004 static Regular/Bold. The immutable
+upstream revision, SHA-256 values and SIL OFL license source live in the maintained
+[font manifest](../src/career_agent/resume/fonts.py), rather than another copied hash table.
+Rendering snapshots verified font bytes, sets an explicit font path and ignores system/embedded fonts;
+extra cache files cannot become implicit fallback. API input cannot supply these paths.
+
+The trusted [template](../src/career_agent/resume/templates/resume_zh_cn_a4_single_v1.typ) fixes A4,
+one column, 18 mm horizontal/16 mm vertical margins, 10.5 pt body, 12 pt section headings, 20 pt name
+and fixed spacing. A 5.25 pt right gutter contains CJK punctuation advance boxes. Vector bullets and
+hanging indentation avoid ambiguous text-glyph mappings. Compression does not change typography.
+
+Canonical schema is `resume-v2`, locale `zh-CN`, template `resume_zh_cn_a4_single_v1`, layout policy
+`content-v3`, and font policy `noto-sans-cjk-sc-2.004-regular-bold-v1`. Renderer/validator implementation
+versions are separately described in [Rendering](#rendering). Reports retain compiler/template/font
+identity and verified hashes, not local font paths. Exact historical reports keep their original versions.
+Ordered non-overlapping retained-text ranges cannot manufacture text by deleting headings. Accepted
+status requires validated PDF bytes and a hash; storage failure clears success/file metadata.
+Byte-identical PDFs are not the regression criterion: selection, page count and validation results are.
+See [canonical API usage and safe errors](backend-api.md#canonical-resume-and-artifact-api).

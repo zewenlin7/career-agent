@@ -39,7 +39,14 @@ class JobOut(RowOut):
     title: str
     jd_text: str
     requirements: list[RequirementOut]
+    application_id: UUID | None
+
+
+class JobRequestOut(Contract):
+    request_id: UUID
+    job_id: UUID
     application_id: UUID
+    workspace_available: bool
 
 
 class EventOut(RowOut):
@@ -74,11 +81,12 @@ class InterviewOut(RowOut):
     def display_numbers(self) -> "InterviewOut":
         from career_agent.interview.numbering import numbered
 
-        self.entries = numbered(self.entries)
+        self.entries = numbered(self.entries, [])
         return self
 
 
 class KnowledgeOut(RowOut):
+    updated_at: datetime | None
     revision: int
     application_id: UUID | None
     title: str

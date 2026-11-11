@@ -36,6 +36,9 @@ class ContextLoader:
 
     async def fit(self, id: UUID) -> FitOutput:
         row = await require(self.r.session, e.PreparationArtifact, id)
+        from career_agent.product.result_lifecycle import require_source_visible
+
+        await require_source_visible(self.r.session, id)
         if row.profile_id != self.r.profile.id or row.job_revision_id != self.r.job.id:
             raise ModelGatewayError("context_revision_mismatch")
         value = PrivateResult.model_validate(row.data)
@@ -105,6 +108,8 @@ class ContextLoader:
 
     async def research(self, id: UUID, *, allow_stale: bool = False) -> ResearchData:
         row = await require(self.r.session, e.CompanyResearch, id)
+        if row.deleted_at is not None:
+            raise ModelGatewayError("research_removed")
         data = ResearchData.model_validate(row.data)
         if row.company_id != self.r.company.id or data.mode != self.r.request.mode:
             raise ModelGatewayError("context_revision_mismatch")

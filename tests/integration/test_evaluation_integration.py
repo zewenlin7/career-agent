@@ -51,7 +51,14 @@ async def test_frozen_initial_suite_real_postgres_typst(sessions, migrated_url):
             if t.status != "completed"
         ]
         assert not failed, failed
-        assert len(trials) == 40
+        assert len(trials) == 56
+        from career_agent.models.prompts import application_prompts
+
+        assert {
+            c.entrypoint.name
+            for c in cases
+            if c.case_id.endswith(".normal") and c.entrypoint.component_kind == "model_task"
+        } == set(application_prompts().specs)
         compiler_ops = list(
             await session.scalars(
                 select(q.InvocationRow).where(

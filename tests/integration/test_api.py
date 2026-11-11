@@ -52,7 +52,7 @@ async def test_job_revision_application_history(client, sessions, synthetic):
     application = (await client.get(url)).json()
     assert application["status"] == "tracking" and application["events"][0]["kind"] == "created"
     # Merely editing a job has not recorded any application.
-    bad = await client.patch(url, json={"expected_revision": 1, "status": "offer"})
+    bad = await client.patch(url, json={"expected_revision": 2, "status": "offer"})
     assert bad.status_code == 409
     response = await client.patch(url, json={"expected_revision": 1, "status": "applied"})
     assert response.status_code == 200, response.text
@@ -78,7 +78,11 @@ async def test_interview_knowledge(client, synthetic):
     job = (await client.post("/api/v1/jobs", json=synthetic["job"])).json()
     response = await client.post(
         "/api/v1/interviews",
-        json={"application_id": job["application_id"], "round_name": "Synthetic technical round"},
+        json={
+            "application_id": job["application_id"],
+            "round_name": "Synthetic technical round",
+            "status": "draft",
+        },
     )
     assert response.status_code == 201, response.text
     interview = response.json()
@@ -163,3 +167,32 @@ async def test_concurrent_updates_use_revision_lock(client, synthetic):
     )
     assert sorted(r.status_code for r in responses) == [200, 409]
     assert len((await client.get(url)).json()["events"]) == 2
+
+
+async def test_job_company_resolution_exact_ambiguous_and_explicit(client, sessions):
+    payload = {"company_name": "合成公司", "title": "工程师", "jd_text": "原始 JD"}
+    first = (await client.post("/api/v1/jobs", json=payload)).json()
+    reused = await client.post("/api/v1/jobs", json={**payload, "company_name": "  合成公司  "})
+    assert reused.status_code == 201
+    assert reused.json()["company_id"] == first["company_id"]
+    similar = (
+        await client.post("/api/v1/jobs", json={**payload, "company_name": "合成公司分部"})
+    ).json()
+    assert similar["company_id"] != first["company_id"]
+    async with sessions() as session:
+        duplicate = e.Company(name="合成公司")
+        session.add(duplicate)
+        await session.commit()
+        duplicate_id = str(duplicate.id)
+    before = (await client.get("/api/v1/jobs")).json()
+    ambiguous = await client.post("/api/v1/jobs", json=payload)
+    assert ambiguous.status_code == 409
+    assert ambiguous.json()["error"]["code"] == "company_selection_required"
+    assert (await client.get("/api/v1/jobs")).json() == before
+    explicit = await client.post("/api/v1/jobs", json={**payload, "company_id": duplicate_id})
+    assert explicit.status_code == 201
+    assert explicit.json()["company_id"] == duplicate_id
+    mismatch = await client.post(
+        "/api/v1/jobs", json={**payload, "company_id": duplicate_id, "company_name": "别的公司"}
+    )
+    assert mismatch.status_code == 422

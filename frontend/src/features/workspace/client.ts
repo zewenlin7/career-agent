@@ -1,4 +1,6 @@
 "use client";
+import { decodeMock } from "./mock-contract";
+import { rememberTask, trackExecution } from "./task-tracker";
 import { safeResumeFields, type ResumeFieldError } from "../profile-area/short-text";
 import { useCallback, useEffect, useRef, useState } from "react";
 export class ApiError extends Error {
@@ -17,6 +19,7 @@ export async function api<T>(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
+  trackExecution(path, method, body);
   let response: Response;
   try {
     response = await fetch(endpoint(path), {
@@ -37,7 +40,20 @@ export async function api<T>(
       safeResumeFields(error?.error?.fields),
     );
   }
-  return response.json() as Promise<T>;
+  const raw = await response.json();
+  let data = raw;
+  if (
+    /^mock-interviews(?:\/[^/?]+(?:\/(?:answers|generate|end|recover))?)?$/.test(path) &&
+    !Array.isArray(raw?.items)
+  ) {
+    try {
+      data = decodeMock(raw);
+    } catch {
+      throw new ApiError("invalid_response");
+    }
+  }
+  rememberTask(path, data);
+  return data as T;
 }
 export function useRead<T>(
   path: string | null,

@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ComponentProps } from "react";
 import { cx } from "@/lib/styles";
 
-type Variant = "primary" | "secondary" | "quiet";
+type Variant = "primary" | "secondary" | "quiet" | "danger";
 function buttonStyle(variant: Variant) {
   return cx(
     "inline-flex max-w-full break-all whitespace-normal min-h-11 items-center justify-center gap-2 rounded-control border px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
@@ -11,6 +11,7 @@ function buttonStyle(variant: Variant) {
       "border-accent-hover bg-accent-hover text-white enabled:hover:bg-accent-ink",
     variant === "secondary" &&
       "border-line bg-paper text-secondary enabled:hover:border-accent enabled:hover:text-accent-ink",
+    variant === "danger" && "border-error-line bg-paper text-error enabled:hover:bg-error-soft",
     variant === "quiet" &&
       "border-transparent text-secondary enabled:hover:bg-surface enabled:hover:text-ink",
   );

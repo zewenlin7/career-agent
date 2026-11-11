@@ -4,7 +4,13 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
+from pydantic import (
+    Field,
+    RootModel,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from career_agent.domain.schemas import Contract, InterviewEntry, InterviewNoteData, Text
 from career_agent.preparation.contracts import Accounting, RunLimits
@@ -38,7 +44,7 @@ class ContextBinding(Contract):
 
 
 class FrozenContext(Contract):
-    schema_version: Literal["interview-context-v1"] = "interview-context-v1"
+    schema_version: Literal["interview-context-v1", "interview-context-v2"] = "interview-context-v1"
     binding: ContextBinding
     profile_revision: int
     job_id: UUID
@@ -70,6 +76,7 @@ class MockPolicy(Contract):
 
 
 class MockCreate(Contract):
+    request_id: UUID | None = None
     application_binding: ApplicationBindingRef | None = None
     context: ContextBinding
     focus: Literal["technical", "project", "behavioral", "company_specific", "mixed"] = "mixed"
@@ -92,11 +99,45 @@ class TurnOutput(Contract):
     kind: Literal["primary", "follow_up"]
     question: str = Field(min_length=1, max_length=2000)
     question_type: Literal["technical", "project", "behavioral", "company_specific"]
-    topic: str = Field(min_length=1, max_length=200)
     primary_entry_id: UUID | None
     requirement_refs: list[UUID] = Field(max_length=30)
     fact_refs: list[UUID] = Field(max_length=30)
     reason_code: Literal["next_primary", "clarify_answer"]
+
+
+class DecisionConstraints(MockPolicy):
+    decision_contract_version: Literal["mock-decision-v1"]
+    focus: Literal["technical", "project", "behavioral", "company_specific", "mixed"]
+    primary_question_count: int = Field(ge=0, le=8)
+    followup_count: int = Field(ge=0, le=5)
+    interviewer_turn_count: int = Field(ge=0, le=13)
+    remaining_primary: int = Field(ge=0, le=8)
+    remaining_followup: int = Field(ge=0, le=5)
+    all_answered: bool
+    current_primary_id: UUID | None
+    current_question_id: UUID | None
+    legal_actions: list[Literal["ask_primary", "ask_follow_up", "finish"]] = Field(max_length=3)
+
+
+class DecisionOutput(Contract):
+    action: Literal["ask", "finish"]
+    turn: TurnOutput | None
+
+    @model_validator(mode="after")
+    def branch(self) -> "DecisionOutput":
+        if (self.action == "ask") != (self.turn is not None):
+            raise ValueError("invalid_interview_decision")
+        return self
+
+
+class LegacyTurnOutput(TurnOutput):
+    """Read/restore v1 outputs without weakening the current model output schema."""
+
+    topic: str = Field(min_length=1, max_length=200)
+
+
+class StoredTurnOutput(RootModel[TurnOutput | LegacyTurnOutput]):
+    """Preserve either stored shape exactly; no historical rewrite or default topic."""
 
 
 class SourceSnapshot(Contract):
@@ -120,12 +161,15 @@ class SourceSnapshot(Contract):
 
 
 class DebriefCreate(Contract):
+    request_id: UUID | None = None
+    application_id: UUID | None = None
     source_kind: Literal["actual", "mock"]
     interview_id: UUID
     expected_source_revision: int = Field(ge=1)
-    question_analysis: Literal["none", "single", "all"] = "none"
+    question_analysis: Literal["none", "single", "selected", "all"] = "none"
     overall_analysis: bool = False
     primary_entry_id: UUID | None = None
+    primary_entry_ids: list[UUID] = Field(default_factory=list, max_length=500)
     context: ContextBinding | None = None
     mode: Literal["fixture", "live"] = "fixture"
 
@@ -135,7 +179,16 @@ class DebriefCreate(Contract):
             raise ValueError("empty_targets")
         if (self.question_analysis == "single") != (self.primary_entry_id is not None):
             raise ValueError("single_group_binding_required")
+        if (self.question_analysis == "selected") != bool(self.primary_entry_ids):
+            raise ValueError("selected_groups_required")
+        if len(self.primary_entry_ids) != len(set(self.primary_entry_ids)):
+            raise ValueError("duplicate_group_reference")
         return self
+
+
+class DebriefRetry(Contract):
+    request_id: UUID
+    expected_execution_revision: int = Field(ge=0)
 
 
 class DebriefRegenerate(Contract):

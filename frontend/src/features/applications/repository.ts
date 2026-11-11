@@ -1,5 +1,5 @@
 import * as c from "./contracts.ts";
-import { APPLICATION_PAGE_SIZE, COMPANY_PAGE_SIZE, type ListQuery } from "./queries.ts";
+import { APPLICATION_PAGE_SIZE, type ListQuery } from "./queries.ts";
 import { BackendError } from "../../lib/api/error.ts";
 
 export type Reader = <T>(
@@ -57,7 +57,22 @@ export function applicationRepository(read: Reader) {
   async function context(id: string): Promise<c.ApplicationContext> {
     const application = await read(`/api/v1/applications/${c.uuid(id)}`, c.decodeApplication);
     match(application.id === id);
-    const job = await jobFor(application);
+    let job = await jobFor(application);
+    const bound = await read(`/api/v1/applications/${id}/context`, (value) =>
+      c.uuid(c.object(value).job_revision_id),
+    );
+    if (bound !== job.job_revision_id) {
+      const snapshot = await read(`/api/v1/job-revisions/${bound}`, c.object);
+      match(snapshot.job_id === job.id && snapshot.job_revision_id === bound);
+      // Job-head CAS remains separate from the Application's frozen displayed/input JD.
+      job = c.decodeJob({
+        ...job,
+        title: snapshot.title,
+        jd_text: snapshot.jd_text,
+        requirements: snapshot.requirements,
+        job_revision_id: bound,
+      });
+    }
     const company = await related(() =>
       read(`/api/v1/companies/${job.company_id}`, c.decodeCompany),
     );
@@ -65,34 +80,24 @@ export function applicationRepository(read: Reader) {
     return { application, job, company };
   }
   async function list(query: ListQuery) {
-    const page = await read(
-      "/api/v1/applications",
-      c.pageOf(c.decodeApplication),
-      params({
-        status: query.status,
-        company_id: query.company_id,
-        company_q: query.company_q || undefined,
-        limit: APPLICATION_PAGE_SIZE,
-        offset: (query.page - 1) * APPLICATION_PAGE_SIZE,
-      }),
-    );
+    const filters = params({
+      status: query.status,
+      limit: APPLICATION_PAGE_SIZE,
+      offset: (query.page - 1) * APPLICATION_PAGE_SIZE,
+    });
+    for (const id of query.company_ids) filters.append("company_ids", id);
+    const page = await read("/api/v1/applications", c.pageOf(c.decodeApplication), filters);
     match(
       page.limit === APPLICATION_PAGE_SIZE &&
         page.offset === (query.page - 1) * APPLICATION_PAGE_SIZE,
     );
     match(!query.status || page.items.every((a) => a.status === query.status));
-    return { ...page, items: await joinApps(page.items, query.company_id) };
-  }
-  async function companies(query: ListQuery) {
-    return read(
-      "/api/v1/companies",
-      c.pageOf(c.decodeCompany),
-      params({
-        q: query.company_q || undefined,
-        limit: COMPANY_PAGE_SIZE,
-        offset: (query.company_page - 1) * COMPANY_PAGE_SIZE,
-      }),
+    const items = await joinApps(page.items);
+    match(
+      !query.company_ids.length ||
+        items.every(({ job }) => query.company_ids.includes(job.company_id)),
     );
+    return { ...page, items };
   }
   async function company(id: string) {
     const row = await read(`/api/v1/companies/${c.uuid(id)}`, c.decodeCompany);
@@ -100,70 +105,18 @@ export function applicationRepository(read: Reader) {
     return row;
   }
   async function siblings(ctx: c.ApplicationContext) {
-    const page = await read(
-      "/api/v1/applications",
-      c.pageOf(c.decodeApplication),
-      params({ company_id: ctx.company.id, limit: 8, offset: 0 }),
-    );
-    return { ...page, items: await joinApps(page.items, ctx.company.id) };
+    const items: c.Application[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const page = await read(
+        "/api/v1/applications",
+        c.pageOf(c.decodeApplication),
+        params({ company_id: ctx.company.id, limit: 100, offset }),
+      );
+      items.push(...page.items);
+      if (!page.has_more) break;
+    }
+    return { items: await joinApps(items, ctx.company.id), has_more: false };
   }
-  async function summary(ctx: c.ApplicationContext) {
-    const id = ctx.application.id;
-    const takeOne = params({ limit: 1, offset: 0 });
-    const [research, packages, submissions, mock, actual, debrief] = await Promise.all([
-      optionalRead(async () => {
-        const p = await read(
-          `/api/v1/companies/${ctx.company.id}/research`,
-          c.pageOf(c.decodeResearch),
-          takeOne,
-        );
-        match(p.items.every((r) => r.company_id === ctx.company.id));
-        return p;
-      }),
-      optionalRead(() =>
-        read(
-          `/api/v1/applications/${id}/preparation-packages`,
-          (v) => c.array(v, c.decodePackage),
-          params({ limit: 3, offset: 0 }),
-        ),
-      ),
-      optionalRead(async () => {
-        const p = await read(
-          `/api/v1/applications/${id}/submissions`,
-          c.pageOf(c.decodeSubmission),
-          takeOne,
-        );
-        match(p.items.every((r) => r.application_id === id));
-        return p;
-      }),
-      optionalRead(async () => {
-        const p = await read(
-          "/api/v1/mock-interviews",
-          c.pageOf(c.decodeMock),
-          params({ application_id: id, limit: 1, offset: 0 }),
-        );
-        match(p.items.every((r) => r.job_id === ctx.job.id));
-        return p;
-      }),
-      optionalRead(async () => {
-        const p = await read(
-          "/api/v1/interviews",
-          (v) => c.array(v, c.decodeActual),
-          params({ application_id: id, limit: 1, offset: 0 }),
-        );
-        match(p.every((r) => r.application_id === id));
-        return p;
-      }),
-      optionalRead(() =>
-        read(
-          "/api/v1/interview-debriefs",
-          c.pageOf(c.decodeDebrief),
-          params({ application_id: id, limit: 1, offset: 0 }),
-        ),
-      ),
-    ]);
-    return { research, packages, submissions, mock, actual, debrief };
-  }
-  return { context, list, companies, company, siblings, summary };
+
+  return { context, list, company, siblings };
 }
-export type Summary = Awaited<ReturnType<ReturnType<typeof applicationRepository>["summary"]>>;

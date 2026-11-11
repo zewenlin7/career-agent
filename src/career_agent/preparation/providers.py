@@ -150,7 +150,6 @@ class FixtureTaskProvider:
                         "status": "partial",
                         "fact_refs": [c["facts"][0]["id"]],
                         "explanation": "已有相关工程证据，仍需补充岗位特定信息。",
-                        "missing_evidence": "需要进一步确认具体职责。",
                     }
                     for r in c["requirements"]
                 ],

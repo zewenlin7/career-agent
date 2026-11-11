@@ -225,8 +225,20 @@ async def test_cancelled_execution_is_queryable_without_replay(client, prep_inpu
 async def test_interview_discovery_and_run_filters(client, prep_input):
     from test_interview_loop import actual_session, append
 
-    mock = (await client.post("/api/v1/mock-interviews", json={"context": prep_input})).json()
     job = (await client.get("/api/v1/jobs")).json()[0]
+    binding = await client.put(
+        f"/api/v1/applications/{job['application_id']}/context",
+        json={"expected_revision": 1, **prep_input},
+    )
+    assert binding.status_code == 200, binding.text
+    creation = {
+        "context": prep_input,
+        "application_binding": {
+            "application_id": job["application_id"],
+            "revision": binding.json()["revision"],
+        },
+    }
+    mock = (await client.post("/api/v1/mock-interviews", json=creation)).json()
     found = (
         await client.get(
             "/api/v1/mock-interviews", params={"application_id": job["application_id"]}
@@ -673,3 +685,371 @@ async def test_fit_with_existing_requirements_skips_extraction(client, sessions,
     async with sessions() as session:
         calls = list(await session.scalars(select(e.ModelCall)))
         assert [call.task_type for call in calls] == ["fit_analysis"]
+
+
+async def test_applications_multi_company_filter_before_pagination(client):
+    jobs = []
+    for company, title in [("合成甲", "一"), ("合成乙", "二"), ("合成丙", "三"), ("合成甲", "四")]:
+        existing = next((j for j in jobs if j["company_name"] == company), None)
+        payload = {"company_name": company, "title": title, "jd_text": "合成职位描述"}
+        if existing:
+            payload["company_id"] = existing["company_id"]
+        response = await client.post("/api/v1/jobs", json=payload)
+        assert response.status_code == 201, response.text
+        jobs.append(response.json())
+    app_id = jobs[1]["application_id"]
+    response = await client.patch(
+        f"/api/v1/applications/{app_id}",
+        json={
+            "expected_revision": 1,
+            "status": "applied",
+        },
+    )
+    assert response.status_code == 200, response.text
+    companies = [("company_ids", jobs[0]["company_id"]), ("company_ids", jobs[1]["company_id"])]
+    seen = []
+    for offset in range(3):
+        result = await client.get(
+            "/api/v1/applications", params=companies + [("limit", "1"), ("offset", str(offset))]
+        )
+        assert result.status_code == 200, result.text
+        data = result.json()
+        seen.extend(a["id"] for a in data["items"])
+        assert data["has_more"] == (offset < 2)
+    assert set(seen) == {jobs[i]["application_id"] for i in [0, 1, 3]}
+    filtered = (
+        await client.get("/api/v1/applications", params=companies + [("status", "applied")])
+    ).json()
+    assert [a["id"] for a in filtered["items"]] == [app_id]
+    duplicate = (await client.get("/api/v1/applications", params=companies + [companies[0]])).json()
+    assert len(duplicate["items"]) == 3
+    assert (
+        await client.get("/api/v1/applications", params={"company_ids": "invalid"})
+    ).status_code == 422
+    assert len((await client.get("/api/v1/applications")).json()["items"]) == 4
+    assert (await client.get("/api/v1/applications", params=[companies[0]] * 51)).status_code == 422
+
+
+async def test_submission_note_overlay_delete_and_stable_identity(client, prep_input):
+    package = await run(client, prep_input)
+    product = (
+        await client.get(f"/api/v1/preparation-artifacts/{package['package_id']}/product-view")
+    ).json()
+    resume = next(x for x in product["results"] if x["kind"] == "resume_tailoring")
+    job = (await client.get("/api/v1/jobs")).json()[0]
+    app = (await client.get(f"/api/v1/applications/{job['application_id']}")).json()
+    base = f"/api/v1/applications/{app['id']}/submissions"
+    created = (
+        await client.post(
+            base,
+            json={
+                "request_id": str(uuid4()),
+                "expected_revision": app["revision"],
+                "resume_revision_id": resume["resume_revision_id"],
+                "render_artifact_id": resume["render_artifact_id"],
+                "note": "原始备注",
+            },
+        )
+    ).json()
+    edit = {"request_id": str(uuid4()), "expected_revision": 1, "note": "更正备注"}
+    response = await client.patch(base + "/" + created["id"], json=edit)
+    assert response.status_code == 200, response.text
+    revised = response.json()
+    assert revised["note"] == "更正备注" and revised["revision"] == 2
+    assert revised["created_at"] == created["created_at"]
+    assert revised["resume_revision_id"] == created["resume_revision_id"]
+    assert (await client.patch(base + "/" + created["id"], json=edit)).json() == revised
+    noop = await client.patch(
+        base + "/" + created["id"],
+        json={"request_id": str(uuid4()), "expected_revision": 2, "note": "更正备注"},
+    )
+    assert noop.json()["revision"] == 2
+    stale = await client.patch(
+        base + "/" + created["id"], json={**edit, "request_id": str(uuid4())}
+    )
+    assert stale.status_code == 409
+    deletion = {"request_id": str(uuid4()), "expected_revision": 2}
+    deleted = await client.request("DELETE", base + "/" + created["id"], json=deletion)
+    assert deleted.status_code == 200, deleted.text
+    assert (await client.get(base)).json()["items"] == []
+    assert (await client.get(f"/api/v1/applications/{app['id']}")).json()["status"] == "applied"
+    assert (await client.get(f"/api/v1/applications/{app['id']}/summary")).json()[
+        "submission"
+    ] is None
+    assert (
+        await client.get(f"/api/v1/resume-revisions/{created['resume_revision_id']}/snapshot")
+    ).status_code == 200
+    assert (
+        await client.request("DELETE", base + "/" + created["id"], json=deletion)
+    ).status_code == 200
+
+
+async def test_submission_allows_own_historical_greeting_but_rejects_other_application(
+    client, prep_input
+):
+    first = await run(client, prep_input)
+    job = (await client.get("/api/v1/jobs")).json()[0]
+    app_id = job["application_id"]
+    # Greeting is frozen against the tailored revision; use the original library Resume instead.
+    source = next(
+        row
+        for row in (await client.get("/api/v1/resume-library/versions")).json()["items"]
+        if row["id"] == prep_input["resume_revision_id"]
+    )
+    rendered = await client.post(
+        f"/api/v1/resume-variants/{source['variant_id']}/render",
+        json={"revision": source["revision"]},
+    )
+    assert rendered.status_code == 201, rendered.text
+    report = rendered.json()
+    app = (await client.get(f"/api/v1/applications/{app_id}")).json()
+    payload = {
+        "request_id": str(uuid4()),
+        "expected_revision": app["revision"],
+        "resume_revision_id": prep_input["resume_revision_id"],
+        "render_artifact_id": report["id"],
+        "greeting_id": first["state"]["greeting_id"],
+    }
+    accepted = await client.post(f"/api/v1/applications/{app_id}/submissions", json=payload)
+    assert accepted.status_code == 201, accepted.text
+    other = (
+        await client.post(
+            "/api/v1/jobs",
+            json={
+                "company_name": "不同公司",
+                "title": "不同职位",
+                "jd_text": "开发 API",
+            },
+        )
+    ).json()
+    other_app = (await client.get(f"/api/v1/applications/{other['application_id']}")).json()
+    rejected = await client.post(
+        f"/api/v1/applications/{other['application_id']}/submissions",
+        json={**payload, "request_id": str(uuid4()), "expected_revision": other_app["revision"]},
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["error"]["code"] == "context_revision_mismatch"
+    archived = await client.request(
+        "DELETE",
+        f"/api/v1/resume-library/versions/{source['id']}",
+        json={"expected_revision": source["metadata_revision"]},
+    )
+    assert archived.status_code == 200, archived.text
+    frozen = await client.get(
+        f"/api/v1/resume-revisions/{source['id']}/snapshot?pdf={report['id']}"
+    )
+    assert frozen.status_code == 200, frozen.text
+    assert frozen.json()["pdf_id"] == report["id"]
+    assert (await client.get(f"/api/v1/artifacts/{report['id']}/download")).status_code == 200
+    history = (await client.get(f"/api/v1/applications/{app_id}/submissions")).json()
+    assert history["items"][0]["resume_revision_id"] == source["id"]
+    assert history["items"][0]["greeting_id"] == payload["greeting_id"]
+
+
+async def test_greeting_removal_preserves_exact_history_and_guards_all_submissions(
+    client, prep_input
+):
+    result = await run(client, prep_input)
+    app = (await client.get("/api/v1/applications")).json()["items"][0]
+    rows = (
+        await client.get(f"/api/v1/applications/{app['id']}/results?target=greeting_generation")
+    ).json()["items"]
+    target = rows[0]["result"]["target_artifact_id"]
+    path = f"/api/v1/applications/{app['id']}/greetings/{target}"
+    eligibility = await client.get(path)
+    assert eligibility.status_code == 200, eligibility.text
+    assert eligibility.json()["used_in"] == []
+    request = {"request_id": str(uuid4())}
+    removed = await client.request("DELETE", path, json=request)
+    assert removed.status_code == 200 and removed.json()["deleted"]
+    assert (await client.request("DELETE", path, json=request)).json()["deleted"]
+    assert (
+        await client.get(f"/api/v1/applications/{app['id']}/results?target=greeting_generation")
+    ).json()["items"] == []
+    assert (
+        await client.get(
+            f"/api/v1/preparation-artifacts/{target}/result?application_id={app['id']}"
+        )
+    ).status_code == 200
+    other = (
+        await client.post(
+            "/api/v1/jobs", json={"company_name": "另一公司", "title": "岗位", "jd_text": "Python"}
+        )
+    ).json()
+    assert (
+        await client.request(
+            "DELETE",
+            f"/api/v1/applications/{other['application_id']}/greetings/{target}",
+            json={"request_id": str(uuid4())},
+        )
+    ).status_code == 409
+    assert result["state"]["greeting_id"]
+
+
+async def test_used_greeting_cannot_be_removed_even_after_submission_deletion(client, prep_input):
+    package = await run(client, prep_input)
+    product = (
+        await client.get(f"/api/v1/preparation-artifacts/{package['package_id']}/product-view")
+    ).json()
+    resume = next(x for x in product["results"] if x["kind"] == "resume_tailoring")
+    greeting = next(x for x in product["results"] if x["kind"] == "greeting_generation")
+    app = (await client.get("/api/v1/applications")).json()["items"][0]
+    base = f"/api/v1/applications/{app['id']}"
+    recorded = await client.post(
+        base + "/submissions",
+        json={
+            "request_id": str(uuid4()),
+            "expected_revision": app["revision"],
+            "resume_revision_id": resume["resume_revision_id"],
+            "render_artifact_id": resume["render_artifact_id"],
+            "greeting_id": greeting["result_id"],
+        },
+    )
+    assert recorded.status_code == 201, recorded.text
+    row = recorded.json()
+    path = base + "/greetings/" + greeting["target_artifact_id"]
+    assert (await client.request("DELETE", path, json={"request_id": str(uuid4())})).json() == {
+        "deleted": False,
+        "used_in": [1],
+    }
+    assert (
+        await client.request(
+            "DELETE",
+            base + "/submissions/" + row["id"],
+            json={"request_id": str(uuid4()), "expected_revision": 1},
+        )
+    ).status_code == 200
+    assert (await client.request("DELETE", path, json={"request_id": str(uuid4())})).json() == {
+        "deleted": False,
+        "used_in": [1],
+    }
+
+
+async def test_tailoring_budget_rejection_is_pre_dispatch_and_does_not_replace_history(
+    client, sessions, prep_input
+):
+    _, operation = await make_operation(
+        client,
+        prep_input,
+        request={**prep_input, "targets": ["resume_tailoring"], "limits": {"max_model_calls": 0}},
+    )
+    result = await client.post(f"/api/v1/operations/{operation['id']}/execute")
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "failure"
+    assert result.json()["reason"] == "budget_exhausted"
+    async with sessions() as session:
+        assert not list(await session.scalars(select(e.ModelCall)))
+    repeated = await client.post(f"/api/v1/operations/{operation['id']}/execute")
+    assert repeated.json() == result.json()
+
+
+async def test_deleted_optimization_is_not_reused_or_listed_but_exact_result_survives(
+    client, prep_input
+):
+    first = await run(client, {**prep_input, "targets": ["resume_tailoring"]})
+    target = first["outcome"]["targets"]["resume_tailoring"]["artifact_id"]
+    app = (await client.get("/api/v1/applications")).json()["items"][0]
+    exact_path = f"/api/v1/preparation-artifacts/{target}/result?application_id={app['id']}"
+    original = (await client.get(exact_path)).json()["result"]
+    version = next(
+        r
+        for r in (await client.get("/api/v1/resume-library/versions")).json()["items"]
+        if r["id"] == original["resume_revision_id"]
+    )
+    archived = await client.request(
+        "DELETE",
+        f"/api/v1/resume-library/versions/{version['id']}",
+        json={"expected_revision": version["metadata_revision"]},
+    )
+    assert archived.status_code == 200, archived.text
+    assert (
+        await client.get(f"/api/v1/applications/{app['id']}/results?target=resume_tailoring")
+    ).json()["items"] == []
+    assert (await client.get(exact_path)).json()["result"]["content"] == original["content"]
+    second = await run(client, {**prep_input, "targets": ["resume_tailoring"]})
+    assert second["outcome"]["targets"]["resume_tailoring"]["artifact_id"] != target
+    assert second["outcome"]["status"] == "completed"
+
+
+async def test_tailoring_structured_entry_is_not_a_single_bullet(client, sessions, prep_input):
+    """A grounded multi-line entry may exceed the legacy single-bullet allowance."""
+    from career_agent.preparation.providers import FixtureTaskProvider
+
+    class StructuredProvider(FixtureTaskProvider):
+        async def generate(self, candidate, context, task):
+            result = await super().generate(candidate, context, task)
+            if context.task_type == "resume_tailoring":
+                item = result.output["sections"][0]["items"][0]
+                item["kind"] = "entry"
+                item["text"] = "\n".join([item["text"]] * 9)
+                assert 180 < len(item["text"]) < 400
+            return result
+
+    inject(client, StructuredProvider())
+    _, operation = await make_operation(
+        client, prep_input, request={**prep_input, "targets": ["resume_tailoring"]}
+    )
+    response = await client.post(f"/api/v1/operations/{operation['id']}/execute")
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "success", response.json()
+    result = (await client.get(f"/api/v1/operations/{operation['id']}/result")).json()["results"][0]
+    versions = (await client.get("/api/v1/resume-library/versions")).json()["items"]
+    assert any(v["id"] == result["resume_revision_id"] for v in versions)
+    async with sessions() as session:
+        calls = list(
+            await session.scalars(
+                select(e.ModelCall).where(e.ModelCall.task_type == "resume_tailoring")
+            )
+        )
+        assert len(calls) == 1 and calls[0].schema_validation_state == "valid"
+    replay = await client.post(f"/api/v1/operations/{operation['id']}/execute")
+    assert replay.json() == response.json()
+
+
+async def test_task_status_is_read_only_exact_and_body_free(client, sessions, prep_input):
+    _, op = await make_operation(client, prep_input)
+    path = f"/api/v1/task-status/operations/{op['id']}"
+    assert (await client.get(path)).json()["state"] == "pending"
+    await client.post(f"/api/v1/operations/{op['id']}/execute")
+    status = (await client.get(path)).json()
+    assert status["state"] == "success"
+    assert set(status) == {"id", "state", "reason", "selection", "workspace"}
+    job = (await client.get("/api/v1/jobs")).json()[0]
+    assert status["workspace"] == {
+        "application_id": job["application_id"],
+        "available": True,
+        "reason": None,
+    }
+    target = (await client.get(f"/api/v1/operations/{op['id']}/result")).json()["results"][0]
+    assert status["selection"] == {"result": target["target_artifact_id"]}
+    async with sessions() as session:
+        before = list(await session.scalars(select(e.ModelCall.id)))
+    for _ in range(3):
+        assert (await client.get(path)).json() == status
+    async with sessions() as session:
+        assert list(await session.scalars(select(e.ModelCall.id))) == before
+        from career_agent.evaluation.entities import InvocationRow
+
+        records = list(await session.scalars(select(InvocationRow)))
+        assert records
+        for record in records:
+            assert record.data["provenance"]["execution_versions"]["task"] == record.data["name"]
+    _, reused = await make_operation(client, prep_input)
+    await client.post(f"/api/v1/operations/{reused['id']}/execute")
+    assert (await client.get(f"/api/v1/task-status/operations/{reused['id']}")).json()[
+        "state"
+    ] == "reused"
+
+
+async def test_task_status_orphan_is_unknown_without_mutating_operation(
+    client, sessions, prep_input
+):
+    _, op = await make_operation(client, prep_input)
+    async with sessions.begin() as session:
+        row = await session.get(ProductOperation, UUID(op["id"]))
+        row.status = "running"
+    result = (await client.get(f"/api/v1/task-status/operations/{op['id']}")).json()
+    assert result["state"] == "unknown"
+    async with sessions() as session:
+        assert (await session.get(ProductOperation, UUID(op["id"]))).status == "running"
+        assert not list(await session.scalars(select(e.ModelCall)))
