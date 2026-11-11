@@ -1,5 +1,6 @@
 """Control decisions use real DB traces, with synthetic providers only."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
@@ -10,6 +11,7 @@ from test_preparation import prep_input as preparation_fixture
 from career_agent.infrastructure import entities as e
 from career_agent.models.control.contracts import CapacityLimits, ControlPolicy
 from career_agent.models.control.controller import Controller
+from career_agent.models.control.scenario import FrozenClock
 from career_agent.models.gateway import ModelGateway
 from career_agent.preparation.providers import POLICY, FixtureTaskProvider, registry
 from career_agent.preparation.research import FixtureResearchAdapter
@@ -166,11 +168,11 @@ async def test_explicit_mock_retry_keeps_active_deadline_not_user_wait(
 async def test_interview_timeout_classification_matches_persisted_call_and_breaker(
     client, sessions, prep_input, failure_kind
 ):
-    import asyncio
-
     from career_agent.models.contracts import ModelGatewayError
 
-    control = Controller(ControlPolicy())
+    # Keep admission/DB latency outside this in-flight classification test. The real
+    # asyncio timeout still starts at provider dispatch with the unchanged 100 ms limit.
+    control = Controller(ControlPolicy(), clock=FrozenClock())
     started = asyncio.Event()
 
     class Provider(FixtureTaskProvider):
@@ -178,7 +180,7 @@ async def test_interview_timeout_classification_matches_persisted_call_and_break
             started.set()
             if failure_kind == "provider":
                 raise ModelGatewayError("provider_timeout", retryable=True)
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
             raise AssertionError("must not complete")
 
     @asynccontextmanager
@@ -202,14 +204,19 @@ async def test_interview_timeout_classification_matches_persisted_call_and_break
             json={"expected_revision": row["revision"], "request_id": str(uuid4())},
         )
     )
-    if failure_kind == "cancel":
-        await started.wait()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-    else:
-        response = await task
-        assert response.status_code == 200, response.text
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        if failure_kind == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            response = await task
+            assert response.status_code == 200, response.text
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
     expected = {
         "operation": "operation_deadline_exceeded",
         "provider": "provider_timeout",
@@ -217,6 +224,8 @@ async def test_interview_timeout_classification_matches_persisted_call_and_break
     }[failure_kind]
     async with sessions() as session:
         call = await session.scalar(select(e.ModelCall))
+        assert started.is_set()
+        assert call is not None
         assert call.error_code == expected
         metadata = call.versions["control_metadata"]
         assert metadata["attempt_outcome"] == (
@@ -231,6 +240,146 @@ async def test_interview_timeout_classification_matches_persisted_call_and_break
         lease = next(iter(control.leases.values()))
         assert lease.settled and lease.dispatched
         assert call.usage["budget_reserved_usd"] is not None
+        assert call.usage["measurement"] == "unknown"
+        assert call.usage["input_tokens"] is None and call.usage["output_tokens"] is None
+        step = await session.get(e.AgentStep, call.step_id)
+        assert step.status == call.status
+        assert step.reason_code == call.error_code
+        observation = await session.scalar(
+            select(e.Observation).where(e.Observation.model_call_id == call.id)
+        )
+        assert observation.error_code == expected
+        mock = await session.get(e.MockInterviewSession, UUID(row["id"]))
+        assert mock.usage["model_calls"] == 1
+        assert mock.usage["unknown_usage_attempts"] == 1
+        assert mock.usage["reserved_seconds"] == 0
+        for field in ("reserved_input_tokens", "reserved_output_tokens", "budget_reserved_usd"):
+            assert mock.usage[field] == call.usage[field]
+        assert list(await session.scalars(select(e.MockInterviewTurn))) == []
+        assert mock.primary_question_count == mock.followup_count == 0
+
+
+@pytest.mark.parametrize("stage", ["before_generate", "after_admission", "after_intent"])
+async def test_interview_deadline_before_dispatch_releases_call_and_reservation(
+    client, sessions, prep_input, monkeypatch, stage
+):
+    from decimal import Decimal
+
+    from career_agent.models.control.durable import DurableControl
+    from career_agent.models.control.recovery_contracts import AutomaticPolicy, OperatorRequest
+    from career_agent.ops.entities import AttemptJournal
+
+    clock = FrozenClock()
+    control = Controller(ControlPolicy(quota_scope=str(uuid4())), clock=clock)
+    durable = DurableControl(sessions.kw["bind"], control, AutomaticPolicy())
+    provider_calls = 0
+
+    class Provider(FixtureTaskProvider):
+        async def generate(self, *args):
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("expired operation must not dispatch")
+
+    app = client._transport.app
+    gateway = ModelGateway(
+        registry(app.state.settings, False),
+        POLICY,
+        {"fixture": Provider()},
+        controller=control,
+        durable=durable,
+    )
+
+    @asynccontextmanager
+    async def dependencies(settings, mode):
+        yield gateway, FixtureResearchAdapter()
+
+    async def expire(context):
+        # Reservation is genuinely committed; expiry must undo it, not fabricate a call.
+        async with sessions() as session:
+            call = await session.scalar(select(e.ModelCall))
+            assert call is not None and call.status.value == "running"
+        assert not gateway.was_dispatched(context)
+        clock.advance(gateway.operations[context.logical_operation_id].deadline - clock() + 0.001)
+
+    if stage == "before_generate":
+        generate = gateway.generate
+
+        async def delayed_generate(context, task):
+            await expire(context)
+            return await generate(context, task)
+
+        monkeypatch.setattr(gateway, "generate", delayed_generate)
+    elif stage == "after_admission":
+        admit = gateway.admit_adapter
+
+        async def delayed_admit(context, task):
+            await admit(context, task)
+            await expire(context)
+
+        monkeypatch.setattr(gateway, "admit_adapter", delayed_admit)
+    else:
+        intent = durable.intent
+
+        async def delayed_intent(context):
+            await intent(context)
+            await expire(context)
+
+        monkeypatch.setattr(durable, "intent", delayed_intent)
+
+    app.state.preparation_dependencies = dependencies
+    app.state.settings.interview_policy.mock_generation.max_seconds = 0.1
+    await durable.start()
+    try:
+        created = await client.post("/api/v1/mock-interviews", json={"context": prep_input})
+        assert created.status_code == 201, created.text
+        row = created.json()
+        response = await client.post(
+            f"/api/v1/mock-interviews/{row['id']}/generate",
+            json={"expected_revision": row["revision"], "request_id": str(uuid4())},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "ready_to_generate"
+        assert response.json()["stop_reason"] == "operation_deadline_exceeded"
+        await asyncio.gather(*durable.ack_tasks)
+        await durable.operate(
+            OperatorRequest(
+                request_id=uuid4(), expected_revision=control.effective.revision, action="tick"
+            )
+        )
+        assert provider_calls == 0 and not gateway.outcomes
+        assert len(control.leases) == 1
+        assert all(lease.released and not lease.dispatched for lease in control.leases.values())
+        assert all(not circuit.observations for circuit in control.circuits.values())
+        async with sessions() as session:
+            assert list(await session.scalars(select(e.ModelCall))) == []
+            assert list(await session.scalars(select(e.Observation))) == []
+            steps = list(await session.scalars(select(e.AgentStep)))
+            assert steps and all(
+                step.reason_code == "operation_deadline_exceeded" for step in steps
+            )
+            mock = await session.get(e.MockInterviewSession, UUID(row["id"]))
+            assert list(await session.scalars(select(e.MockInterviewTurn))) == []
+            assert mock.primary_question_count == mock.followup_count == 0
+            for field in (
+                "model_calls",
+                "unknown_usage_attempts",
+                "reserved_input_tokens",
+                "reserved_output_tokens",
+                "reserved_seconds",
+            ):
+                assert mock.usage[field] == 0
+            assert Decimal(mock.usage["budget_reserved_usd"]) == 0
+            journal = (await session.scalars(select(AttemptJournal))).one()
+            assert journal.status == "not_dispatched"
+            assert journal.data["dispatch_confirmed"] is False
+            assert journal.data["model_call_id"] is None
+            assert journal.data["provider_outcome"] == (
+                "operation_deadline_exceeded"
+                if stage == "after_intent"
+                else "cancelled_before_dispatch"
+            )
+    finally:
+        await durable.close()
 
 
 async def test_judge_late_admission_denial_preserves_ordered_decisions(
